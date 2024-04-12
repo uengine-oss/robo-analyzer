@@ -1,0 +1,25 @@
+1: CREATE OR REPLACE PROCEDURE your_procedure_name
+2: IS
+3: BEGIN
+4:   IF (condition_1) THEN
+5:     SELECT column_name INTO variable_name FROM table_name WHERE condition;
+6:     
+7:     IF (condition_2) THEN
+8:       SELECT column_name INTO variable_name FROM table_name WHERE condition;
+9:       
+10:       IF (condition_3) THEN
+11:         SELECT column_name INTO variable_name FROM table_name WHERE condition;
+12:         
+13:         IF (condition_4) THEN
+14:           SELECT column_name INTO variable_name FROM table_name WHERE condition;
+15:         END IF;
+16:         UPDATE column_name SET column_value = 'new_value' WHERE condition;
+17:       END IF;
+18:       UPDATE column_name SET column_value = 'new_value' WHERE condition;
+19:     END IF;
+20:     UPDATE column_name SET column_value = 'new_value' WHERE condition;
+21:   END IF;
+22:   DELETE FROM table_name WHERE condition;
+23: END your_procedure_name;
+24: /
+

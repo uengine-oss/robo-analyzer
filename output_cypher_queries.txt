@@ -1,0 +1,27 @@
+CREATE (proc1:PROCEDURE {id: 1, name: "임금 계산 프로시져", source: "CREATE OR REPLACE PROCEDURE calculate_payroll AS ...child code...", closed: true, endLine: 66})
+CREATE (for1:FOR {id: 3, name: "직원들을 순회", source: "FOR rec IN (SELECT e.employee_id, e.base_salary, e.employee_type, e.contract_tax_rate FROM employees e) LOOP ...child code... END LOOP;", closed: true, endLine: 63, condition: "직원들"})
+CREATE (proc1)-[:PARENTOF]->(for1)
+CREATE (select1:SELECT {id: 3, name: "직원 정보 조회", source: "SELECT e.employee_id, e.base_salary, e.employee_type, e.contract_tax_rate FROM employees e", closed: true, endLine: 4})
+CREATE (for1)-[:PARENTOF]->(select1)
+CREATE (declare1:DECLARE {id: 6, name: "야근 수당 계산", source: "DECLARE ...child code... BEGIN ...child code... END;", closed: true, endLine: 22})
+CREATE (for1)-[:PARENTOF]->(declare1)
+CREATE (select2:SELECT {id: 11, name: "야근 시간 조회", source: "SELECT SUM(over_hours) INTO overtime_hours FROM work_logs WHERE employee_id = rec.employee_id AND work_date BETWEEN trunc(sysdate, 'MM') AND last_day(sysdate)", closed: true, endLine: 15})
+CREATE (declare1)-[:PARENTOF]->(select2)
+CREATE (if1:IF {id: 17, name: "야근 시간 없음 확인", source: "IF overtime_hours IS NULL THEN ...child code... END IF;", closed: true, endLine: 19, condition: "overtime_hours IS NULL"})
+CREATE (declare1)-[:PARENTOF]->(if1)
+CREATE (declare2:DECLARE {id: 25, name: "무급 휴가 공제 계산", source: "DECLARE ...child code... BEGIN ...child code... END;", closed: true, endLine: 41})
+CREATE (for1)-[:PARENTOF]->(declare2)
+CREATE (select3:SELECT {id: 29, name: "무급 휴가 일수 조회", source: "SELECT SUM(leave_days) INTO unpaid_leave_days FROM leave_records WHERE employee_id = rec.employee_id AND leave_type = 'Unpaid' AND leave_date BETWEEN trunc(sysdate, 'MM') AND last_day(sysdate)", closed: true, endLine: 34})
+CREATE (declare2)-[:PARENTOF]->(select3)
+CREATE (if2:IF {id: 36, name: "무급 휴가 없음 확인", source: "IF unpaid_leave_days IS NULL THEN ...child code... END IF;", closed: true, endLine: 38, condition: "unpaid_leave_days IS NULL"})
+CREATE (declare2)-[:PARENTOF]->(if2)
+CREATE (declare3:DECLARE {id: 44, name: "세금 공제 계산", source: "DECLARE ...child code... BEGIN ...child code... END;", closed: true, endLine: 57})
+CREATE (for1)-[:PARENTOF]->(declare3)
+CREATE (if3:IF {id: 50, name: "계약직 확인", source: "IF rec.employee_type = 'Contract' THEN ...child code... ELSE ...child code... END IF;", closed: true, endLine: 54, condition: "rec.employee_type = 'Contract'"})
+CREATE (declare3)-[:PARENTOF]->(if3)
+CREATE (update1:UPDATE {id: 60, name: "최종 급여 업데이트", source: "UPDATE employees SET final_salary = rec.base_salary + overtime_pay - unpaid_deduction - tax_deduction WHERE employee_id = rec.employee_id", closed: true, endLine: 62})
+CREATE (for1)-[:PARENTOF]->(update1)
+;
+MATCH (select1:SELECT {id: 3}), (table1:Table {id: 'EMPLOYEE'}) CREATE (select1)-[:FROM]->(table1);
+MATCH (update1:UPDATE {id: 60}), (table2:Table {id: 'EMPLOYEE'}) CREATE (update1)-[:WRITES]->(table2);
+
