@@ -1,70 +1,70 @@
-1: CREATE OR REPLACE PROCEDURE calculate_payroll AS 
-2: BEGIN
-3:     FOR rec IN (SELECT e.employee_id, e.base_salary, e.employee_type, e.contract_tax_rate
-4:                 FROM employees e) LOOP
-5:         -- 야근 수당 계산
-6:         DECLARE
-7:             overtime_hours NUMBER;
-8:             overtime_rate NUMBER := 1.5;  -- 야근 수당 비율
-9:             overtime_pay NUMBER;
-10:         BEGIN
-11:             SELECT SUM(over_hours)
-12:             INTO overtime_hours
-13:             FROM work_logs
-14:             WHERE employee_id = rec.employee_id
-15:               AND work_date BETWEEN trunc(sysdate, 'MM') AND last_day(sysdate);  -- 현재 월에 해당하는 기록만 선택
-16:             
-17:             IF overtime_hours IS NULL THEN
-18:                 overtime_hours := 0;
-19:                 IF overtime_hours IS NULL THEN
-20:                      overtime_hours := 0;
-21:                 END IF;
-22:             END IF;
-23:             
-24:             overtime_pay := overtime_hours * (rec.base_salary / 160) * overtime_rate;  -- 160시간 기준
-25:         END;
-26:         
-27:         -- 무급 휴가 공제 계산
-28:         DECLARE
-29:             unpaid_leave_days NUMBER;
-30:             unpaid_deduction NUMBER;
-31:         BEGIN
-32:             SELECT SUM(leave_days)
-33:             INTO unpaid_leave_days
-34:             FROM leave_records
-35:             WHERE employee_id = rec.employee_id
-36:               AND leave_type = 'Unpaid'
-37:               AND leave_date BETWEEN trunc(sysdate, 'MM') AND last_day(sysdate);  -- 현재 월에 해당하는 기록만 선택
-38:             
-39:             IF unpaid_leave_days IS NULL THEN
-40:                 unpaid_leave_days := 0;
-41:             END IF;
-42:             
-43:             unpaid_deduction := (rec.base_salary / 20) * unpaid_leave_days;  -- 월 기준 20일로 계산
-44:         END;
-45:         
-46:         -- 세금 공제 계산
-47:         DECLARE
-48:             tax_rate NUMBER := 0.1;  -- 기본 세금 비율 10%
-49:             contract_tax_rate NUMBER;
-50:             tax_deduction NUMBER;
-51:         BEGIN
-52:             -- 계약직인 경우 세금율을 employees 테이블에서 가져온 값으로 설정
-53:             IF rec.employee_type = 'Contract' THEN
-54:                 contract_tax_rate := rec.contract_tax_rate;
-55:             ELSE
-56:                 contract_tax_rate := tax_rate;  -- 정규직인 경우 기본 세금율 사용
-57:             END IF;
-58:             
-59:             tax_deduction := (rec.base_salary + overtime_pay - unpaid_deduction) * contract_tax_rate;
-60:         END;
-61:         
-62:         -- 최종 급여 업데이트
-63:         UPDATE employees
-64:         SET final_salary = rec.base_salary + overtime_pay - unpaid_deduction - tax_deduction
-65:         WHERE employee_id = rec.employee_id;
-66:     END LOOP;
-67:     
-68:     COMMIT;
-69: END;
-70: /
+CREATE OR REPLACE PROCEDURE calculate_payroll AS 
+BEGIN
+    FOR rec IN (SELECT e.employee_id, e.base_salary, e.employee_type, e.contract_tax_rate
+                FROM employees e) LOOP
+        -- 야근 수당 계산
+        DECLARE
+            overtime_hours NUMBER;
+            overtime_rate NUMBER := 1.5;  -- 야근 수당 비율
+            overtime_pay NUMBER;
+        BEGIN
+            SELECT SUM(over_hours)
+            INTO overtime_hours
+            FROM work_logs
+            WHERE employee_id = rec.employee_id
+              AND work_date BETWEEN trunc(sysdate, 'MM') AND last_day(sysdate);  -- 현재 월에 해당하는 기록만 선택
+            
+            IF overtime_hours IS NULL THEN
+                overtime_hours := 0;
+                IF overtime_hours IS NULL THEN
+                     overtime_hours := 0;
+                END IF;
+            END IF;
+            
+            overtime_pay := overtime_hours * (rec.base_salary / 160) * overtime_rate;  -- 160시간 기준
+        END;
+        
+        -- 무급 휴가 공제 계산
+        DECLARE
+            unpaid_leave_days NUMBER;
+            unpaid_deduction NUMBER;
+        BEGIN
+            SELECT SUM(leave_days)
+            INTO unpaid_leave_days
+            FROM leave_records
+            WHERE employee_id = rec.employee_id
+              AND leave_type = 'Unpaid'
+              AND leave_date BETWEEN trunc(sysdate, 'MM') AND last_day(sysdate);  -- 현재 월에 해당하는 기록만 선택
+            
+            IF unpaid_leave_days IS NULL THEN
+                unpaid_leave_days := 0;
+            END IF;
+            
+            unpaid_deduction := (rec.base_salary / 20) * unpaid_leave_days;  -- 월 기준 20일로 계산
+        END;
+        
+        -- 세금 공제 계산
+        DECLARE
+            tax_rate NUMBER := 0.1;  -- 기본 세금 비율 10%
+            contract_tax_rate NUMBER;
+            tax_deduction NUMBER;
+        BEGIN
+            -- 계약직인 경우 세금율을 employees 테이블에서 가져온 값으로 설정
+            IF rec.employee_type = 'Contract' THEN
+                contract_tax_rate := rec.contract_tax_rate;
+            ELSE
+                contract_tax_rate := tax_rate;  -- 정규직인 경우 기본 세금율 사용
+            END IF;
+            
+            tax_deduction := (rec.base_salary + overtime_pay - unpaid_deduction) * contract_tax_rate;
+        END;
+        
+        -- 최종 급여 업데이트
+        UPDATE employees
+        SET final_salary = rec.base_salary + overtime_pay - unpaid_deduction - tax_deduction
+        WHERE employee_id = rec.employee_id;
+    END LOOP;
+    
+    COMMIT;
+END;
+/
