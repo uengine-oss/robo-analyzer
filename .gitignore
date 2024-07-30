@@ -1,0 +1,28 @@
+# Python environments
+*.pyc
+__pycache__/
+venv/
+.venv/
+*.log
+
+# 공통으로 무시할 파일 및 디렉토리
+.DS_Store
+*.log*
+.idea/
+.vscode/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+*.sw?
+
+# etc
+/cypher/sql/
+/cypher/analysis/
+Pipfile.lock
+langchain.db
+.env
+/neo4j
+test/test_converting/converting_result
+convert/converting_result/
+convert/zipfile/

@@ -1,0 +1,24 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+fastapi = "*"
+uvicorn = "*"
+aiofiles = "*"
+python-multipart = "*"
+langchain-community = "*"
+langchain = "*"
+openai = "*"
+langserve = "*"
+sse-starlette = "*"
+psycopg2-binary = "*"
+langchain-openai = "*"
+neo4j = "*"
+anthropic = "*"
+
+[dev-packages]
+
+[requires]
+python_version = "3.12"
