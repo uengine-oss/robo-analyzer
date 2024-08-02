@@ -174,6 +174,14 @@ def process_procedure_node(procedure_code):
             newline_before_index = procedure_code.rfind('\n', 0, index)
             procedure_code = procedure_code[:newline_before_index]
 
+
+        # * AS 키워드를 찾아서 AS 이후 모든 라인을 제거합니다.
+        as_index = procedure_code.find(' AS')
+        if as_index != -1:
+            newline_after_as = procedure_code.find('\n', as_index)
+            procedure_code = procedure_code[:newline_after_as]
+
+
         # * 모든 주석 제거
         procedure_code = re.sub(r'/\*.*?\*/', '', procedure_code, flags=re.DOTALL)
         procedure_code = re.sub(r'--.*$', '', procedure_code, flags=re.MULTILINE)
@@ -273,13 +281,16 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
                 for variable in variables:
                     var_name = variable['name']
                     var_role = variable['role'].replace("'", "\\'")
-                    variable_query = f"MERGE (v:Variable {{id: '{var_name}', name: '{var_name}'}}) SET v.role_{start_line} = '{var_role}'"
-                    cypher_query.append(variable_query)
-
-                    # * 변수와 노드간의 관계를 생성합니다
-                    if variable_relationship_type:
+                    if variable_relationship_type == "SCOPE":
+                        # * SCOPE일 때만 변수 노드를 생성합니다.
+                        variable_query = f"MERGE (v:Variable {{id: '{var_name}', name: '{var_name}'}}) SET v.role_{start_line} = '{var_role}'"
+                        cypher_query.append(variable_query)
                         variable_relationship_query = f"MERGE (n:{statement_type} {{id: {start_line}}}) MERGE (v:Variable {{id: '{var_name}'}}) MERGE (n)-[:{variable_relationship_type}]->(v)"
                         cypher_query.append(variable_relationship_query)
+                    else:
+                        # * 그 외의 경우에는 기존 변수 노드의 값을 업데이트합니다.
+                        variable_update_query = f"MATCH (v:Variable {{id: '{var_name}'}}) SET v.role_{start_line} = '{var_role}'"
+                        cypher_query.append(variable_update_query)
                 
                 
                 table_fields = defaultdict(set)
@@ -410,7 +421,7 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
 
         # * 노드 크기 및 토큰 수 체크를 하여, 분석 여부를 결정합니다
         token_count = count_tokens_in_text(clean_code)
-        if (check_node_size >= 300 and context_range) or (token_count >= 600 and context_range) or (len(context_range) > 8):
+        if (check_node_size >= 1200 and context_range) or (token_count >= 900 and context_range) or (len(context_range) > 12):
             signal_task = asyncio.create_task(signal_for_process_analysis(send_queue, node['endLine']))
             await asyncio.gather(signal_task)
 

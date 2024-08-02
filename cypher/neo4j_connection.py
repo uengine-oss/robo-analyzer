@@ -4,7 +4,8 @@ import os
 
 class Neo4jConnection:
 
-    
+    database_name = "neo4j"
+
     # 역할 : Neo4j 데이터베이스와의 연결을 초기화합니다. 환경변수를 통해 연결 정보를 설정하며, 설정되지 않은 경우 기본값을 사용합니다.
     # 매개변수:
     #   - uri: 데이터베이스 URI (기본값: "bolt://localhost:실제 포트 번호")
@@ -29,7 +30,7 @@ class Neo4jConnection:
     async def execute_queries(self, queries):
         try:
             results = [] 
-            async with self.__driver.session(database="test") as session:
+            async with self.__driver.session(database=self.database_name) as session:
                 for query in queries:
                     query_result = await session.run(query)
                     query_data = await query_result.data()
@@ -46,7 +47,7 @@ class Neo4jConnection:
     async def execute_query_and_return_graph(self, custom_query=None):
         try:
             default_query = custom_query or "MATCH (n)-[r]->(m) RETURN n, r, m"
-            async with self.__driver.session(database="test") as session:
+            async with self.__driver.session(database=self.database_name) as session:
                 result = await session.run(default_query)
                 graph = await result.graph()
 
