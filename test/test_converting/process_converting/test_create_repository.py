@@ -19,6 +19,14 @@ logging.getLogger('asyncio').setLevel(logging.ERROR)
 # * 인코더 설정 및 파일 이름 초기화
 encoder = tiktoken.get_encoding("cl100k_base")
 fileName = None
+jpa_method_dict = {}
+
+# 역할 : 전달받은 이름을 전부 소문자로 전환하는 함수입니다,
+# 매개변수 : 
+#   - fileName : 스토어드 프로시저 파일의 이름
+# 반환값 : 전부 소문자로 전환된 프로젝트 이름
+def convert_to_lower_case_no_underscores(fileName):
+    return fileName.replace('_', '').lower()
 
 
 # 역할: 주어진 노드 id를 기반으로 현재 노드에서 사용된 변수 노드를 가져옵니다.
@@ -29,7 +37,7 @@ async def fetch_variable_nodes(node_id):
 
     try:
         # * 변수 노드를 가지고 오는 사이퍼쿼리를 준비하고, Neo4j 데이터베이스에 쿼리를 실행하여 변수 노드를 가져옵니다.
-        query = [f"MATCH (v:Variable) WHERE v.role_{node_id} IS NOT NULL RETURN v"]
+        query = [f"MATCH (v:Variable) WHERE COALESCE(v.role_{node_id}, NULL) IS NOT NULL RETURN v"]
         connection = Neo4jConnection()  
         variable_nodes = await connection.execute_queries(query) 
         logging.info("\nSuccess received Variable Nodes from Neo4J\n")
@@ -261,10 +269,11 @@ async def create_repository_interface(node_data, variable_nodes_context):
         # * LLM을 사용하여 주어진 노드 데이터를 분석하고, 나온 결과에서 필요한 정보를 추출합니다
         analysis_data = convert_repository_code(node_data, variable_nodes_context)    
         repository_code = analysis_data['code']
-        repository_pascal_name = analysis_data['PascalCaseEntityName']
-        repository_camel_name = analysis_data['camelCaseEntityName']
+        repository_pascal_name = analysis_data['pascalName']
+        repository_camel_name = analysis_data['camelName']
         primary_key_type = analysis_data['primaryKeyType']
         method_list = analysis_data['methodList']
+        jpa_method_dict.update(method_list)
         logging.info("\nSuccess RqRs LLM\n")
         return repository_code, repository_pascal_name, repository_camel_name, primary_key_type, method_list
     except Exception:
@@ -283,7 +292,7 @@ async def start_repository_processing(sp_fileName):
         global fileName
         connection = Neo4jConnection()
         node_sources = []
-        fileName = sp_fileName
+        fileName = convert_to_lower_case_no_underscores(sp_fileName)
 
 
         # * 테이블 노드를 가져옵니다. 
@@ -329,7 +338,8 @@ async def start_repository_processing(sp_fileName):
 class AsyncTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_create_repository_interface(self):
         await start_repository_processing("P_B_CAC120_CALC_SUIP_STD")
-
+        print("jpa_method_list 결과 : ")
+        print(jpa_method_dict)
 
 if __name__ == '__main__':
     unittest.main()

@@ -20,7 +20,15 @@ encoder = tiktoken.get_encoding("cl100k_base")
 fileName = None
 
 
-# 역할: 프로시저 노드의 토큰 개수를 체크하여, 처리하는 함수입니다.
+# 역할 : 전달받은 이름을 전부 소문자로 전환하는 함수입니다,
+# 매개변수 : 
+#   - fileName : 스토어드 프로시저 파일의 이름
+# 반환값 : 전부 소문자로 전환된 프로젝트 이름
+def convert_to_lower_case_no_underscores(fileName):
+    return fileName.replace('_', '').lower()
+
+
+# 역할: 프로시저 노드와 Declare 노드를 처리하는 함수입니다.
 # 매개변수: 
 #      - procedure_data : 프로시저 노드 데이터
 # 반환값: 
@@ -29,31 +37,12 @@ fileName = None
 async def calculate_tokens_and_process(procedure_data):
 
     service_skeleton_code = None  # 서비스 스켈레톤 코드 초기화
-    total_tokens = 0              # 총 토큰 수 초기화
-    procedure_data_chunk = []     # 처리할 데이터 덩어리 초기화
     
     try:
-        # * 주어진 프로시저 데이터를 순회하면서 토큰화를 수행합니다.
-        for item in procedure_data:
-            item_json = json.dumps(item, ensure_ascii=False) 
-            item_tokens = len(encoder.encode(item_json))  
+        # * 데이터 처리를 진행합니다.
+        service_skeleton_code, command_class_variable = await create_service_skeleton(procedure_data)
+        return service_skeleton_code, command_class_variable
 
-            # * 토큰 수가 1000을 넘으면 현재까지의 데이터 덩어리를 처리합니다.
-            if total_tokens + item_tokens >= 1000:  
-                service_skeleton_code, command_class_variable = await create_service_skeleton(procedure_data_chunk)
-                procedure_data_chunk = []     
-                total_tokens = 0               
-            
-            procedure_data_chunk.append(item)  
-            total_tokens += item_tokens        
-        
-
-        # * 남은 데이터 덩어리가 있으면 처리합니다.
-        if procedure_data_chunk:  
-            service_skeleton_code, command_class_variable = await create_service_skeleton(procedure_data_chunk)
-
-        return service_skeleton_code, command_class_variable 
-     
     except Exception:
         logging.exception(f"Error occurred while procedure node token check")
         raise
@@ -63,7 +52,7 @@ async def calculate_tokens_and_process(procedure_data):
 # 매개변수: 
 #      - procedure_data : 분석할 프로시저 데이터 그룹
 # 반환값: 
-#      - service : 서비스 스켈레톤 클래스 코드
+#      - service_class_code : 서비스 스켈레톤 클래스 코드
 #      - command_class_variable : 프로시저의 입력 매개변수(Command 클래스에 선언된 변수 목록)
 async def create_service_skeleton(procedure_data_group):
     
@@ -102,7 +91,7 @@ async def start_service_skeleton_processing(sp_fileName):
     
     try:
         global fileName
-        fileName = sp_fileName
+        fileName = convert_to_lower_case_no_underscores(sp_fileName)
         connection = Neo4jConnection()  
 
         # * Neo4j 데이터베이스에서 프로시저, Declare 노드를 검색하는 쿼리를 실행합니다.

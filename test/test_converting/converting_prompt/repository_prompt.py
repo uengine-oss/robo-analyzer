@@ -32,23 +32,20 @@ Used Variable:
 {variable_node}
 
 
+반드시 지켜야할 요구사항: 
+- 'MERGE INTO', 'INSERT INTO', 'UPDATE' 구문이 있는 경우, 해당 데이터를 조회하는 JPA 쿼리 메서드를 생성하세요. 실제 데이터의 삽입, 업데이트, 또는 복합 작업은 Java 로직에서 처리해야 합니다. 예를 들어, 'MERGE INTO A USING B ON ... WHEN MATCHED THEN UPDATE ...' 구문이 있을 경우, 'B' 테이블에 대한 조회를 수행하는 JPA 쿼리 메서드를 작성하고, 결과를 사용하여 자바 로직으로 'A' 테이블에 데이터를 업데이트하거나 삽입하세요. ( 반드시 'pascalName', 'camelName', 'code', 'methodList'는 'A' 테이블이 아닌 'B' 테이블을 기준으로 생성하세요.)
+- 'DELETE FROM' 구문이 있는 경우, 해당 테이블의 모든 데이터를 삭제하는 JPA 쿼리 메서드를 생성하세요. 
+- 결과는 단일 사전 형태로 반환해야 하며, 리스트 형태로 반환하면 안 됩니다.
+- Json 문자열을 위해서 결과에서 'code' 부분은 + 연산자를 사용하지말고, 반드시 하나의 문자열 형태로 반환하세요.
+
+
 아래의 지시사항을 참고하여, 제공된 데이터를 분석하고, Repository Interface를 생성하십시오:
 1. Stored Procedure Code에서 각 JSON 객체들은 JPA 쿼리 메소드로 전환되어야 합니다.
 2. Used Variable는 현재 구문에서 사용된 변수 목록으로, 해당 데이터를 참고해서 JPA 쿼리 메서드의 매개변수로 식별하세요.
 3. 모든 Entity의 이름은 복수형이 아닌 단수형으로 표현됩니다. (예: Employees -> Employee)
-
-
-JPA 쿼리 메서드 생성시 반드시 숙지해야할 요구사항:
-1. SELECT 구문의 경우, 쿼리 메서드의 타입은 ENTITY로 구성되어야 하며, 특정 필드(컬럼)이 아닌 전체 필드를 포함하는 객체 자체를 반환하는 쿼리 메서드로 전환하세요.(예 : Person findById(Long id))
-2. UPDATE, INSERT, MERGE 구문의 경우, 객체를 찾는 부분을 SELECT 구문으로 인식하고, 해당 부분만 JPA 쿼리 메서드로 변환합니다. (예: UPDATE의 경우 employee_id를 가진 Employee 객체를 찾는 부분만 식별합니다.)
-3. 되도록이면 네이밍 규칙을 이용해서 JPA 쿼리 메서드를 생성하세요.
-4. 쿼리가 매우 복잡한 경우 @Query 어노테이션을 사용하세요. 
-5. 특정 기간 내 데이터를 조회할 때는 TRUNC 함수를 사용하지 않고, 시작 날짜와 종료 날짜를 매개변수로 받아 해당 기간 동안의 데이터만을 필터링하는 쿼리를 작성하세요.
-5. 날짜와 시간에 대해서는 TRUNC 함수를 사용하지 않고, 현재 날짜를 기준으로 쿼리를 작성하세요.
-(예 : @Query("SELECT COALESCE(SUM(w.overHours), 0) FROM WorkLog w WHERE w.employeeId = :employeeId AND w.workDate BETWEEN :startDate AND :endDate") Long findOvertimeHoursByEmployeeId(@Param("employeeId") Long employeeId, @Param("startDate") LocalDate startDate, @Param("endDate") LocalDate endDate);)
-
-   
-**중요: Repository Interface 코드 작성 시, 인터페이스 선언뿐만 아니라 JPA 쿼리 메서드도 반드시 포함해야 합니다.**
+4. 되도록이면 네이밍 규칙을 이용해서 JPA 쿼리 메서드를 생성하세요.
+5. SELECT 구문의 경우, 쿼리 메서드의 타입은 ENTITY 또는 List<Entity> 구성되어야 하며, 특정 필드(컬럼)이 아닌 전체 필드를 포함하는 객체 자체를 반환하는 쿼리 메서드로 전환하세요.(예 : Person findById(Long id))
+6. 쿼리가 매우 복잡한 경우 @Query 어노테이션을 사용하세요. 
 
 
 아래는 Repository Interface의 기본 구조입니다:
@@ -59,10 +56,10 @@ public interface EntityNameRepository extends JpaRepository<EntityName, Long> {{
 }}
 
 
-아래는 결과 예시로, 부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요:
+아래는 결과 예시로, 부가 설명 없이 결과만을 포함해야 하고, 다음 JSON 형식으로 반환하세요:
 {{
-    "PascalCaseEntityName": "(예: B_CONTRACT_CAR_STND_CONFS -> BContractCarStndcConf)",  
-    "camelCaseEntityName": "(예: B_CONTRACT_CAR_STND_CONFS -> bContractCarStndcConf)",
+    "pascalName": "(예: B_CONTRACT_CAR_STND_CONFS -> BContractCarStndcConf)",  
+    "camelName": "(예: B_CONTRACT_CAR_STND_CONFS -> bContractCarStndcConf)",
     "code": "Repository Interface and JPA Query Method Code",
     "primaryKeyType": "Primary Key Type",
     "methodList" : {{

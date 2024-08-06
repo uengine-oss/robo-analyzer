@@ -31,7 +31,7 @@ prompt = PromptTemplate.from_template(
 2. 각 테이블(JSON) 객체의 'name'은 파스칼 표기법을 적용한 클래스 이름으로 사용됩니다. (예: B_Plcy_Month -> BPlcyMonth)
 3. 클래스의 이름과 'entityName'은 복수형이 아닌 단수형으로 표현하세요. (예: Employees -> Employee)
 4. 'fields' 배열의 각 항목은 카멜 표기법을 적용한 클래스의 속성으로 사용됩니다. (예: B_Plcy_Month -> bPlcyMonth)
-5. 각 속성은 적절한 자바 데이터 타입과 함께 private 접근 제한자를 가집니다. (데이터 타입의 경우, 되도록이면 int 대신 long을 사용하세요.)
+5. 각 속성은 private 접근 제한자를 가져야하며, 속성명을 참고하여 적절한 자바 데이터 타입으로 설정하도록 하세요.
 
 
 아래는 자바 Entity 클래스의 기본 구조입니다:

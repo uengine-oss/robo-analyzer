@@ -18,6 +18,15 @@ logging.getLogger('asyncio').setLevel(logging.ERROR)
 encoder = tiktoken.get_encoding("cl100k_base")
 fileName = None
 
+
+# 역할 : 전달받은 이름을 전부 소문자로 전환하는 함수입니다,
+# 매개변수 : 
+#   - sp_fileName : 스토어드 프로시저 파일의 이름
+# 반환값 : 전부 소문자로 전환된 프로젝트 이름
+def convert_to_lower_case_no_underscores(sp_fileName):
+    return sp_fileName.replace('_', '').lower()
+
+
 # 역할: 테이블 데이터를 토큰화하고, 토큰의 개수가 1000을 넘으면 LLM으로 분석을 시작합니다
 # 매개변수: 
 #    - table_data : 테이블 노드 정보
@@ -85,7 +94,7 @@ async def start_entity_processing(sp_fileName):
     try:
         # * 파일 이름을 초기화합니다
         global fileName 
-        fileName = sp_fileName
+        fileName = convert_to_lower_case_no_underscores(sp_fileName)
 
         
         # * 테이블 노드 정보를 가져오기 위한 사이퍼쿼리 준비 및 실행합니다
