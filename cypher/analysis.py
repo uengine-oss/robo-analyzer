@@ -295,13 +295,13 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
                     var_role = variable['role'].replace("'", "\\'")
                     if variable_relationship_type == "SCOPE":
                         # * SCOPE일 때만 변수 노드를 생성합니다.
-                        variable_query = f"MERGE (v:Variable {{name: '{var_name}'}}) SET v.role_{start_line} = '{var_role}'"
+                        variable_query = f"MERGE (v:VARIABLE {{name: '{var_name}'}}) SET v.role_{start_line} = '{var_role}'"
                         cypher_query.append(variable_query)
-                        variable_relationship_query = f"MERGE (n:{statement_type} {{startLine: {start_line}}}) MERGE (v:Variable {{name: '{var_name}'}}) MERGE (n)-[:{variable_relationship_type}]->(v)"
+                        variable_relationship_query = f"MERGE (n:{statement_type} {{startLine: {start_line}}}) MERGE (v:VARIABLE {{name: '{var_name}'}}) MERGE (n)-[:{variable_relationship_type}]->(v)"
                         cypher_query.append(variable_relationship_query)
                     else:
                         # * 그 외의 경우에는 기존 변수 노드의 값을 업데이트합니다.
-                        variable_update_query = f"MATCH (v:Variable {{name: '{var_name}'}}) SET v.role_{start_line} = '{var_role}'"
+                        variable_update_query = f"MATCH (v:VARIABLE {{name: '{var_name}'}}) SET v.role_{start_line} = '{var_role}'"
                         cypher_query.append(variable_update_query)
                 
                 
@@ -322,16 +322,16 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
                 # * 테이블 및 테이블과 노드간의 관계 생성을 위한 사이퍼쿼리를 생성합니다. (필드가 * 이거나 없는 경우 테이블만 생성)
                 for table, fields in table_fields.items():
                     if not fields or '*' in fields:
-                        table_query = f"MERGE (t:Table {{name: '{table}'}})"
+                        table_query = f"MERGE (t:TABLE {{name: '{table}'}})"
                     else:  
                         fields_update_string = ", ".join([f"t.{field} = '{field}'" for field in fields])
-                        table_query = f"MERGE (t:Table {{name: '{table}'}}) " \
+                        table_query = f"MERGE (t:TABLE {{name: '{table}'}}) " \
                                       f"SET {fields_update_string}"
                     cypher_query.append(table_query)
 
                     # * 테이블과 노드간의 관계를 생성합니다
                     if table_relationship_type:
-                        table_relationship_query = f"MERGE (n:{statement_type} {{startLine: {start_line}}}) MERGE (t:Table {{name: '{first_table_name}'}}) MERGE (n)-[:{table_relationship_type}]->(t)"
+                        table_relationship_query = f"MERGE (n:{statement_type} {{startLine: {start_line}}}) MERGE (t:TABLE {{name: '{first_table_name}'}}) MERGE (n)-[:{table_relationship_type}]->(t)"
                         cypher_query.append(table_relationship_query)
 
 
@@ -345,7 +345,7 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
                     
                     # * 자기 자신의 테이블을 참조하는 경우 무시합니다
                     if source_table != target_table:
-                        table_reference_query = f"MERGE (source:Table {{name: '{source_table}'}}) MERGE (target:Table {{name: '{target_table}'}}) MERGE (source)-[:REFERENCES]->(target)"
+                        table_reference_query = f"MERGE (source:TABLE {{name: '{source_table}'}}) MERGE (target:TABLE {{name: '{target_table}'}}) MERGE (source)-[:REFERENCES]->(target)"
                         cypher_query.append(table_reference_query)
 
 

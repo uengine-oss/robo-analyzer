@@ -105,7 +105,7 @@ async def start_service_skeleton_processing(sp_fileName):
         for item in procedure_declare_nodes[0]:
             transformed_node = {
                 'type': 'procedure',
-                'code': item['n']['source']
+                'code': item['n']['summarzied_code']
             }
             transformed_node_data.append(transformed_node)  
 
@@ -114,7 +114,7 @@ async def start_service_skeleton_processing(sp_fileName):
         for item in procedure_declare_nodes[1]:
             transformed_node = {
                 'type': 'declare',
-                'code': item['n']['source']
+                'code': item['n']['node_code']
             }
             transformed_node_data.append(transformed_node)   
                 

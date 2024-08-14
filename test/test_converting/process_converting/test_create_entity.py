@@ -99,7 +99,7 @@ async def start_entity_processing(sp_fileName):
         
         # * 테이블 노드 정보를 가져오기 위한 사이퍼쿼리 준비 및 실행합니다
         connection = Neo4jConnection()
-        query = ['MATCH (n:Table) RETURN n']
+        query = ['MATCH (n:TABLE) RETURN n']
         table_nodes = await connection.execute_queries(query)
         logging.info("\nSuccess received Table Nodes from Neo4J\n")
         transformed_table_data = []
@@ -110,7 +110,7 @@ async def start_entity_processing(sp_fileName):
             table = item['n']
             transformed_node = {
                 'name': table['name'],
-                'fields': [value for key, value in table.items() if key not in ['name', 'id']],
+                'fields': [value for key, value in table.items() if key not in ['name']],
                 'keyType': 'Long', # TODO 실제 기본키 타입으로 변경 필요
             }
             transformed_table_data.append(transformed_node)

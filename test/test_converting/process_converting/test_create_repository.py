@@ -37,7 +37,7 @@ async def fetch_variable_nodes(node_id):
 
     try:
         # * 변수 노드를 가지고 오는 사이퍼쿼리를 준비하고, Neo4j 데이터베이스에 쿼리를 실행하여 변수 노드를 가져옵니다.
-        query = [f"MATCH (v:Variable) WHERE COALESCE(v.role_{node_id}, NULL) IS NOT NULL RETURN v"]
+        query = [f"MATCH (v:VARIABLE) WHERE COALESCE(v.role_{node_id}, NULL) IS NOT NULL RETURN v"]
         connection = Neo4jConnection()  
         variable_nodes = await connection.execute_queries(query) 
         logging.info("\nSuccess received Variable Nodes from Neo4J\n")
@@ -46,41 +46,6 @@ async def fetch_variable_nodes(node_id):
 
     except Exception:
         logging.exception(f"Error occurred while bring variable node from neo4j")
-        raise
-
-
-# 역할: 전달된 스토어드 프로시저 코드에서 불필요한 정보(주석 등)를 제거합니다.
-# 매개변수: 
-#      - spCode : 스토어드 프로시저 코드
-# 반환값: 주석이 제거된 스토어드 프로시저 코드
-def remove_code_placeholders(spCode):
-    
-    try:
-        if spCode == "": return spCode
-
-        # * 다중 라인 주석과 단일 라인 주석을 제거합니다.
-        spCode = re.sub(r'/\*.*?\*/', '', spCode, flags=re.DOTALL)
-        spCode = re.sub(r'--.*$', '', spCode, flags=re.MULTILINE)
-        return spCode
-
-    except Exception:
-        logging.exception(f"Error occurred while remove placeholders")
-        raise
-
-
-# 역할: 전달된 스토어드 프로시저 코드의 토큰 길이를 계산합니다.
-# 매개변수: 
-#      - spCode : 스토어드 프로시저 코드
-# 반환값: 스토어드 프로시저 코드의 토큰 길이
-def calculate_spCode_length(spCode):
-    
-    try:
-        # * 데이터를 JSON 형식으로 인코딩하고, 인코딩된 데이터의 길이를 반환합니다.
-        spCode_json = json.dumps(spCode, ensure_ascii=False)
-        return len(encoder.encode(spCode_json))
-
-    except Exception:
-        logging.exception(f"Error occurred while calculate spcode token")
         raise
 
 
@@ -140,6 +105,22 @@ public interface {repository_pascal_name}Repository extends JpaRepository<{repos
         raise
 
 
+# 역할: 전달된 스토어드 프로시저 코드의 토큰 길이를 계산합니다.
+# 매개변수: 
+#      - spCode : 스토어드 프로시저 코드
+# 반환값: 스토어드 프로시저 코드의 토큰 길이
+def calculate_spCode_length(spCode):
+    
+    try:
+        # * 데이터를 JSON 형식으로 인코딩하고, 인코딩된 데이터의 길이를 반환합니다.
+        spCode_json = json.dumps(spCode, ensure_ascii=False)
+        return len(encoder.encode(spCode_json))
+
+    except Exception:
+        logging.exception(f"Error occurred while calculate spcode token")
+        raise
+
+
 # 역할: 현재 노드에서 사용된 변수 노드를 neo4j에서 가져오고, 변수의 이름이 담긴 리스트와 토큰 길이를 반환합니다.
 # 매개변수: 
 #   - node_id : 현재 노드 id
@@ -181,8 +162,9 @@ async def check_tokens_and_process(table_link_node):
         # * 테이블와 직접 연결된 노드를 순회하면서 토큰 수를 체크합니다
         for item in table_link_node:
             
+            # TODO 수정 필요
             process_append_flag = True                     # 기본적으로 데이터 추가를 허용
-            item_tokens = calculate_spCode_length(item)    # 현재 노드의 정보 토큰 수를 계산
+            item_tokens = item['token']                     # 현재 노드의 정보 토큰 수를 계산
         
             # * 현재 처리중인 테이블 이름이 없는 경우, 새로 할당합니다
             if current_name is None:
@@ -296,7 +278,7 @@ async def start_repository_processing(sp_fileName):
 
 
         # * 테이블 노드를 가져옵니다. 
-        query = ['MATCH (n:Table) RETURN n']
+        query = ['MATCH (n:TABLE) RETURN n']
         table_nodes = await connection.execute_queries(query)
         logging.info("\nSuccess received Table Nodes from Neo4J\n")
         table_node_list = table_nodes[0]   # 쿼리 결과 사용
@@ -306,7 +288,7 @@ async def start_repository_processing(sp_fileName):
         for node in table_node_list:
             node_name = node['n']['name'] 
             key_type = node['n'].get('keyType', 'Long') 
-            one_depth_nodes = [f"MATCH (n:Table {{name: '{node_name}'}})--(m) WHERE NOT m:Table AND NOT m:OPERATION RETURN m"]
+            one_depth_nodes = [f"MATCH (n:TABLE {{name: '{node_name}'}})--(m) WHERE NOT m:TABLE AND NOT m:OPERATION RETURN m"]
             one_depth_nodes = await connection.execute_queries(one_depth_nodes)
             
 
@@ -318,7 +300,7 @@ async def start_repository_processing(sp_fileName):
             
 
             # * 복잡한 데이터의 구조를 좀 더 편리하게 재구성합니다 
-            sources = [{'name': node_name, 'startLine': m['m']['id'], 'endLine': m['m']['endLine'], 'PrimaryKeyType': key_type, 'code': remove_code_placeholders(m['m']['source'])} for m in one_depth_nodes[0] if 'source' in m['m']]
+            sources = [{'name': node_name, 'startLine': m['m']['startLine'], 'endLine': m['m']['endLine'], 'PrimaryKeyType': key_type, 'code': m['m']['node_code'], 'token': m['m']['token']} for m in one_depth_nodes[0] if 'node_code' in m['m']]
             node_sources.extend(sources)
 
 
