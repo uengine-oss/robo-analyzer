@@ -4,7 +4,7 @@ import os
 
 class Neo4jConnection:
 
-    database_name = "neo4j"
+    database_name = "test"
 
     # 역할 : Neo4j 데이터베이스와의 연결을 초기화합니다. 환경변수를 통해 연결 정보를 설정하며, 설정되지 않은 경우 기본값을 사용합니다.
     # 매개변수:

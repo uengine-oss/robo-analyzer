@@ -244,22 +244,27 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
             context_range_count = len(context_range)
             analysis_result = understand_code(clean_code, context_range, context_range_count)
             LLM_count += 1
+            
+
+            # * llm의 분석 결과에서 변수 및 테이블 정보를 추출하고, 필요한 변수를 초기화합니다 
+            table_references = analysis_result.get('tableReference', [])
+            tables = analysis_result.get('Tables', [])
+            variables = analysis_result.get('variable', [])
+            update_variables = True
 
 
             # * llm의 분석 결과에서 각 데이터를 추출하고, 필요한 변수를 초기화합니다 
             for result in analysis_result['analysis']:
-                start_line = result['range']['startLine']
-                tables = result.get('Tables', [])
-                table_references = result.get('tableReference', [])
-                # * 루트 노드를 무시하고, 프로시저 노드인 경우 테이블관련 정보를 비웁니다
+                start_line = result['startLine']
                 if start_line == 0: continue
-                end_line = result['range']['endLine']
-                summary = result.get('summary', '')
-                variables = result.get('variable', [])  
-                first_table_name = None
+                end_line = result['endLine']
+                summary = result['summary']
+                table_names = result.get('tableName', [])
+
                 table_relationship_type = None
                 variable_relationship_type = None
                 statement_type = None
+                first_table_name = None
 
 
                 # * 스케줄 스택에서 있는 코드에서 ...code... 부분을 Summary로 교체해서 업데이트합니다
@@ -270,7 +275,7 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
                         break
 
 
-                # * 테이블과 노드의 관계를 생성하기 위한 관계를 생성하고, statement_type을 얻어냅니다
+                # * statement_type을 얻어냅니다
                 for command in commands:
                     key = f"{command}_{start_line}"
                     if key in node_statementType:
@@ -290,43 +295,56 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
 
 
                 # * 변수 및 노드를 생성하거나, 변수와 노드간의 관계를 생성합니다
-                for variable in variables:
-                    var_name = variable['name']
-                    var_role = variable['role'].replace("'", "\\'")
-                    if variable_relationship_type == "SCOPE":
+                for start_line, variables in variables.items():
+                    for variable in variables:
+                        var_name = variable['name']
+                        var_role = variable['role'].replace("'", "\\'")
+                        var_type = variable['type']
+                        var_startLine = start_line
+                    
                         # * SCOPE일 때만 변수 노드를 생성합니다.
-                        variable_query = f"MERGE (v:Variable {{name: '{var_name}'}}) SET v.role_{start_line} = '{var_role}'"
-                        cypher_query.append(variable_query)
-                        variable_relationship_query = f"MERGE (n:{statement_type} {{startLine: {start_line}}}) MERGE (v:Variable {{name: '{var_name}'}}) MERGE (n)-[:{variable_relationship_type}]->(v)"
-                        cypher_query.append(variable_relationship_query)
-                    else:
-                        # * 그 외의 경우에는 기존 변수 노드의 값을 업데이트합니다.
-                        variable_update_query = f"MATCH (v:Variable {{name: '{var_name}'}}) SET v.role_{start_line} = '{var_role}'"
-                        cypher_query.append(variable_update_query)
-                
-                
-                table_fields = defaultdict(set)
-
-
-                # * 각 테이블의 필드를 수집하고, 첫 번째 테이블 이름을 저장하여 나중에 노드 간 관계를 생성할 때 사용합니다.
-                for table_dict in tables:
-                    for table, fields in table_dict.items():
-                        if '.' in table:
-                            table = table.split('.')[-1]
-                        table_fields[table].update(fields)
+                        if variable_relationship_type == "SCOPE":
+                            variable_query = f"MERGE (v:Variable {{name: '{var_name}'}}) SET v.role_{var_startLine} = '{var_role}', v.type = '{var_type}'"
+                            cypher_query.append(variable_query)
+                            variable_relationship_query = f"MERGE (n:{statement_type} {{startLine: {var_startLine}}}) MERGE (v:Variable {{name: '{var_name}'}}) MERGE (n)-[:{variable_relationship_type}]->(v)"
+                            cypher_query.append(variable_relationship_query)
                         
-                        if first_table_name is None:
-                            first_table_name = table
+                        # * 기존 변수 노드의 값을 업데이트합니다.
+                        elif update_variables:
+                            variable_update_query = f"MATCH (v:Variable {{name: '{var_name}'}}) SET v.role_{var_startLine} = '{var_role}'"
+                            cypher_query.append(variable_update_query)
+                            update_variables = False
+                
+
+
+                # * 테이블별로 필드 타입과 필드명을 저장할 중첩 defaultdict를 생성합니다.
+                table_fields = defaultdict(lambda: defaultdict(set))
+
+
+
+                # * 테이블 노드와 관계를 생성하기 위해 테이블의 정보를 재구성합니다.
+                for name in table_names:
+                    table_name = name.split('.')[-1]
+                    for table_dict in tables:
+                        matching_fields = next((fields for full_name, fields in table_dict.items() if full_name.split('.')[-1] == table_name), None)
+                        if matching_fields:
+                            for field in matching_fields:
+                                field_type, field_name = field.split(':', 1)
+                                table_fields[table_name][field_type].add(field_name)
+                            break  # 테이블 정보를 찾았으므로 루프 종료
+                                
+                    if first_table_name is None:
+                        first_table_name = table_name
+
 
 
                 # * 테이블 및 테이블과 노드간의 관계 생성을 위한 사이퍼쿼리를 생성합니다. (필드가 * 이거나 없는 경우 테이블만 생성)
-                for table, fields in table_fields.items():
-                    if not fields or '*' in fields:
+                for table, type_fields in table_fields.items():
+                    if not type_fields or '*' in type_fields:
                         table_query = f"MERGE (t:Table {{name: '{table}'}})"
                     else:  
-                        fields_update_string = ", ".join([f"t.{field} = '{field}'" for field in fields])
-                        table_query = f"MERGE (t:Table {{name: '{table}'}}) " \
-                                      f"SET {fields_update_string}"
+                        fields_update_string = ", ".join([f"t.{field_type} = {list(field_names)}" for field_type, field_names in type_fields.items()])
+                        table_query = f"MERGE (t:Table {{name: '{table}'}}) SET {fields_update_string}"
                     cypher_query.append(table_query)
 
                     # * 테이블과 노드간의 관계를 생성합니다
@@ -337,11 +355,8 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
 
                 # * 테이블간의 참조 관계를 위한 사이퍼쿼리를 생성합니다. (.이후에 오는 테이블 이름을 추출합니다)
                 for reference in table_references:
-                    source_full_id = reference['source']
-                    target_full_id = reference['target']
-                    
-                    source_table = source_full_id.split('.')[1] if '.' in source_full_id else source_full_id
-                    target_table = target_full_id.split('.')[1] if '.' in target_full_id else target_full_id
+                    source_table = reference['source'].split('.')[-1]
+                    target_table = reference['target'].split('.')[-1]
                     
                     # * 자기 자신의 테이블을 참조하는 경우 무시합니다
                     if source_table != target_table:
@@ -354,6 +369,7 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
             clean_code = ""
             extract_code = ""
             token_count = 0
+            update_variables = True
             context_range.clear()
             return cypher_query
         except Exception:
