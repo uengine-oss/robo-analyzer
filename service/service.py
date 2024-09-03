@@ -9,7 +9,8 @@ from convert.create_pomxml import start_pomxml_processing
 from convert.create_properties import start_APLproperties_processing
 from convert.create_repository import start_repository_processing
 from convert.create_entity import start_entity_processing
-from convert.create_service import start_service_processing
+from convert.create_service_preprocessing import start_service_processing
+from convert.create_service_postprocessing import merge_service_code 
 from convert.create_service_skeleton import start_service_skeleton_processing
 from cypher.neo4j_connection import Neo4jConnection
 from cypher.analysis import analysis
@@ -173,6 +174,16 @@ async def generate_java_from_content(cypher_query=None, previous_history=None, r
         yield {"error": str(e)}
 
 
+# 역할 : 전달받은 이름을 각각의 표기법에 맞게 변환하는 함수
+# 매개변수 : 
+#   - sp_fileName : 스토어드 프로시저 파일의 이름
+# 반환값 : 표기법에 따른 이름들
+async def convert_fileName_for_java(sp_fileName):
+    components = sp_fileName.split('_')
+    pascal_case = ''.join(x.title() for x in components)
+    lower_case = sp_fileName.replace('_', '').lower()
+    return pascal_case, lower_case
+
 
 # 역할: 스프링 부트 프로젝트 생성을 위한 단계별 변환 과정을 수행하는 비동기 제너레이터 함수입니다.
 # 매개변수: 
@@ -181,32 +192,36 @@ async def generate_java_from_content(cypher_query=None, previous_history=None, r
 async def create_spring_boot_project(fileName):
     
     try:
+        # * 프로젝트 이름을 각 표기법에 맞게 변환합니다.
+        pascal_case, lower_case = await convert_fileName_for_java(fileName)
+
         # * 1 단계 : 엔티티 클래스 생성
-        table_node_data = await start_entity_processing(fileName) 
+        table_node_data, entity_name_list = await start_entity_processing(lower_case) 
         yield f"Step1 completed"
         
-        # * 2 단계 : 엔티티 클래스 생성
-        jpa_method_list = await start_repository_processing(table_node_data, fileName) 
+        # * 2 단계 : 리포지토리 인터페이스 생성
+        jpa_method_list = await start_repository_processing(table_node_data, lower_case) 
         yield f"Step2 completed\n"
         
         # * 3 단계 : 서비스 스켈레톤 생성
-        service_skeleton_code, procedure_variable_list = await start_service_skeleton_processing(fileName)
+        service_skeleton_code, procedure_variable_list = await start_service_skeleton_processing(lower_case, entity_name_list)
         yield f"Step3 completed\n"
         
-        # * 4 단계 : 서비스 바디 생성
-        await start_service_processing(service_skeleton_code, jpa_method_list, procedure_variable_list, fileName)
+        # * 4 단계 : 서비스 생성
+        await start_service_processing(service_skeleton_code, jpa_method_list, procedure_variable_list)
+        await merge_service_code(lower_case, service_skeleton_code, pascal_case)
         yield f"Step4 completed\n"
         
         # * 5 단계 : pom.xml 생성
-        await start_pomxml_processing(fileName)
+        await start_pomxml_processing(lower_case)
         yield f"Step5 completed\n"
         
         # * 6 단계 : application.properties 생성
-        await start_APLproperties_processing(fileName)
+        await start_APLproperties_processing(lower_case)
         yield f"Step6 completed\n"
 
         # * 7 단계 : StartApplication.java 생성
-        await start_main_processing(fileName)
+        await start_main_processing(lower_case, pascal_case)
         yield f"Step7 completed\n"
         yield "Completed Converting.\n"
 

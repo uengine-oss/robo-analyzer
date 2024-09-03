@@ -31,6 +31,7 @@ prompt = PromptTemplate.from_template(
 2. 모든 변수는 적절한 자바 데이터 타입을 사용하고, private 접근 제한자와 카멜 표기법을 적용하세요. (데이터 타입의 경우, 되도록이면 int 대신 long을 사용하세요.)
 4. Service Class의 메소드에서, HTTP 요청의 본문을 받기 위해 생성된 Command 클래스의 인스턴스 이름을 사용하세요.
 5. Service와 Command 클래스의 이름은 로직에 알맞게 작성해주세요.
+6. 'CodePlaceHolder' 이 부분 하드코딩으로 그대로 반환하세요. 추후에 사용될 예정입니다.
 
 
 아래는 Service의 기본 구조입니다:
@@ -54,7 +55,7 @@ public class ExampleController {{
         Type variable2 = 0;
         ...
 
-        return;
+CodePlaceHolder
     }}
 }}
 

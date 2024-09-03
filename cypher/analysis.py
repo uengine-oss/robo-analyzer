@@ -24,27 +24,6 @@ def count_tokens_in_text(code):
         raise
 
 
-# 역할: 각 노드의 스토어드 프로시저 코드의 첫 라인에서 식별되는 키워드로 타입을 얻어냅니다
-# 매개변수: 
-#      - code : 특정 노드의 스토어드 프로시저 코드
-# 반환값: 식별된 키워드
-def identify_first_line_keyword(code):
-    try:
-        first_line = code.split('\n')[0]   
-        
-        # * '숫자: 숫자:' 형태 이후의 첫 단어를 기준으로 키워드를 식별합니다.
-        pattern = re.compile(r"\d+:\s*\d+:\s*(DECLARE|SELECT|INSERT|UPDATE|DELETE|EXECUTE IMMEDIATE|CREATE OR REPLACE PROCEDURE|IF|FOR|COMMIT|MERGE|WHILE)\b")
-        match = re.search(pattern, first_line)
-
-        if match:
-            first_keyword = match.group(1)
-            return "OPERATION" if first_keyword == "EXECUTE IMMEDIATE" else first_keyword
-        return "ASSIGN"
-    except Exception:
-        logging.exception("Error occurred while identifying first line keyword(understanding)")
-        raise
-
-
 # 역할: 주어진 범위에서 startLine과 endLine을 추출해서 스토어드 프로시저 코드를 잘라내는 함수입니다.
 # 매개변수: 
 #     - code : 스토어드 프로시저 코드
@@ -229,31 +208,72 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
     extract_code = ""                 # 범위 만큼 추출된 스토어드 프로시저
     clean_code= ""                    # 불필요한 정보(주석)가 제거된 스토어드 프로시저
     focused_code = ""                 # 전체적인 스토어드 프로시저 코드의 틀
-    token_count = 0                   # 토큰 수
+    sp_token_count = 0                   # 토큰 수
     LLM_count = 0                     # LLM 호출 횟수
 
 
     logging.info("\n Start creating a cypher query \n")
 
 
-    # 역할: llm에게 분석할 코드를 전달한 뒤, 해당 결과를 바탕으로 사이퍼 쿼리를 생성합니다
+    # 역할: llm에게 분석할 코드를 전달한 뒤, 해당 결과를 바탕아서 토큰을 검사하고 어떻게 처리 할 지 결정합니다.
     # 반환값 : 생성된 사이퍼쿼리
     async def process_analysis_results():
-        nonlocal clean_code, token_count, LLM_count, focused_code, extract_code, context_range
-        commands = ["SELECT", "INSERT", "ASSIGN", "UPDATE", "DELETE", "OPERATION", "IF", "FOR", "COMMIT", "MERGE", "WHILE"]
-        
+        nonlocal clean_code, sp_token_count, LLM_count, context_range
+        parent_context_range = []
+        cypher_queries = []
+
         try:
-            # * context range 중복 제거및 정렬을 진행하고, 각 종 변수들을 초기화합니다.
+            # * context range의 수를 측정하고, 정렬을 진행합니다.
             context_range_count = len(context_range)
             context_range = sorted(context_range, key=lambda x: x['startLine'])
-            table_fields = defaultdict(set)
             LLM_count += 1
 
 
             # * 분석에 필요한 정보를 llm에게 보냄으로써, 분석을 시작합니다
-            analysis_result = understand_code(clean_code, context_range, context_range_count)
+            analysis_result, prompt_template = understand_code(clean_code, context_range, context_range_count)
+            combined_context = f"{prompt_template}\n{context_range}\n{analysis_result}"
+            combined_context_tokens = count_tokens_in_text(combined_context)
+            logging.info(f"토큰 수 : {combined_context_tokens + sp_token_count}")
             
+            if combined_context_tokens + sp_token_count > 4096:
+                largest_range_index = max(range(len(context_range)), key=lambda i: context_range[i]['endLine'] - context_range[i]['startLine'])
+                parent_context_range.append(context_range.pop(largest_range_index))
+                half_point = len(context_range) // 2
+                for sub_range in [context_range[:half_point], context_range[half_point:]]:
 
+                    if sub_range:
+                        sub_range_count = len(sub_range)
+                        sub_clean_code = extract_code_within_range(clean_code, sub_range)
+                        sub_analysis_result, _ = understand_code(sub_clean_code, sub_range, sub_range_count)
+                        cypher_queries.extend(await handle_analysis_result(sub_analysis_result))
+                
+                for parent_range in parent_context_range:
+                    parent_start_line = parent_range['startLine']
+                    parent_schedule = next((schedule for schedule in schedule_stack if schedule['startLine'] == parent_start_line), None)
+                    if parent_schedule:
+                        parent_clean_code = parent_schedule['code']
+                        parent_analysis_result, _ = understand_code(parent_clean_code, parent_context_range, len(parent_context_range))
+                        cypher_queries.extend(await handle_analysis_result(parent_analysis_result))
+            else:
+                cypher_queries = await handle_analysis_result(analysis_result)
+
+            return cypher_queries
+        
+        except Exception:
+            logging.error("An error occurred during analysis results processing(understanding)")
+            raise
+        
+
+    # 역할: llm에게 받은 결과를 이용하여, 사이퍼쿼리를 생성하는 함수
+    # 매개변수 : 
+    #   - analysis_result : llm의 분석 결과
+    # 반환값 : 생성된 사이퍼쿼리
+    async def handle_analysis_result(analysis_result):
+        nonlocal clean_code, sp_token_count, focused_code, extract_code, context_range
+        commands = ["SELECT", "INSERT", "ASSIGNMENT", "UPDATE", "DELETE", "EXECUTE_IMMDDIATE", "IF", "FOR", "COMMIT", "MERGE", "WHILE"]
+        table_fields = defaultdict(set)
+                
+        try:
             # * llm의 분석 결과에서 변수 및 테이블 정보를 추출하고, 필요한 변수를 초기화합니다 
             table_references = analysis_result.get('tableReference', [])
             tables = analysis_result.get('Tables', {})
@@ -325,7 +345,7 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
                             table_relationship_type = "FROM"
                         elif command in ["UPDATE", "INSERT", "DELETE", "MERGE"]:
                             table_relationship_type = "WRITES"
-                        elif command == "OPERATION":
+                        elif command == "EXECUTE_IMMDDIATE":
                             table_relationship_type = "EXECUTE"
                         statement_type = command
                         break
@@ -346,9 +366,10 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
             focused_code = ""
             clean_code = ""
             extract_code = ""
-            token_count = 0
+            sp_token_count = 0
             context_range.clear()
             return cypher_query
+        
         except Exception:
             logging.error("An error occurred during analysis results processing(understanding)")
             raise
@@ -390,9 +411,13 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
             for line in filtered_code.split('\n'):
                 parts = line.split()
                 if len(parts) < 3: continue  
-                var_name = parts[2]  
-                var_type = parts[4] if startLine == 1 else parts[3]
-                
+                var_name = parts[2]
+
+                if startLine == 1 and 'IN' in parts:
+                    var_type = parts[4]
+                else:
+                    var_type = parts[3]  
+
                 # * 추출된 변수 이름과 타입을 이용하여, 변수 노드를 생성하는 사이퍼쿼리를 작성합니다.
                 variable_query = f"MERGE (v:Variable {{name: '{var_name}'}}) SET v.type = '{var_type}'"
                 cypher_query.append(variable_query)
@@ -417,13 +442,11 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
     #   parent_statementType - 현잰 노드의 부모 노드 타입
     # 반환값: 없음
     async def traverse(node, schedule_stack, send_queue, receive_queue, parent_alias=None, parent_startLine=None, parent_statementType=None):
-        nonlocal focused_code, token_count, clean_code, extract_code
-        
+        nonlocal focused_code, sp_token_count, clean_code, extract_code
 
         # * 분석에 필요한 필요한 정보를 준비하거나 할당합니다
         summarized_code = remove_unnecessary_information(extract_and_summarize_code(file_content, node))
         node_code = remove_unnecessary_information(extract_node_code(file_content, node['startLine'], node['endLine']))
-        statementType = "ROOT" if node['startLine'] == 0 else node['type'] if node['type'] in ["DECLARE", "CREATE_PROCEDURE_BODY"] else identify_first_line_keyword(node_code)
         node_size = count_tokens_in_text(node_code)
         children = node.get('children', [])
         node_alias = f"n{node['startLine']}"
@@ -432,13 +455,14 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
             "endLine": node['endLine'],
             "code": summarized_code,
             "child": children,
+            "type": node['type']
         }
 
 
         # * 변수 노드를 생성하기 위한 작업
-        if statementType in ["CREATE_PROCEDURE_BODY", "DECLARE"]:
+        if node['type'] in ["CREATE_PROCEDURE_BODY", "DECLARE"]:
             filtered_code = filter_procedure_declare_code(summarized_code)
-            create_variable_node(filtered_code, node['startLine'], statementType)
+            create_variable_node(filtered_code, node['startLine'], node['type'])
 
 
         # * focused_code에서 분석할 범위를 기준으로 잘라내고, 불필요한 정보를 제거합니다
@@ -447,9 +471,10 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
 
 
         # * 노드 크기 및 토큰 수 체크를 하여, 분석 여부를 결정합니다
-        token_count = count_tokens_in_text(clean_code)
-        if (node_size >= 1200 and context_range) or (token_count >= 900 and context_range) or (len(context_range) > 12):
-            signal_task = asyncio.create_task(signal_for_process_analysis(node['endLine']))
+        sp_token_count = count_tokens_in_text(clean_code)
+        if (node_size >= 1200 and context_range) or (sp_token_count >= 900 and context_range) or (len(context_range) > 12):
+            line_count = len(clean_code.split('\n'))
+            signal_task = asyncio.create_task(signal_for_process_analysis(line_count))
             await asyncio.gather(signal_task)
 
 
@@ -462,28 +487,28 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
 
 
         # * 노드의 사이퍼쿼리를 생성 및 해당 노드의 범위를 분석할 범위를 저장
-        if not children and node['type'] == "STATEMENT":
+        if not children and node['type'] not in ["CREATE_PROCEDURE_BODY", "DECLARE", "ROOT"]:
             context_range.append({"startLine": node['startLine'], "endLine": node['endLine']})
-            cypher_query.append(f"MERGE ({node_alias}:{statementType}{{startLine: {node['startLine']}}}) SET {node_alias}.endLine = {node['endLine']}, {node_alias}.name = '{statementType}[{node['startLine']}]', {node_alias}.node_code = '{node_code.replace('\n', '\\n').replace("'", "\\'")}', {node_alias}.token = {node_size}")
+            cypher_query.append(f"MERGE ({node_alias}:{node['type']}{{startLine: {node['startLine']}}}) SET {node_alias}.endLine = {node['endLine']}, {node_alias}.name = '{node['type']}[{node['startLine']}]', {node_alias}.node_code = '{node_code.replace('\n', '\\n').replace("'", "\\'")}', {node_alias}.token = {node_size}")
         else:
-            cypher_query.append(f"MERGE ({node_alias}:{statementType}{{startLine: {node['startLine']}}}) SET {node_alias}.endLine = {node['endLine']}, {node_alias}.name = '{statementType}[{node['startLine']}]', {node_alias}.summarized_code = '{summarized_code.replace('\n', '\\n').replace("'", "\\'")}', {node_alias}.node_code = '{node_code.replace('\n', '\\n').replace("'", "\\'")}', {node_alias}.token = {node_size}")
+            cypher_query.append(f"MERGE ({node_alias}:{node['type']}{{startLine: {node['startLine']}}}) SET {node_alias}.endLine = {node['endLine']}, {node_alias}.name = '{node['type']}[{node['startLine']}]', {node_alias}.summarized_code = '{summarized_code.replace('\n', '\\n').replace("'", "\\'")}', {node_alias}.node_code = '{node_code.replace('\n', '\\n').replace("'", "\\'")}', {node_alias}.token = {node_size}")
 
 
         # * 스케줄 스택에 현재 스케줄을 넣고, 노드의 타입을 세트에 저장합니다
         schedule_stack.append(current_schedule)
-        node_statementType.add(f"{statementType}_{node['startLine']}")
+        node_statementType.add(f"{node['type']}_{node['startLine']}")
 
 
         # * 부모 변수가 있을 경우(부모가 존재할 경우), 부모 노드와 현재 노드의 parent_of 라는 관계를 생성합니다
         if parent_alias:
-            cypher_query.append(f"MATCH ({parent_alias}:{parent_statementType} {{startLine: {parent_startLine}}}) WITH {parent_alias} MATCH ({node_alias}:{statementType} {{startLine: {node['startLine']}}}) MERGE ({parent_alias})-[:PARENT_OF]->({node_alias})")
+            cypher_query.append(f"MATCH ({parent_alias}:{parent_statementType} {{startLine: {parent_startLine}}}) WITH {parent_alias} MATCH ({node_alias}:{node['type']} {{startLine: {node['startLine']}}}) MERGE ({parent_alias})-[:PARENT_OF]->({node_alias})")
         prev_alias = None
         prev_id = None
 
 
         # * 현재 노드가 자식이 있는 경우, 해당 자식을 순회하면서 traverse함수를 (재귀적으로) 호출하고 처리합니다
         for child in children:
-            node_explore_task = asyncio.create_task(traverse(child, schedule_stack, send_queue, receive_queue, node_alias, node['startLine'], statementType))
+            node_explore_task = asyncio.create_task(traverse(child, schedule_stack, send_queue, receive_queue, node_alias, node['startLine'], node['type']))
             await asyncio.gather(node_explore_task)
             
             # * 현재 노드와 이전의 같은 레벨의 노드간의 NEXT 관계를 위한 사이퍼쿼리를 생성합니다.
@@ -494,7 +519,7 @@ async def analysis(data, file_content, send_queue, receive_queue, last_line):
 
 
         # * 부모 노드가 가진 자식들이 모두 처리가 끝났다면, 부모 노드도 context_range에 포함합니다
-        if children and node['type'] == "STATEMENT":
+        if children and node['type'] not in ["CREATE_PROCEDURE_BODY", "DECLARE", "ROOT"]:
             context_range.append({"startLine": node['startLine'], "endLine": node['endLine']})
         
 

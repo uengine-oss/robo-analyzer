@@ -3,13 +3,14 @@ import logging
 import aiofiles
 
 
+
 # 역할: Maven 프로젝트 설정 파일인 pom.xml을 생성하는 함수입니다.
 # 매개변수: 
-#   - fileName : 스토어드 프로시저 파일 이름
+#   - lower_case : 소문자 프로젝트 이름
 # 반환값: 없음
-async def start_pomxml_processing(fileName):
+async def start_pomxml_processing(lower_case):
     
-    try:
+    try:        
         # * pom.xml 파일의 내용을 문자열로 생성합니다.
         pom_xml_content = f"""<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
@@ -22,10 +23,10 @@ async def start_pomxml_processing(fileName):
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.example</groupId>
-	<artifactId>{fileName}</artifactId>
+	<artifactId>{lower_case}</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<name>{fileName}</name>
-	<description>{fileName} project for Spring Boot</description>
+	<name>{lower_case}</name>
+	<description>{lower_case} project for Spring Boot</description>
 	<url/>
 	<licenses>
 		<license/>
@@ -95,7 +96,7 @@ async def start_pomxml_processing(fileName):
     
         # * pom.xml 파일을 저장할 디렉토리를 생성합니다.
         base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT', 'convert')
-        pom_xml_directory = os.path.join(base_directory, 'converting_result', f'{fileName}')
+        pom_xml_directory = os.path.join(base_directory, 'converting_result', f'{lower_case}')
         os.makedirs(pom_xml_directory, exist_ok=True)  
 
 

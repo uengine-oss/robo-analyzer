@@ -88,4 +88,4 @@ def understand_code(code, context_ranges, context_range_count):
         | JsonOutputParser()
     )
     result = chain.invoke({"code": code, "ranges": ranges_json, "count": context_range_count})
-    return result
+    return result, prompt.template

@@ -1,32 +1,11 @@
 import logging
-import os
-import re
-import sys
-import unittest
 import tiktoken
-
-logging.basicConfig(level=logging.INFO)
-logging.getLogger('asyncio').setLevel(logging.ERROR)
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-from test_converting.converting_prompt.parent_skeleton_prompt import convert_parent_skeleton
-from test_converting.converting_prompt.service_prompt import convert_code
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
+from convert.converting_prompt.service_prompt import convert_code
+from convert.converting_prompt.parent_skeleton_prompt import convert_parent_skeleton
 from cypher.neo4j_connection import Neo4jConnection
 
-
-# * 인코더 설정 및 파일 이름 및 변수 초기화 
+# * 인코더 설정 및 파일 이름 초기화
 encoder = tiktoken.get_encoding("cl100k_base")
-fileName = None
-procedure_variables = []
-service_skeleton = None
-
-
-# 역할 : 전달받은 이름을 전부 소문자로 전환하는 함수입니다,
-# 매개변수 : 
-#   - fileName : 스토어드 프로시저 파일의 이름
-# 반환값 : 전부 소문자로 전환된 프로젝트 이름
-def convert_to_lower_case_no_underscores(fileName):
-    return fileName.replace('_', '').lower()
 
 
 # 역할: 변수 노드에서 실제로 사용된 변수 노드만 추려서 제공하는 함수
@@ -103,7 +82,7 @@ async def process_over_size_node(start_line, summarized_code, connection):
 #   - total_tokens : 초기화된 총 토큰 수
 #   - variable_dict : 초기화된 변수 딕셔너리
 #   - context_range : 컨텍스트 범위
-async def process_converting(convert_sp_code, total_tokens, variable_dict, context_range, connection):
+async def process_converting(convert_sp_code, total_tokens, variable_dict, context_range, connection, procedure_variables, service_skeleton, jpa_method_list):
     
     try:
         # * 노드 업데이트 쿼리를 저장할 리스트 및 범위 개수
@@ -112,7 +91,7 @@ async def process_converting(convert_sp_code, total_tokens, variable_dict, conte
 
 
         # * 프로시저 코드를 분석합니다(llm에게 전달)
-        analysis_result = convert_code(convert_sp_code, service_skeleton, variable_dict, procedure_variables, context_range, range_count)
+        analysis_result = convert_code(convert_sp_code, service_skeleton, variable_dict, procedure_variables, context_range, range_count, jpa_method_list)
         logging.info(f"\nsuccessfully converted code\n")
 
 
@@ -142,12 +121,14 @@ async def process_converting(convert_sp_code, total_tokens, variable_dict, conte
         raise
 
 
-
 # 역할: 각 노드에 자바 속성을 추가하기 위한 로직이 담긴 함수입니다.
 # 매개변수: 
 #   node_data_list - 노드와 관계에 대한 정보가 담긴 리스트
+#   service_skeleton - 서비스 클래스의 기본 구조.
+#   jpa_method_list - 사용된 JPA 메서드 목록.
+#   procedure_variable - 프로시저 선언부에서 사용된 변수 정보.
 # 반환값: 없음 
-async def process_service_class(node_list, connection):
+async def traverse_node_for_service(node_list, connection, procedure_variables, service_skeleton, jpa_method_list):
 
     variable_dict = {}                    # 변수 정보를 저장하는 딕셔너리
     context_range = []                    # 분석할 컨텍스트 범위를 저장하는 리스트
@@ -162,14 +143,14 @@ async def process_service_class(node_list, connection):
     # * Converting 하기 위한 노드의 순회 시작
     for node in traverse_node:
         start_node = node['n']
-        relationship = node['r'][1] if node['r'] else None
+        relationship = node['r'][1] if node['r'] else "NEXT"
         end_node = node['m']
         node_tokens = 0
         print("\n"+"-" * 40) 
         print(f"시작 노드 : [ 시작 라인 : {start_node['startLine']}, 이름 : ({start_node['name']}), 끝라인: {start_node['endLine']}, 토큰 : {start_node['token']}")
         print(f"관계: {relationship}")
         if end_node: print(f"종료 노드 : [ 시작 라인 : {end_node['startLine']}, 이름 : ({end_node['name']}), 끝라인: {end_node['endLine']}, 토큰 : {end_node['token']}")
-        
+     
         
         # * 가독성을 위해 복잡한 조건을 변수로 
         is_small_parent_traverse_1deth = start_node['startLine'] == small_parent_info.get("startLine", 0) and relationship == "NEXT"
@@ -188,7 +169,7 @@ async def process_service_class(node_list, connection):
         elif is_big_parent_traverse_1deth:
             print(f"큰 부모 노드({start_node['startLine']})의 1단계 깊이 자식들 순회 완료")
             big_parent_info["nextLine"] = end_node['startLine']
-            (convert_sp_code, total_tokens, variable_dict, context_range) = await process_converting(convert_sp_code, total_tokens, variable_dict, context_range, connection)
+            (convert_sp_code, total_tokens, variable_dict, context_range) = await process_converting(convert_sp_code, total_tokens, variable_dict, context_range, connection, procedure_variables, service_skeleton, jpa_method_list)
             continue
 
 
@@ -233,7 +214,7 @@ async def process_service_class(node_list, connection):
         # * 총 토큰 수 검사를 진행합니다.
         if is_token_limit_exceeded:
             print(f"토큰 및 결과 범위 초과로 converting 진행합니다.")
-            (convert_sp_code, total_tokens, variable_dict, context_range) = await process_converting(convert_sp_code, total_tokens, variable_dict, context_range, connection)
+            (convert_sp_code, total_tokens, variable_dict, context_range) = await process_converting(convert_sp_code, total_tokens, variable_dict, context_range, connection, procedure_variables, service_skeleton, jpa_method_list)
         print(f"토큰 합계 : {total_tokens + node_tokens}, 결과 개수 : {len(context_range)}")
         total_tokens += node_tokens
 
@@ -288,7 +269,7 @@ async def process_service_class(node_list, connection):
             variable_dict = await fetch_variable_nodes(start_node['startLine'], variable_dict, variable_node)
         elif another_big_parent_startLine == start_node['startLine'] and context_range and convert_sp_code: 
             print(f"부모 노드안에 또 다른 부모 노드의 순회 끝 converting 진행 -> 흐름이 섞이지 않게")
-            (convert_sp_code, total_tokens, variable_dict, context_range) = await process_converting(convert_sp_code, total_tokens, variable_dict, context_range, connection)
+            (convert_sp_code, total_tokens, variable_dict, context_range) = await process_converting(convert_sp_code, total_tokens, variable_dict, context_range, connection, procedure_variables, service_skeleton, jpa_method_list)
         else:
             print("아무것도 처리되지 않습니다.")
     
@@ -296,48 +277,19 @@ async def process_service_class(node_list, connection):
     # * 마지막 그룹에 대한 처리를 합니다.
     if context_range and convert_sp_code:
         print("순회가 끝났지만 남은 context_range와 convert_sp_code가 있어 converting을 진행합니다.")
-        (convert_sp_code, total_tokens, variable_dict, context_range) = await process_converting(convert_sp_code, total_tokens, variable_dict, context_range, connection)
+        (convert_sp_code, total_tokens, variable_dict, context_range) = await process_converting(convert_sp_code, total_tokens, variable_dict, context_range, connection, procedure_variables, service_skeleton, jpa_method_list)
 
 
-# 역할: 각 노드에 자바 코드를 속성으로 추가하기 위한 준비 및 시작 함수
+
+
+# 역할: 스토어드 프로시저 파일과 ANTLR 분석 파일을 읽어서 분석을 시작하는 메서드입니다.
 # 매개변수: 
-#   sp_fileName - 스토어드 프로시저 파일 이름
+#   service_skeleton - 서비스 클래스의 기본 구조.
+#   jpa_method_list - 사용된 JPA 메서드 목록.
+#   procedure_variable - 프로시저 선언부에서 사용된 변수 정보.
 # 반환값: 없음 
-async def start_service_processing(sp_fileName):
+async def start_service_processing(service_skeleton, jpa_method_list, procedure_variable):
     
-    # * 서비스 스켈레톤
-    service_skeleton_code = """
-@RestController
-public class OgadwService {{
-    @PostMapping(path="/calculate")
-    public void calculate(@RequestBody OgadwCommand command) {{
-            //Here is business logic 
-    }}
-
-}}
-    """
-
-    # * Command 클래스의 변수
-    procedure_variable = {
-            "procedureParameters": [
-                "p_TL_APL_ID IN VARCHAR2",
-                "p_TL_ACC_ID IN VARCHAR2",
-                "p_APPYYMM IN VARCHAR2",
-                "p_WORK_GBN IN VARCHAR2",
-                "p_WORK_DTL_GBN IN VARCHAR2",
-                "p_INSR_CMPN_CD IN VARCHAR2",
-                "p_WORK_EMP_NO IN VARCHAR2",
-                "p_RESULT OUT VARCHAR2",
-            ]
-    }
-    
-
-    # * 전역 변수 초기화(프로시저 파일, command_class 변수, 서비스 틀)
-    global fileName, procedure_variables, service_skeleton
-    fileName = convert_to_lower_case_no_underscores(sp_fileName)
-    procedure_variables = list(procedure_variable["procedureParameters"])
-    service_skeleton = service_skeleton_code
-
 
     # * Neo4j 연결 생성
     connection = Neo4jConnection() 
@@ -355,27 +307,15 @@ public class OgadwService {{
             """,
             "MATCH (v:Variable) RETURN v"
         ]
-
         
         # * 쿼리 실행
         results = await connection.execute_queries(node_query)
         
 
         # * 결과를 함수로 전달
-        await process_service_class(results, connection)
+        await traverse_node_for_service(results, connection, procedure_variable, service_skeleton, jpa_method_list)
 
 
-    except Exception as e:
-        print(f"An error occurred from neo4j for service creation: {e}")
-    finally:
-        await connection.close() 
-
-
-# 서비스 생성을 위한 테스트 모듈입니다.
-class TestAnalysisMethod(unittest.IsolatedAsyncioTestCase):
-    async def test_create_service(self):
-        await start_service_processing("P_B_CAC120_CALC_SUIP_STD")
-
-
-if __name__ == "__main__":
-    unittest.main()
+    except Exception:
+        logging.exception("An error occurred prepare create service class(converting)")
+        raise

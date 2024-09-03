@@ -35,25 +35,15 @@ def convert_to_lower_case_no_underscores(fileName):
 #   repository_code_list - 각 리포지토리 인터페이스의 코드가 담긴 리스트.
 #   repository_pascal_name - 생성될 리포지토리 인터페이스의 이름 (PascalCase 형식).
 #   repository_camel_name - 생성될 리포지토리 인터페이스의 이름 (camelCase 형식).
-#   primary_key_type - 리포지토리의 주 키 타입.
 #   entity_name - 사용된 엔티티 이름
 #   spFile_name - 스토어드 프로시저 파일 이름
 # 반환값: 없음
-# TODO 수정 필요 
-async def merge_jpa_query_method(repository_code_list, repository_pascal_name, repository_camel_name, primary_key_type):
+async def merge_jpa_query_method(repository_code_list, repository_pascal_name, repository_camel_name):
     
     try:        
-        # * 각 리포지토리 인터페이스 코드에서 @Query 어노테이션과 해당 메서드를 추출하고, 과도한 공백을 정리합니다.
-        all_methods = set()
-        for interface_content in repository_code_list:
-            methods = re.findall(r'(@Query\(".*?"\))\s+(.*?;)', interface_content, re.DOTALL)
-            methods = [re.sub(r'\s+', ' ', query) + '\n    ' + re.sub(r'\s+', ' ', method) for query, method in methods]
-            all_methods.update(methods) 
-
-
-        # * 추출된 메서드들을 들여쓰기를 조정하여 하나의 문자열로 결합합니다.
-        adjusted_methods = ['    ' + method for method in all_methods]
-        merged_methods = '\n\n'.join(adjusted_methods) 
+        # * 전달된 JPA 쿼리 메서드들의 들여쓰기 조정하여 하나의 문자열로 생성
+        adjusted_methods = ['    ' + method.strip() for method in repository_code_list]
+        merged_methods = '\n\n'.join(adjusted_methods)
 
         # * 통합된 리포지토리 인터페이스를 생성합니다.
         repository_interface = f"""package com.example.{fileName}.repository;
@@ -66,7 +56,7 @@ import com.example.{fileName}.entity.{repository_pascal_name};
 import java.time.LocalDate;
 
 @RepositoryRestResource(collectionResourceRel = "{repository_camel_name}s", path = "{repository_camel_name}s")
-public interface {repository_pascal_name}Repository extends JpaRepository<{repository_pascal_name}, {primary_key_type}> {{
+public interface {repository_pascal_name}Repository extends JpaRepository<{repository_pascal_name}, Long> {{
 {merged_methods}
 }}
     """
@@ -103,29 +93,42 @@ def calculate_spCode_length(spCode):
         raise
 
 
-# 역할: 현재 노드에서 사용된 변수 노드를 neo4j에서 가져오고, 변수의 이름이 담긴 리스트와 토큰 길이를 반환합니다.
+# 역할: 현재 노드에서 사용된 변수 노드를 neo4j에서 가져오고, 변수의 정보가 담긴 리스트와 토큰 길이를 반환합니다.
 # 매개변수: 
 #   - node_id : 현재 노드 id
 # 반환값: 
-#   - variable_names_list : 변수 이름으로 구성된 리스트.
+#   - filtered_variable_info : 변수 정보가 담긴 리스트.
 #   - variable_tokens : 변수 이름 리스트의 토큰 길이.
 async def process_variable_nodes(node_id, connection):
-    
     try:
-        # * Neo4j 데이터베이스에서 node_id에 해당하는 변수 노드를 가져와서 필요한 정보를 추출합니다
+
+        # * Neo4j 데이터베이스에서 모든 변수 노드를 가져옵니다
         query = ["MATCH (v:Variable) RETURN v"]
         all_variable_nodes = await connection.execute_queries(query) 
         logging.info("\nSuccess received all Variable Nodes from Neo4J\n")
-        filtered_variable_nodes = [
-            node for node in all_variable_nodes[0] 
-            if node['v']['startLine'] <= node_id <= node['v']['endLine']
-        ]
-        variable_names_list = [node['v']['name'] for node in variable_nodes[0]]
-        variable_tokens = calculate_spCode_length(variable_names_list)
-        return variable_names_list, variable_tokens
+
+
+        # * node_id가 속성명의 범위 내에 있는 노드를 필터링합니다
+        filtered_variable_info = []
+        for node in all_variable_nodes[0]:
+            for key, value in node['v'].items():
+                if '_' in key:
+                    start, end = map(int, key.split('_'))
+                    if start <= node_id <= end:
+                        filtered_variable_info.append({
+                            'name': node['v']['name'],
+                            'type': node['v'].get('type', 'Unknown'),
+                            'role': f"{key} : {value}",
+                        })                        
+                        break
+
+
+        # * 필터링된 노드 정보의 토큰을 계산합니다.
+        variable_tokens = calculate_spCode_length(filtered_variable_info)
+        return filtered_variable_info, variable_tokens
 
     except Exception:
-        logging.exception(f"Error occurred while merge jpa query method")
+        logging.exception("변수 노드 처리 중 오류가 발생했습니다")
         raise
 
 
@@ -162,13 +165,13 @@ async def check_tokens_and_process(table_link_node, connection):
             if item['name'] != current_name:
 
                 # * 현재까지 쌓아둔 데이터 그룹을 llm에게 전달해서 처리하기 위한 함수를 호출합니다
-                repository_code, pascal_name, camel_name, primary_key_type, method_list = await create_repository_interface(table_link_node_chunk, variable_nodes_context)
+                repository_code, pascal_name, camel_name, method_list = await create_repository_interface(table_link_node_chunk, variable_nodes_context)
                 repository_code_list.append(repository_code)
                 jpa_method_list.append(method_list)
 
 
                 # * 한 테이블에 대한 처리가 끝났으니 최종적으로 하나의 리포지토리 인터페이스를 생성합니다 
-                await merge_jpa_query_method(repository_code_list, pascal_name, camel_name, primary_key_type)
+                await merge_jpa_query_method(repository_code_list, pascal_name, camel_name)
 
                 # * 다음 사이클을 위해 각 변수를 초기화합니다
                 repository_code_list.clear()
@@ -188,7 +191,7 @@ async def check_tokens_and_process(table_link_node, connection):
                     variable_names_list, variable_tokens = await process_variable_nodes(item['startLine'], connection) # 사용된 변수 노드 정보를 가져옵니다
                     variable_nodes_context[f'variables_{item["startLine"]}'] = variable_names_list
                     process_append_flag = False  # 추가 데이터 처리 방지
-                repository_code, pascal_name, camel_name, primary_key_type, method_list = await create_repository_interface(table_link_node_chunk, variable_nodes_context)
+                repository_code, pascal_name, camel_name, method_list = await create_repository_interface(table_link_node_chunk, variable_nodes_context)
                 repository_code_list.append(repository_code)
                 jpa_method_list.append(method_list)
                 
@@ -210,10 +213,10 @@ async def check_tokens_and_process(table_link_node, connection):
 
         # * 마지막 데이터 그룹을 처리합니다
         if table_link_node_chunk:
-            repository_code, pascal_name, camel_name, primary_key_type, method_list = await create_repository_interface(table_link_node_chunk, variable_nodes_context)
+            repository_code, pascal_name, camel_name, method_list = await create_repository_interface(table_link_node_chunk, variable_nodes_context)
             repository_code_list.append(repository_code)
             jpa_method_list.append(method_list)
-            await merge_jpa_query_method(repository_code_list, pascal_name, camel_name, primary_key_type)
+            await merge_jpa_query_method(repository_code_list, pascal_name, camel_name)
         
         return jpa_method_list
 
@@ -230,7 +233,6 @@ async def check_tokens_and_process(table_link_node, connection):
 #   repository_code: 생성된 Java 리포지토리 인터페이스 코드.
 #   repository_pascal_name: 리포지토리의 이름 (PascalCase 형식).
 #   repository_camel_name: 리포지토리의 이름 (camelCase 형식).
-#   primary_key_type: 리포지토리의 주 키 타입.
 #   method_list: 리포지토리 인터페이스에 포함될 메서드 리스트.
 #   entity_name: 사용된 엔티티 이름
 async def create_repository_interface(node_data, variable_nodes_context):
@@ -241,11 +243,10 @@ async def create_repository_interface(node_data, variable_nodes_context):
         repository_code = analysis_data['code']
         repository_pascal_name = analysis_data['pascalName']
         repository_camel_name = analysis_data['camelName']
-        primary_key_type = analysis_data['primaryKeyType']
         method_list = analysis_data['methodList']
         jpa_method_dict.update(method_list)
         logging.info("\nSuccess RqRs LLM\n")
-        return repository_code, repository_pascal_name, repository_camel_name, primary_key_type, method_list
+        return repository_code, repository_pascal_name, repository_camel_name, method_list
     except Exception:
         logging.exception(f"Error occurred while create jpa query method")
         raise
@@ -266,7 +267,7 @@ async def start_repository_processing(sp_fileName):
 
 
         # * 테이블 노드를 가져옵니다. 
-        query = ['MATCH (n:TABLE) RETURN n']
+        query = ['MATCH (n:Table) RETURN n']
         table_nodes = await connection.execute_queries(query)
         logging.info("\nSuccess received Table Nodes from Neo4J\n")
         table_node_list = table_nodes[0]   # 쿼리 결과 사용
@@ -276,7 +277,7 @@ async def start_repository_processing(sp_fileName):
         for node in table_node_list:
             node_name = node['n']['name'] 
             key_type = node['n'].get('keyType', 'Long') 
-            one_depth_nodes = [f"MATCH (n:TABLE {{name: '{node_name}'}})--(m) WHERE NOT m:TABLE AND NOT m:OPERATION RETURN m"]
+            one_depth_nodes = [f"MATCH (n:Table {{name: '{node_name}'}})--(m) WHERE NOT m:Table AND NOT m:EXECUTE_IMMDDIATE RETURN m"]
             one_depth_nodes = await connection.execute_queries(one_depth_nodes)
             
 

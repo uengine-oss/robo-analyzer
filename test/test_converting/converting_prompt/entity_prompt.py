@@ -32,7 +32,7 @@ prompt = PromptTemplate.from_template(
 3. 클래스의 이름과 'entityName'은 복수형이 아닌 단수형으로 표현하세요. (예: Employees -> Employee)
 4. 'fields' 배열의 각 항목은 카멜 표기법을 적용한 클래스의 속성으로 사용됩니다. (예: B_Plcy_Month -> bPlcyMonth)
 5. 각 속성은 private 접근 제한자를 가져야하며, 속성명을 참고하여 적절한 자바 데이터 타입으로 설정하도록 하세요.
-6. 클래스에 필드들은 서로 중복이 되어선 안되며, 필드명에 숫자가 있는 경우, 이름이 비슷한 필드끼리 묶어서 오름차순으로 나열하세요. (예 : employee1 ~ employee100, name1~ name100)
+
 
 
 아래는 자바 Entity 클래스의 기본 구조입니다:

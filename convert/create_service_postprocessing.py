@@ -1,23 +1,15 @@
 import logging
 import os
-import re
-import sys
 import textwrap
 import unittest
 import aiofiles
 import tiktoken
-
-logging.basicConfig(level=logging.INFO)
-logging.getLogger('asyncio').setLevel(logging.ERROR)
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
 from cypher.neo4j_connection import Neo4jConnection
 
 
 # * 인코더 설정 및 파일 이름 및 변수 초기화 
 encoder = tiktoken.get_encoding("cl100k_base")
 service_skeleton = None
-
 
 
 # 역할: 크기가 매우 큰 노드의 요약 처리된 자바 코드에 실제 자식 자바 코드로 채워넣기 위한 함수
@@ -66,6 +58,7 @@ async def process_service_class(node_list, connection):
     all_java_code = ""
     process_started = 0
 
+
     # * service class를 생성하기 위한 노드의 순회 시작
     for node in node_list:
         start_node = node['n']
@@ -104,13 +97,9 @@ async def process_service_class(node_list, connection):
 
 # 역할: 노드 정보를 사용하여 서비스 클래스를 생성합니다. 
 # 매개변수: 없음
-async def start_create_service_class():
+async def merge_service_code(lower_name, service_skeleton, pascal_name):
     
-
-    # * 전역 변수
-    global service_skeleton
-
-
+    logging.info("합치기 시작")
     # * Neo4j 연결 생성
     connection = Neo4jConnection() 
     
@@ -134,126 +123,31 @@ async def start_create_service_class():
 
         # * 결과를 함수로 전달
         all_java_code = await process_service_class(results[0], connection)
-        
 
-        # * 서비스 스켈레톤
-        service_skeleton_code = f"""
-package com.example.pbcac120calcsuipstd.service;
 
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RestController;
-import com.example.pbcac120calcsuipstd.command.PBCac120CalcSuipStdCommand;
-import org.springframework.beans.factory.annotation.Autowired;
-import java.util.List;
-import org.springframework.transaction.annotation.Transactional;
+        # * 서비스 바디 채우기
+        indented_java_code = textwrap.indent(all_java_code, '        ')
+        completed_service_code = service_skeleton.replace("CodePlaceHolder", indented_java_code)
 
-@RestController
-@Transactional
-public class PBCac120CalcSuipStdService {{
+        logging.info("시작")
+        logging.info(completed_service_code)
 
-    @PostMapping(path="/Endpoint")
-    public void process(@RequestBody PBCac120CalcSuipStdCommand command) {{
-        String vResultValue = "";
-        long vDivnCnt = 0;
-        long vCnt = 0;
-        long vIdSeq = 0;
-        String vTopDivnCd = "";
-        String vSql = "";
-        String vSqlInsert = "";
-        String vSqlSelect = "";
-        String vSqlFrom = "";
-        String vSqlGroup = "";
-        String vSqlSet = "";
-        String vSqlWhere = "";
-        String vSqlWhere01 = "";
-        String vSqlWhere02 = "";
-        String vSqlWhere03 = "";
-        String vSqlWhere04 = "";
-        String vSqlWhere05 = "";
-        String vSqlWhere06 = "";
-        String vSqlUpdate = "";
-        String vSqlJoin = "";
-        String vStdDataCol = "";
-        String vStdSuipDataCol = "";
-        String vStdInsertRst = "";
-        String vStdSelectRst = "";
-        String vStdGroupRst = "";
-        String vCarStdDataCol = "";
-        String vCarStdSuipDataCol = "";
-        String vCarStdInsertRst = "";
-        String vCarStdSelectRst = "";
-        String vCarStdGroupRst = "";
-        String vGenStdDataCol = "";
-        String vGenStdSuipDataCol = "";
-        String vGenStdInsertRst = "";
-        String vGenStdSelectRst = "";
-        String vGenStdGroupRst = "";
-        long iIdx = 0;
-        long iMax = 0;
-        String vInsrCmpnCd = "";
-        String vSuipCommGbn = "";
-        String vStdComCd = "";
-        String vDataCd = "";
-        String vSuipDataCd = "";
-        String vAggregateExp = "";
-        String vDtType = "";
-        String vDtStandard = "";
-        long vSortNo = 0;
-        long vCalcOrder = 0;
-        String vCalcSign = "";
-        String vCalcSignVal = "";
-        String vSrcExcelCd = "";
-        String vSrcSuipComCd = "";
-        String vSrcFlt1Cd = "";
-        String vSrcFlt1CompCd = "";
-        String vSrcFlt1Val = "";
-        String vSrcFlt2Cd = "";
-        String vSrcFlt2CompCd = "";
-        String vSrcFlt2Val = "";
-        String vSrcFlt3Cd = "";
-        String vSrcFlt3CompCd = "";
-        String vSrcFlt3Val = "";
-        String vSrcFlt4Cd = "";
-        String vSrcFlt4CompCd = "";
-        String vSrcFlt4Val = "";
-        String vSrcFlt5Cd = "";
-        String vSrcFlt5CompCd = "";
-        String vSrcFlt5Val = "";
-        String vSrcFlt6Cd = "";
-        String vSrcFlt6CompCd = "";
-        String vSrcFlt6Val = "";
-        String vSrcSuipComCdMatch = "";
-        String vSrcSuipComCdOrg = "";
-        String vStndCarCategory = "";
 
-{textwrap.indent(all_java_code, '        ')}
-    }}
-}}
-        """
-        service_skeleton = service_skeleton_code
-        
-        
-        # * 서비스 클래스 파일을 생성합니다.  
-        service_directory = os.path.join('test', 'test_converting', 'converting_result','service')
-        os.makedirs(service_directory, exist_ok=True)
-        service_path = os.path.join(service_directory, "PBCac120CalcSuipStdService.java")
-        async with aiofiles.open(service_path, 'w', encoding='utf-8') as file:
-            await file.write(service_skeleton)
-            logging.info(f"\nSuccess Create PBCac120CalcSuipStdService Java File\n")
+        # * 서비스 클래스 생성을 위한 경로를 설정합니다.
+        base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT', 'convert')
+        service_directory = os.path.join(base_directory, 'converting_result', f'{lower_name}', 'src', 'main', 'java', 'com', 'example', f'{lower_name}','service')
+        os.makedirs(service_directory, exist_ok=True) 
+        service_file_path = os.path.join(service_directory, f"{pascal_name}Service.java")
+
+
+        # * 서비스 클래스를 파일로 생성합니다.
+        async with aiofiles.open(service_file_path, 'w', encoding='utf-8') as file:  
+            await file.write(completed_service_code)  
+            logging.info(f"\nSuccess Create Service Java File\n")  
+
 
 
     except Exception as e:
         print(f"An error occurred from neo4j for service creation: {e}")
     finally:
         await connection.close() 
-
-
-# 서비스 생성을 위한 테스트 모듈입니다.
-class TestAnalysisMethod(unittest.IsolatedAsyncioTestCase):
-    async def test_create_service(self):
-        await start_create_service_class()
-
-
-if __name__ == "__main__":
-    unittest.main()

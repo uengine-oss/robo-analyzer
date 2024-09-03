@@ -16,8 +16,8 @@ class AsyncTestCase(unittest.IsolatedAsyncioTestCase):
     async def test_generate_and_execute_cypher_simple_execution(self):
         
         # * 테스트할 파일 이름과 마지막 라인 번호 설정
-        test_filename = "P_B_CAC120_CALC_SUIP_STD"
-        last_line = 2008
+        test_filename = "testjava"
+        last_line = 67
 
         # * 검증 로직 없이 함수 실행만 확인
         async for _ in generate_and_execute_cypher(test_filename, last_line):
