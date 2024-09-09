@@ -26,37 +26,10 @@ prompt = PromptTemplate.from_template(
 
 
 프로시저 선언부 데이터를 Service 클래스로 전환할 때, 다음 지침을 따르세요:
-1. 전달된 JSON 객체 중에서 'type' 필드의 값이 'declare'인 항목들의 'code' 필드에서 사용된 모든 변수들을 포함한 Service Class의 기본 구조를 작성하세요.
 1. 전달된 JSON 객체 중에서 'type' 필드의 값이 'procedure'인 항목들의 'code' 필드에서 사용된 모든 변수들을 포함한 Command Class의 기본 구조를 작성하세요.
 2. 모든 변수는 적절한 자바 데이터 타입을 사용하고, private 접근 제한자와 카멜 표기법을 적용하세요. (데이터 타입의 경우, 되도록이면 int 대신 long을 사용하세요.)
-4. Service Class의 메소드에서, HTTP 요청의 본문을 받기 위해 생성된 Command 클래스의 인스턴스 이름을 사용하세요.
-5. Service와 Command 클래스의 이름은 로직에 알맞게 작성해주세요.
+5. Command 클래스의 이름은 로직에 알맞게 작성해주세요.
 
-
-아래는 Service의 기본 구조입니다:
-package com.example.{proejct_name}.service;
-
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RestController;
-import com.example.{proejct_name}.command.commandClassName(실제 Command Class 이름으로 대체);
-import org.springframework.beans.factory.annotation.Autowired;
-import java.util.List;
-import org.springframework.transaction.annotation.Transactional;
-
-@RestController
-@Transactional
-public class ExampleController {{
-
-    @PostMapping(path="/Endpoint")
-    public MethodType methodName(@RequestBody CommandClassName exampleInput) {{
-        Type variable1 = 0;
-        Type variable2 = 0;
-        ...
-
-        return;
-    }}
-}}
 
 아래는 Command의 기본 구조입니다:
 package com.exmaple.{proejct_name}.service;
@@ -73,9 +46,7 @@ public class CommandClassName {{
 
 아래는 결과 예시로, 부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요:
 {{
-    "serviceName": "Service Class Name",
     "commandName": "Command Class Name",
-    "service": "Service Java Code",
     "command": "Command Java Code",
     "command_class_variable": [
         "Command Class에 선언된 변수들을 여기에 채워넣으세요."
@@ -85,7 +56,7 @@ public class CommandClassName {{
 )
 
 
-def convert_service_skeleton_code(procedure_data, spFile_Name):
+def convert_command_code(procedure_data, spFile_Name):
     procedure_json = json.dumps(procedure_data)
 
     chain = (

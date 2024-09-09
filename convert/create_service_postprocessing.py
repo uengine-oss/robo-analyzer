@@ -4,7 +4,7 @@ import textwrap
 import unittest
 import aiofiles
 import tiktoken
-from cypher.neo4j_connection import Neo4jConnection
+from understand.neo4j_connection import Neo4jConnection
 
 
 # * 인코더 설정 및 파일 이름 및 변수 초기화 
@@ -56,7 +56,6 @@ async def process_service_class(node_list, connection):
 
     previous_node_endLine = 0
     all_java_code = ""
-    process_started = 0
 
 
     # * service class를 생성하기 위한 노드의 순회 시작
@@ -70,7 +69,7 @@ async def process_service_class(node_list, connection):
         print(f"시작 노드 : [ 시작 라인 : {start_node['startLine']}, 이름 : ({start_node['name']}), 끝라인: {start_node['endLine']}, 토큰 : {start_node['token']}")
         print(f"관계: {relationship}")
         if end_node: print(f"종료 노드 : [ 시작 라인 : {end_node['startLine']}, 이름 : ({end_node['name']}), 끝라인: {end_node['endLine']}, 토큰 : {end_node['token']}")
-        is_duplicate_or_unnecessary = (previous_node_endLine > start_node['startLine'] and previous_node_endLine) or ("EXECUTE_IMMDDIATE" in node_name and not process_started)
+        is_duplicate_or_unnecessary = (previous_node_endLine > start_node['startLine'] and previous_node_endLine) or ("EXECUTE_IMMDDIATE" in node_name)
 
 
         # * 중복(이미 처리된 자식노드) 또는 불필요한 노드 건너뛰기
@@ -87,7 +86,6 @@ async def process_service_class(node_list, connection):
 
 
         # * 처리 상태 초기화 및 Java 코드 추가
-        process_started = 1
         all_java_code += java_code + "\n\n"
         previous_node_endLine = start_node['endLine']
 
@@ -97,7 +95,7 @@ async def process_service_class(node_list, connection):
 
 # 역할: 노드 정보를 사용하여 서비스 클래스를 생성합니다. 
 # 매개변수: 없음
-async def merge_service_code(lower_name, service_skeleton, pascal_name):
+async def merge_service_code(lower_name, service_skeleton, service_name):
     
     logging.info("합치기 시작")
     # * Neo4j 연결 생성
@@ -127,7 +125,7 @@ async def merge_service_code(lower_name, service_skeleton, pascal_name):
 
         # * 서비스 바디 채우기
         indented_java_code = textwrap.indent(all_java_code, '        ')
-        completed_service_code = service_skeleton.replace("CodePlaceHolder", indented_java_code)
+        completed_service_code = service_skeleton.replace("CodePlaceHolder2", indented_java_code)
 
         logging.info("시작")
         logging.info(completed_service_code)
@@ -137,7 +135,7 @@ async def merge_service_code(lower_name, service_skeleton, pascal_name):
         base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT', 'convert')
         service_directory = os.path.join(base_directory, 'converting_result', f'{lower_name}', 'src', 'main', 'java', 'com', 'example', f'{lower_name}','service')
         os.makedirs(service_directory, exist_ok=True) 
-        service_file_path = os.path.join(service_directory, f"{pascal_name}Service.java")
+        service_file_path = os.path.join(service_directory, f"{service_name}.java")
 
 
         # * 서비스 클래스를 파일로 생성합니다.
@@ -148,6 +146,6 @@ async def merge_service_code(lower_name, service_skeleton, pascal_name):
 
 
     except Exception as e:
-        print(f"An error occurred from neo4j for service creation: {e}")
+        logging.exception(f"An error occurred from neo4j for service creation: {e}")
     finally:
         await connection.close() 

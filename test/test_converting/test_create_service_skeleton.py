@@ -8,7 +8,7 @@ import tiktoken
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from test_converting.converting_prompt.service_skeleton_prompt import convert_service_skeleton_code
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
-from cypher.neo4j_connection import Neo4jConnection
+from understand.neo4j_connection import Neo4jConnection
 
 # 로깅 설정
 logging.basicConfig(level=logging.INFO)

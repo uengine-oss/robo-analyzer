@@ -12,122 +12,134 @@ from convert.create_entity import start_entity_processing
 from convert.create_service_preprocessing import start_service_processing
 from convert.create_service_postprocessing import merge_service_code 
 from convert.create_service_skeleton import start_service_skeleton_processing
-from cypher.neo4j_connection import Neo4jConnection
-from cypher.analysis import analysis
-from cypher.cypher_prompt.convert_java_prompt import process_convert_to_java
+from understand.neo4j_connection import Neo4jConnection
+from understand.analysis import analysis
+from prompt.java2deths_prompt import convert_2deths_java
+from util.exception import Java2dethsError, LLMCallError, UnderstandingError
+
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__))) 
-SAVE_SQL_DIR = os.path.join(BASE_DIR, "cypher", "sql")
-SAVE_ANALYSIS_DIR = os.path.join(BASE_DIR, "cypher", "analysis")
-ANALYSIS_RESULT_DIR = os.path.join(BASE_DIR, "cyper")
-os.makedirs(SAVE_SQL_DIR, exist_ok=True)
-os.makedirs(SAVE_ANALYSIS_DIR, exist_ok=True)
+SAVE_PLSQL_DIR = os.path.join(BASE_DIR, "data", "plsql")
+SAVE_ANTLR_DIR = os.path.join(BASE_DIR, "data", "analysis")
+os.makedirs(SAVE_PLSQL_DIR, exist_ok=True)
+os.makedirs(SAVE_ANTLR_DIR, exist_ok=True)
 
 
 # 역할: Antlr 서버에서 분석된 결과를 파일 형태로 저장하고, 파일 이름을 반환합니다.
 # 매개변수: 
-#   antlr_data: Antlr 서버에서 분석된 결과 내용, 
-#   sql_data: 원본 스토어드 프로시저 파일 내용, 
-#   file_name: 저장할 파일의 기본 이름
-# 반환값: 저장된 파일의 이름, 파일 내용의 마지막 라인 번호(파일 길이)
-async def save_file_to_disk(antlr_data, sql_data, file_name):
+#   - antlr_data: Antlr 서버에서 분석된 결과 내용, 
+#   - sql_data: 원본 스토어드 프로시저 파일 내용, 
+#   - file_name: 저장할 파일의 기본 이름
+# 반환값: 
+#   - base_sp_file_name: 저장된 스토어드 프로시저  파일이름(확장자 제거)
+#   - last_line: 스토어드 프로시저 파일 내용의 마지막 라인 번호
+async def save_file_to_disk(antlr_data, plsql_data, sp_file_name):
     try: 
         # * 전달된 PLSQL 및 ANTLR 분석 내용을 파일로 저장하기 위한 준비
-        fileName = os.path.splitext(file_name)[0]
-        sql_file_path = os.path.join(SAVE_SQL_DIR, f"{fileName}.txt")
-        analysis_file_path = os.path.join(SAVE_ANALYSIS_DIR, f"{fileName}.json")
+        base_sp_file_name = os.path.splitext(sp_file_name)[0]
+        plplsql_file_path = os.path.join(SAVE_PLSQL_DIR, f"{base_sp_file_name}.txt")
+        antlr_file_path = os.path.join(SAVE_ANTLR_DIR, f"{base_sp_file_name}.json")
+
 
         # * 전달된 PLSQL에 줄 번호 추가
-        contents, last_line = add_line_numbers(sql_data.decode('utf-8'))
-        
+        contents, last_line = add_line_numbers(plsql_data.decode('utf-8'))
+        if isinstance(contents, Exception): return contents, last_line
+
+
         # * PLSQL 파일과 분석 결과 파일을 비동기적으로 저장
-        async with aiofiles.open(sql_file_path, "wb") as sql_file, aiofiles.open(analysis_file_path, "w") as analysis_file:
-            await asyncio.gather(sql_file.write(contents.encode()), analysis_file.write(antlr_data.decode('utf-8')))
+        async with aiofiles.open(plplsql_file_path, "wb") as plsql_file, aiofiles.open(antlr_file_path, "w") as antlr_file:
+            await asyncio.gather(plsql_file.write(contents.encode()), antlr_file.write(antlr_data.decode('utf-8')))
 
-        logging.info("File saved")
-        return fileName, last_line
+        logging.info("\nSuccessed File Saved\n")
+        return base_sp_file_name, last_line
 
-    except Exception as e:
-        logging.exception(f"Unexpected error with file {fileName}: {str(e)}")
+    except Exception:
+        error_msg = "Antlr에서 전달된 스토어드 프로시저 파일과 분석 결과 파일을 저장하는 도중 문제가 발생"
+        logging.exception(error_msg)
+        return Exception(error_msg)
 
 
-# 역할: 원본 파일 내용(스토어드 프로시저)의 각 라인에 줄 번호를 추가합니다.
+# 역할: 스토어드 프로시저의 각 라인에 줄 번호를 추가합니다.
 # 매개변수: 
-#      - contents : 원본  스토어드 프로시저 파일 내용
-# 반환값: 줄 번호가 추가된 원본 파일 내용(스토어드 프로시저), 파일 내용의 마지막 라인번호
+#   - contents : 스토어드 프로시저 파일 내용
+# 반환값: 
+#   - numbered_contents : 라인 번호가 추가된 스토어드 프로시저 파일 내용 
+#   - last_line: 스토어드 프로시저 파일 내용의 마지막 라인번호
 def add_line_numbers(contents):
-    lines = contents.splitlines()
-    numbered_lines = [f"{index + 1}: {line}" for index, line in enumerate(lines)]
-    last_line = len(lines) 
-    return "\n".join(numbered_lines), last_line
+    try: 
+        lines = contents.splitlines()
+        numbered_lines = [f"{index + 1}: {line}" for index, line in enumerate(lines)]
+        last_line = len(lines) 
+        numbered_contents = "\n".join(numbered_lines)
+        return numbered_contents, last_line
+    except Exception:
+        error_msg = "전달된 프로시저 코드에 라인번호를 추가하는 도중 문제가 발생"
+        logging.exception(error_msg)
+        return Exception(error_msg), 0
 
 
-# 역할: 저장된 스토어드 프로시저 파일과 분석 파일을 사용하여 사이퍼 쿼리를 생성 및 실행하고, 그 결과를 스트림 형식으로 반환합니다.
+# 역할: 사이퍼 쿼리를 생성 및 실행하고, 그 결과를 스트림 형식으로 반환
 # 매개변수:
-#    - file_name: 처리할 스토어드 프로시저 파일의 기본 이름
-#    - last_line: 스토어드 프로시저 파일의 마지막 라인 번호
-# 반환값: 사이퍼 쿼리 실행 결과를 스트림 형식으로 반환
-async def generate_and_execute_cypher(file_name, last_line):
+#    - sp_file_name: 스토어드 프로시저 파일 이름(확장자 제거)
+#    - last_line: 스토어드 프로시저 파일의 내용의 마지막 라인 번호
+# 반환값: 
+#   - ? : 사이퍼 쿼리 실행 결과를 스트림 형식으로 반환
+async def generate_and_execute_cypherQuery(base_sp_file_name, last_line):
     connection = Neo4jConnection()
-    sql_file_path = os.path.join(SAVE_SQL_DIR, f"{file_name}.txt")
-    analysis_file_path = os.path.join(SAVE_ANALYSIS_DIR, f"{file_name}.json")
-    output_file_path = os.path.join(SAVE_SQL_DIR, 'cypher_queries.txt')
+    plsql_file_path = os.path.join(SAVE_PLSQL_DIR, f"{base_sp_file_name}.txt")
+    antlr_file_path = os.path.join(SAVE_ANTLR_DIR, f"{base_sp_file_name}.json")
     receive_queue = asyncio.Queue()
     send_queue = asyncio.Queue()
-    
+
     try:
         # * 스토어드 프로시저 파일과, ANTLR 구문 분석 파일 읽기 작업을 병렬로 처리
-        async with aiofiles.open(analysis_file_path, 'r', encoding='utf-8') as analysis_file, aiofiles.open(sql_file_path, 'r', encoding='utf-8') as sql_file:
-            analysis_data, sql_content = await asyncio.gather(analysis_file.read(), sql_file.readlines())
-            analysis_data = json.loads(analysis_data)
+        async with aiofiles.open(antlr_file_path, 'r', encoding='utf-8') as antlr_file, aiofiles.open(plsql_file_path, 'r', encoding='utf-8') as plsql_file:
+            antlr_data, plsql_content = await asyncio.gather(antlr_file.read(), plsql_file.readlines())
+            antlr_data = json.loads(antlr_data)
         
 
-        # * 사이퍼 쿼리를 생성 및 실행을 처리하는 메서드
-        async def create_cypher_and_execute():
+        # * 사이퍼쿼리를 생성 및 실행을 처리하는 메서드
+        async def process_analysis_code():
             while True:
                 analysis_result = await receive_queue.get()
-                logging.info("Event Received!")
+                logging.info("Analysis Event Received!")
                 if analysis_result.get('type') == 'end_analysis':
-                    logging.info("Analysis Done")
+                    logging.info("Understanding Completed")
+                    break
+                
+                elif analysis_result.get('type') == 'error':
                     break
 
-
                 # * 사이퍼쿼리 분석 과정에서 전달된 이벤트에서 각종 정보를 추출합니다 
-                cypher_queries = analysis_result['query_data']
+                cypher_queries = analysis_result.get('query_data', [])
                 next_analysis_line = analysis_result['line_number']
                 analysis_progress = int((next_analysis_line / last_line) * 100)
 
 
-                # * 사이퍼쿼리 내용을 파일에 쓰기
-                async with aiofiles.open(output_file_path, 'a', encoding='utf-8') as file:
-                    await file.write("\n".join(cypher_queries))
-                    await file.write("\n분석완료\n")
-                logging.info("Cypher queries have been saved to cypher_queries.txt")
-                
-
-                # * 생성된(전달된) 사이퍼쿼리를 실행하여, 노드와 관계를 생성하고, 그래프 객체형태로 가져옵니다
+                # * 전달된 사이퍼쿼리를 실행하여, 노드와 관계를 생성하고, 그래프 객체형태로 가져옵니다
                 await connection.execute_queries(cypher_queries)
                 graph_result = await connection.execute_query_and_return_graph()
 
 
                 # * 그래프 객체, 다음 분석될 라인 번호, 분석 진행 상태를 묶어서 스트림 형태로 전달할 수 있게 처리합니다
-                final_data = {"graph": graph_result, "line_number": next_analysis_line, "analysis_progress": analysis_progress}
-                encoded_data = json.dumps(final_data).encode('utf-8') + b"send_stream"
+                stream_data = {"graph": graph_result, "line_number": next_analysis_line, "analysis_progress": analysis_progress}
+                encoded_stream_data = json.dumps(stream_data).encode('utf-8') + b"send_stream"
                 await send_queue.put({'type': 'process_completed'})
                 logging.info("Send Response")
-                yield encoded_data
-                # await asyncio.sleep(1)  # 1초 지연 추가 (db에 캐쉬된 상태면, 그래프가 너무 빨리 생성되어서 추가한 것) 
+                yield encoded_stream_data
 
-
-        # * 스토어드 프로시저을 분석(사이퍼쿼리 생성) 작업을 비동기 태스크로 실행하고, 데이터 스트림 생성합니다
-        analysis_task = asyncio.create_task(analysis(analysis_data, sql_content, receive_queue, send_queue, last_line))
-        async for graph_data in create_cypher_and_execute(): 
-            yield graph_data
-        await asyncio.gather(analysis_task)
+        # * understanding 과정을 비동기 태스크로 실행하고, 데이터 스트림 생성하여 전달
+        analysis_task = asyncio.create_task(analysis(antlr_data, plsql_content, receive_queue, send_queue, last_line))
+        async for stream_data_chunk in process_analysis_code():
+            yield stream_data_chunk
+        await analysis_task
         yield "end_of_stream" # * 스트림 종료 신호
 
+
     except Exception:
-        logging.exception("During prepare to generate cypher queries unexpected error occurred")
+        error_msg = "사이퍼쿼리를 생성 및 실행하고 스트림으로 반환하는 과정에서 오류가 발생했습니다"
+        logging.exception(error_msg)
+        yield json.dumps({"error": error_msg}).encode('utf-8') + b"send_stream"
     finally:
         await connection.close()
 
@@ -166,12 +178,16 @@ async def generate_two_depth_match(node_info):
 async def generate_java_from_content(cypher_query=None, previous_history=None, requirements_chat=None):
     try:
         # * 사이퍼 쿼리와 관련 데이터를 바탕으로 자바 코드 생성 프로세스를 실행합니다
-        async for java_code in process_convert_to_java(cypher_query, previous_history, requirements_chat):
+        async for java_code in convert_2deths_java(cypher_query, previous_history, requirements_chat):
             yield java_code
         yield "END_OF_STREAM"
-    except Exception as e:
-        logging.exception("Error transferring Java code to stream")
-        yield {"error": str(e)}
+        
+    except LLMCallError:
+        yield "stream-error"
+    except Exception:
+        err_msg = "2단계 깊이 기준으로 전환된 자바 코드를 스트림으로 전달하는 도중 오류가 발생했습니다."
+        logging.exception(err_msg)
+        yield "stream-error" 
 
 
 # 역할 : 전달받은 이름을 각각의 표기법에 맞게 변환하는 함수
@@ -200,16 +216,16 @@ async def create_spring_boot_project(fileName):
         yield f"Step1 completed"
         
         # * 2 단계 : 리포지토리 인터페이스 생성
-        jpa_method_list = await start_repository_processing(table_node_data, lower_case) 
+        jpa_method_list, repository_interface_names = await start_repository_processing(table_node_data, lower_case) 
         yield f"Step2 completed\n"
         
         # * 3 단계 : 서비스 스켈레톤 생성
-        service_skeleton_code, procedure_variable_list = await start_service_skeleton_processing(lower_case, entity_name_list)
+        service_skeleton_code, procedure_variable_list, service_class_name, service_skeleton_summarzied = await start_service_skeleton_processing(lower_case, entity_name_list, repository_interface_names)
         yield f"Step3 completed\n"
         
         # * 4 단계 : 서비스 생성
-        await start_service_processing(service_skeleton_code, jpa_method_list, procedure_variable_list)
-        await merge_service_code(lower_case, service_skeleton_code, pascal_case)
+        await start_service_processing(service_skeleton_summarzied, jpa_method_list, procedure_variable_list)
+        await merge_service_code(lower_case, service_skeleton_code, service_class_name)
         yield f"Step4 completed\n"
         
         # * 5 단계 : pom.xml 생성

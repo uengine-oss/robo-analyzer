@@ -3,9 +3,9 @@ import logging
 import os
 from fastapi import File, UploadFile, Form
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, StreamingResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from service.service import save_file_to_disk, zip_directory
-from service.service import generate_and_execute_cypher
+from service.service import generate_and_execute_cypherQuery
 from service.service import generate_two_depth_match
 from service.service import generate_java_from_content
 from service.service import create_spring_boot_project
@@ -40,7 +40,7 @@ async def upload_data(analysis_file: UploadFile = File(...), plsql_file: UploadF
     
 
     # * 사이퍼쿼리를 생성하고 실행하는 함수를 호출하여, 결과를 스트림으로 전달
-    return StreamingResponse(generate_and_execute_cypher(saved_filename, last_line))
+    return StreamingResponse(generate_and_execute_cypherQuery(saved_filename, last_line))
 
 
 
@@ -50,23 +50,26 @@ async def upload_data(analysis_file: UploadFile = File(...), plsql_file: UploadF
 @router.post("/Java/")
 async def convert_to_java(request: Request):
 
+    try:
+        # * 요청으로부터 테이블 노드 정보를 JSON 형태로 추출합니다
+        node_info = await request.json()
+        logging.info("Received Node Info for Java: %s", node_info)  
 
-    # * 요청으로부터 테이블 노드 정보를 JSON 형태로 추출합니다
-    node_info = await request.json()
-    logging.info("Received Node Info for Java: %s", node_info)  
-
-    # * 테이블 노드 정보를 기반으로 2단계 깊이 조회를 위한 사이퍼 쿼리를 생성하고 실행합니다
-    cypher_query_for_java = await generate_two_depth_match(node_info)
+        # * 테이블 노드 정보를 기반으로 2단계 깊이 조회를 위한 사이퍼 쿼리를 생성하고 실행합니다
+        cypher_query_for_java = await generate_two_depth_match(node_info)
 
 
-    # * 사이퍼 쿼리 생성 실패 시, HTTP 500 에러 반환
-    if cypher_query_for_java is None:
-        raise HTTPException(status_code=500, detail="Failed to generate cypher query from node information.")
-    
+        # * 사이퍼 쿼리 생성 실패 시, HTTP 500 에러 반환
+        if cypher_query_for_java is None:
+            raise HTTPException(status_code=500, detail="Failed to generate cypher query from node information.")
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
     # * 사이퍼쿼리의 결과를 바탕으로 자바 코드로 변환하고, 그 결과를 스트리밍 응답으로 반환합니다
     return StreamingResponse(generate_java_from_content(cypher_query_for_java))
-
+    
 
 
 # 역할: 클라이언트로부터 받은 채팅과 이전 히스토리를 기반으로 자바 코드로 변환하여 스트리밍 응답으로 반환합니다.

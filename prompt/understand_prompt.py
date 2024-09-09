@@ -1,4 +1,5 @@
 import json
+import logging
 import os
 from langchain.globals import set_llm_cache
 from langchain_community.cache import SQLiteCache
@@ -7,14 +8,9 @@ from langchain.prompts import PromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
 from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
+from util.exception  import LLMCallError
 
 
-# 역할 : 주어진 PLSQL 파일을 분석하여, 필요한 정보를 추출합니다
-# 매개변수: 
-#      - code: 분석할 스토어드 프로시저 코드 
-#      - ontext_ranges : 분석할 스토어드 프로시저 코드의 범위 
-#      - context_range_count : 분석할 스토어드 프로시저 범위의 개수(결과 개수 유지를 위함)
-# 반환값 : 추후에 분석에 사용되는 필요한 정보(변수, 테이블, 테이블 필드.. 등등)
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
 llm = ChatOpenAI(model="gpt-4o")
@@ -78,14 +74,28 @@ prompt = PromptTemplate.from_template(
 }}
 """)
 
-def understand_code(code, context_ranges, context_range_count):
-    ranges_json = json.dumps(context_ranges)
 
-    chain = (
-        RunnablePassthrough()
-        | prompt
-        | llm
-        | JsonOutputParser()
-    )
-    result = chain.invoke({"code": code, "ranges": ranges_json, "count": context_range_count})
-    return result, prompt.template
+# 역할 : 주어진 스토어드 프로시저 코드  분석하여, 그래프 생성에 필요한 정보 받습니다
+# 매개변수: 
+#   - sp_code: 분석할 스토어드 프로시저 코드 
+#   - context_ranges : 분석할 스토어드 프로시저 코드의 범위 
+#   - context_range_count : 분석할 스토어드 프로시저 범위의 개수(결과 개수 유지를 위함)
+# 반환값 : 
+#   - result : llm의 분석 결과
+#   - prompt.template : 프롬포트 템플릿
+def understand_code(sp_code, context_ranges, context_range_count):
+    try:
+        ranges_json = json.dumps(context_ranges)
+
+        chain = (
+            RunnablePassthrough()
+            | prompt
+            | llm
+            | JsonOutputParser()
+        )
+        result = chain.invoke({"code": sp_code, "ranges": ranges_json, "count": context_range_count})
+        return result, prompt.template
+    except Exception as e:
+        err_msg = "Understanding 과정에서 LLM 호출하는 도중 오류가 발생했습니다."
+        logging.exception(err_msg)
+        raise LLMCallError(err_msg)

@@ -8,10 +8,10 @@ import tiktoken
 logging.basicConfig(level=logging.INFO)
 logging.getLogger('asyncio').setLevel(logging.ERROR)
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-from test_converting.converting_prompt.parent_skeleton_prompt import convert_parent_skeleton
-from test_converting.converting_prompt.service_prompt import convert_code
+from convert.converting_prompt.parent_skeleton_prompt import convert_parent_skeleton
+from convert.converting_prompt.service_prompt import convert_code
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
-from cypher.neo4j_connection import Neo4jConnection
+from understand.neo4j_connection import Neo4jConnection
 
 
 # * 인코더 설정 및 파일 이름 및 변수 초기화 
@@ -19,6 +19,54 @@ encoder = tiktoken.get_encoding("cl100k_base")
 fileName = None
 procedure_variables = []
 service_skeleton = None
+
+
+# 역할: 주어진 범위에서 startLine과 endLine을 추출해서 스토어드 프로시저 코드를 잘라내는 함수입니다.
+# 매개변수: 
+#     - code : 스토어드 프로시저 코드
+#     - context_range : 잘라낼 범위를 나타내는 딕셔너리의 리스트
+# 반환값: 범위에 맞게 추출된 스토어드 프로시저 코드.
+def extract_code_within_range(code, context_range):
+    try:
+        if not (code and context_range):
+            return ""
+
+        # * context_range에서 가장 작은 시작 라인과 가장 큰 끝 라인을 찾습니다.
+        start_line = min(range_item['startLine'] for range_item in context_range)
+        end_line = max(range_item['endLine'] for range_item in context_range)
+
+
+        # * 코드를 라인별로 분리합니다.
+        code_lines = code.split('\n')
+        
+
+        # * 지정된 라인 번호를 기준으로 코드를 추출합니다.
+        extracted_lines = [
+            line for line in code_lines 
+            if ':' in line and start_line <= int(line.split(':')[0].split('~')[0].strip()) <= end_line
+        ]
+        
+        return '\n'.join(extracted_lines)
+    except Exception:
+        logging.exception("Error occurred while extracting code within range(understanding)")
+        raise
+
+
+# 역할: 주어진 스토어드 프로시저 코드의 토큰의 개수를 계산하는 함수입니다.
+# 매개변수: 
+#      - code - 토큰을 계산할 스토어드 프로시저
+# 반환값: 계산된 토큰의 수
+def count_tokens_in_text(code):
+    
+    if not code: return 0
+
+    try:
+        # * 코드를 토큰화하고 토큰의 개수를 반환합니다.
+        tokens = encoder.encode(code)
+        return len(tokens)
+    except Exception:
+        logging.exception("Unexpected error occurred during token counting(understanding)")
+        raise
 
 
 # 역할 : 전달받은 이름을 전부 소문자로 전환하는 함수입니다,
@@ -107,28 +155,36 @@ async def process_converting(convert_sp_code, total_tokens, variable_dict, conte
     
     try:
         # * 노드 업데이트 쿼리를 저장할 리스트 및 범위 개수
-        node_update_query = []
+        parent_context_range = []
         range_count = len(context_range)
 
 
         # * 프로시저 코드를 분석합니다(llm에게 전달)
-        analysis_result = convert_code(convert_sp_code, service_skeleton, variable_dict, procedure_variables, context_range, range_count)
-        logging.info(f"\nsuccessfully converted code\n")
-
-
-        # * 분석 결과 각각의 데이터를 추출하고, 필요한 변수를 초기화합니다 
-        for result in analysis_result['analysis']:
-            start_line = result['range']['startLine']
-            service_code = result['code']
-            query = f"MATCH (n) WHERE n.startLine = {start_line} SET n.java_code = '{service_code.replace('\n', '\\n').replace("'", "\\'")}'"
-            node_update_query.append(query)        
+        analysis_result, prompt_template = convert_code(convert_sp_code, service_skeleton, variable_dict, procedure_variables, context_range, range_count)
+        combined_context = f"{prompt_template}\n{context_range}\n{service_skeleton}\n{variable_dict}\n{procedure_variables}\n{analysis_result}"
+        combined_context_tokens = count_tokens_in_text(combined_context)
+        logging.info(f"토큰 수 : {combined_context_tokens + total_tokens}")
         
+        if combined_context_tokens + total_tokens > 4096 and range_count > 1:
+            largest_range_index = max(range(len(context_range)), key=lambda i: context_range[i]['endLine'] - context_range[i]['startLine'])
+            parent_context_range.append(context_range.pop(largest_range_index))
+            half_point = len(context_range) // 2
 
-        # * 노드 업데이트 쿼리를 실행하는 메서드를 호출 
-        await process_node_update_java_properties(node_update_query, connection)
+            for sub_range in [context_range[:half_point], context_range[half_point:]]:
+                if sub_range:
+                    extract_range_code = extract_code_within_range(convert_sp_code, sub_range)
+                    sub_analysis_result, _ = convert_code(convert_sp_code, service_skeleton, variable_dict, procedure_variables, sub_range, len(sub_range))
+                    await handle_analysis_result(sub_analysis_result, connection)
+            
+            if parent_context_range:
+                    parent_analysis_result, _ = convert_code(convert_sp_code, service_skeleton, variable_dict, procedure_variables, parent_context_range, len(parent_context_range))
+                    await handle_analysis_result(parent_analysis_result, connection)
+        else:
+            extract_range_code = extract_code_within_range(convert_sp_code, context_range)
+            await handle_analysis_result(analysis_result, connection, extract_range_code)
 
 
-        # * 다음 분석 주기를 위해 필요한 변수를 초기화합니다
+        logging.info(f"\nsuccessfully converted code\n")
         convert_sp_code = ""
         total_tokens = 0
         context_range.clear()
@@ -136,10 +192,29 @@ async def process_converting(convert_sp_code, total_tokens, variable_dict, conte
 
         return (convert_sp_code, total_tokens, variable_dict, context_range)
 
-
     except Exception:
         logging.exception("An error occurred during analysis results processing(converting)")
         raise
+
+
+# 역할: 
+# 매개변수 : 
+#   - analysis_result :
+# 반환값 : 
+async def handle_analysis_result(analysis_result, connection):
+    
+    node_update_query = []
+
+    # * 분석 결과 각각의 데이터를 추출하고, 필요한 변수를 초기화합니다 
+    for result in analysis_result['analysis']:
+        start_line = result['range']['startLine']
+        service_code = result['code']
+        query = f"MATCH (n) WHERE n.startLine = {start_line} SET n.java_code = '{service_code.replace('\n', '\\n').replace("'", "\\'")}'"
+        node_update_query.append(query)        
+    
+
+    # * 노드 업데이트 쿼리를 실행하는 메서드를 호출 
+    await process_node_update_java_properties(node_update_query, connection)
 
 
 
@@ -162,7 +237,7 @@ async def process_service_class(node_list, connection):
     # * Converting 하기 위한 노드의 순회 시작
     for node in traverse_node:
         start_node = node['n']
-        relationship = node['r'][1] if node['r'] else None
+        relationship = node['r'][1] if node['r'] else "NEXT"
         end_node = node['m']
         node_tokens = 0
         print("\n"+"-" * 40) 
@@ -227,7 +302,7 @@ async def process_service_class(node_list, connection):
 
 
         # * 가독성을 위해 조건을 변수로 분리
-        is_token_limit_exceeded = (total_tokens + node_tokens >= 1200 or len(context_range) >= 10) and context_range 
+        is_token_limit_exceeded = (total_tokens + node_tokens >= 1400 or len(context_range) >= 10) and context_range 
     
 
         # * 총 토큰 수 검사를 진행합니다.
@@ -366,7 +441,7 @@ public class OgadwService {{
 
 
     except Exception as e:
-        print(f"An error occurred from neo4j for service creation: {e}")
+        logging.exception(f"An error occurred from neo4j for service creation: {e}")
     finally:
         await connection.close() 
 

@@ -1,10 +1,11 @@
 import logging
 from neo4j import AsyncGraphDatabase
 import os
+from util.exception import Neo4jError
 
 class Neo4jConnection:
 
-    database_name = "note"
+    database_name = "neo4j"
 
     # 역할 : Neo4j 데이터베이스와의 연결을 초기화합니다. 환경변수를 통해 연결 정보를 설정하며, 설정되지 않은 경우 기본값을 사용합니다.
     # 매개변수:
@@ -25,8 +26,9 @@ class Neo4jConnection:
 
     # 역할: 주어진 사이퍼 쿼리 목록을 실행합니다.
     # 매개변수: 
-    #      - queries : 실행할 사이퍼 쿼리 목록
-    # 반환값 : 사이퍼 쿼리의 실행 결과
+    #   - queries : 실행할 사이퍼 쿼리 목록
+    # 반환값 : 
+    #   - results : 사이퍼 쿼리의 실행 결과
     async def execute_queries(self, queries):
         try:
             results = [] 
@@ -36,14 +38,17 @@ class Neo4jConnection:
                     query_data = await query_result.data()
                     results.append(query_data)
             return results
-        except Exception as e:
-            logging.exception("Failed to execute match queries: %s", e)
+        except Exception:
+            error_msg = "Cypher Query를 실행하여, 노드 및 관계를 생성하는 도중 오류가 발생"
+            logging.exception(error_msg)
+            raise Neo4jError(error_msg)
     
     
-    # 사이퍼 쿼리를 실행하고 그래프 객체 형태로 결과를 반환합니다.
+    # 그래프 DB에 있는 노드와 관계를 그래프 객체 형태로 가져옵니다.
     # 매개변수: 
-    #      - custom_query - 사용자 정의 쿼리 (기본값: "MATCH (n)-[r]->(m) RETURN n, r, m")
-    # 반환값: 그래프를 그리기 위한 노드 및 관계 정보를 포함하는 딕셔너리
+    #   - custom_query - 사용자 정의 쿼리 (기본값: "MATCH (n)-[r]->(m) RETURN n, r, m")
+    # 반환값: 
+    #   - 객체 : 그래프를 그리기 위한 노드 및 관계 정보를 포함하는 딕셔너리
     async def execute_query_and_return_graph(self, custom_query=None):
         try:
             default_query = custom_query or "MATCH (n)-[r]->(m) RETURN n, r, m"
@@ -74,5 +79,7 @@ class Neo4jConnection:
                 logging.info("Queries executed successfully")
                 return {"Nodes": nodes_data, "Relationships": relationships_data}
             
-        except Exception as e:
-            logging.exception("Graph query execution failed: %s", e)
+        except Exception:
+            error_msg = "Neo4J에서 그래프 객체 형태로 결과를 반환하는 도중 문제가 발생"
+            logging.exception(error_msg)
+            raise Neo4jError(error_msg)

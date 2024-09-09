@@ -7,6 +7,7 @@ from langchain_core.output_parsers import JsonOutputParser
 from langchain.prompts import PromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
 
+
 # 역할 : 테이블 정보를 기반으로 스프링부트 기반의 자바 엔티티 클래스를 생성합니다
 # 매개변수: 
 #   - table_data : 테이블 정보
@@ -32,7 +33,7 @@ prompt = PromptTemplate.from_template(
 3. 클래스의 이름과 'entityName'은 복수형이 아닌 단수형으로 표현하세요. (예: Employees -> Employee)
 4. 'fields' 배열의 각 항목은 카멜 표기법을 적용한 클래스의 속성으로 사용됩니다. (예: B_Plcy_Month -> bPlcyMonth)
 5. 각 속성은 private 접근 제한자를 가져야하며, 속성명을 참고하여 적절한 자바 데이터 타입으로 설정하도록 하세요.
-
+(가급적이면 정수형에 대해서는, int 또는 long을 사용하도록 하세요.)
 
 
 아래는 자바 Entity 클래스의 기본 구조입니다:
@@ -67,7 +68,7 @@ public class EntityName {{
 """
 )
 
-def convert_entity_code(table_data, spFile_name):
+def convert_entity_class(table_data, lower_file_name):
     table_json_data = json.dumps(table_data)
 
     chain = (
@@ -76,5 +77,5 @@ def convert_entity_code(table_data, spFile_name):
         | llm
         | JsonOutputParser()
     )
-    result = chain.invoke({"table_json_data": table_json_data, "project_name": spFile_name})
+    result = chain.invoke({"table_json_data": table_json_data, "project_name": lower_file_name})
     return result

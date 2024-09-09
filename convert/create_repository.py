@@ -3,8 +3,8 @@ import os
 import logging
 import aiofiles
 import tiktoken
-from convert.converting_prompt.repository_prompt import convert_repository_code
-from cypher.neo4j_connection import Neo4jConnection
+from prompt.repository_prompt import convert_repository_code
+from understand.neo4j_connection import Neo4jConnection
 
 
 # * 인코더 설정 및 파일 이름 초기화
@@ -52,7 +52,7 @@ import com.example.{lower_name}.entity.{repository_pascal_name};
 import java.time.LocalDate;
 
 @RepositoryRestResource(collectionResourceRel = "{repository_camel_name}s", path = "{repository_camel_name}s")
-public interface {repository_pascal_name}Repository extends JpaRepository<{repository_pascal_name}> {{
+public interface {repository_pascal_name}Repository extends JpaRepository<{repository_pascal_name}, Long> {{
 {merged_methods}
 }}
     """
@@ -125,6 +125,7 @@ async def check_tokens_and_process(table_link_node, connection, lower_name):
     variable_nodes_context = {}     # llm에게 전달할 변수 데이터 모음
     repository_code_list = []       # 리포지토리 코드를 모아두는 리스트 
     jpa_method_list = []            # JPA 메서드 리스트
+    repository_interface_names = {}
     current_name = None             # 현재 처리 중인 테이블의 이름을 추적
     pascal_name = None              # 파스칼 표기법이 적용된 엔티티의 이름
     camel_name = None               # 카멜 표기법이 적용된 엔티티의 이름
@@ -151,7 +152,7 @@ async def check_tokens_and_process(table_link_node, connection, lower_name):
                 repository_code, pascal_name, camel_name, method_list = await create_repository_interface(table_link_node_chunk, variable_nodes_context)
                 repository_code_list.append(repository_code)
                 jpa_method_list.append(method_list)
-
+                repository_interface_names[pascal_name] = camel_name
 
                 # * 한 테이블에 대한 처리가 끝났으니 최종적으로 하나의 리포지토리 인터페이스를 생성합니다 
                 await merge_jpa_query_method(repository_code_list, pascal_name, camel_name, lower_name)
@@ -179,7 +180,9 @@ async def check_tokens_and_process(table_link_node, connection, lower_name):
                 repository_code, pascal_name, camel_name, method_list = await create_repository_interface(table_link_node_chunk, variable_nodes_context)
                 repository_code_list.append(repository_code)
                 jpa_method_list.append(method_list)
-                
+                repository_interface_names[pascal_name] = camel_name
+
+
                 # * 다음 사이클을 위해 각 변수를 초기화합니다
                 table_link_node_chunk = []
                 variable_nodes_context.clear()  
@@ -201,9 +204,10 @@ async def check_tokens_and_process(table_link_node, connection, lower_name):
             repository_code, pascal_name, camel_name, method_list = await create_repository_interface(table_link_node_chunk, variable_nodes_context)
             repository_code_list.append(repository_code)
             jpa_method_list.append(method_list)
+            repository_interface_names[pascal_name] = camel_name
             await merge_jpa_query_method(repository_code_list, pascal_name, camel_name, lower_name)
         
-        return jpa_method_list
+        return jpa_method_list, repository_interface_names
 
     except Exception:
         logging.exception(f"Error occurred while table link node traverse")
@@ -225,7 +229,7 @@ async def create_repository_interface(node_data, variable_nodes_context):
     try:
         # * LLM을 사용하여 주어진 노드 데이터를 분석하고, 나온 결과에서 필요한 정보를 추출합니다
         analysis_data = convert_repository_code(node_data, variable_nodes_context)    
-        repository_code = analysis_data['code']
+        repository_code = analysis_data['jpaQueryMethod']
         repository_pascal_name = analysis_data['pascalName']
         repository_camel_name = analysis_data['camelName']
         method_list = analysis_data['methodList']
@@ -270,9 +274,9 @@ async def start_repository_processing(table_node_list, lower_name):
 
 
         # * 재구성된 노드 정보들을 담아서 처리 및 토큰 계산하는 함수를 호출합니다
-        jpa_method_list = await check_tokens_and_process(filtered_table_info_list, connection, lower_name)
+        jpa_method_list, repository_interface_names = await check_tokens_and_process(filtered_table_info_list, connection, lower_name)
         logging.info("\nSuccess processed All Nodes\n")
-        return jpa_method_list
+        return jpa_method_list, repository_interface_names
     
     except Exception:
         logging.exception(f"Error occurred while bring 1 Depth Nodes from neo4j")

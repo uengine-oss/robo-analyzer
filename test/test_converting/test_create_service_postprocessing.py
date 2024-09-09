@@ -11,7 +11,7 @@ logging.basicConfig(level=logging.INFO)
 logging.getLogger('asyncio').setLevel(logging.ERROR)
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..', '..')))
-from cypher.neo4j_connection import Neo4jConnection
+from understand.neo4j_connection import Neo4jConnection
 
 
 # * 인코더 설정 및 파일 이름 및 변수 초기화 

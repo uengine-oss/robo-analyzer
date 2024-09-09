@@ -3,8 +3,9 @@ import os
 import logging
 import aiofiles
 import tiktoken
-from convert.converting_prompt.service_skeleton_prompt import convert_service_skeleton_code
-from cypher.neo4j_connection import Neo4jConnection
+from prompt.service_skeleton_prompt import convert_service_skeleton_code
+from prompt.command_prompt import convert_command_code
+from understand.neo4j_connection import Neo4jConnection
 
 
 # * 인코더 설정 및 파일 이름 초기화
@@ -36,36 +37,15 @@ def extract_procedure_variable_code(procedure_code):
 #      - procedure_data : 프로시저 노드 데이터
 #      - lower_name : 소문자 프로젝트 이름
 #      - entity_name_list : 엔티티 이름 리스트
+#      - repository_interface_names : 리포지토리 인터페이스 이름 리스트
 # 반환값: 
 #      - service_skeleton_code : 서비스 스켈레톤 클래스 코드 
 #      - command_class_variable : 프로시저의 입력 매개변수(Command 클래스에 선언된 변수 목록)
-async def calculate_tokens_and_process(procedure_data, lower_name, entity_name_list):
+async def calculate_tokens_and_process(procedure_data, declare_data, lower_name, entity_name_list, repository_interface_names):
 
-    service_skeleton_code = None  # 서비스 스켈레톤 코드 초기화
-    total_tokens = 0              # 총 토큰 수 초기화
-    procedure_data_chunk = []     # 처리할 데이터 덩어리 초기화
-    
     try:
-        # * 주어진 프로시저 데이터를 순회하면서 토큰화를 수행합니다.
-        for item in procedure_data:
-            item_json = json.dumps(item, ensure_ascii=False) 
-            item_tokens = len(encoder.encode(item_json))  
-
-            # * 토큰 수가 1000을 넘으면 현재까지의 데이터 덩어리를 처리합니다.
-            if total_tokens + item_tokens >= 1000:  
-                service_skeleton_code, command_class_variable = await create_service_skeleton(procedure_data_chunk, lower_name, entity_name_list)
-                procedure_data_chunk = []     
-                total_tokens = 0               
-            
-            procedure_data_chunk.append(item)  
-            total_tokens += item_tokens        
-        
-
-        # * 남은 데이터 덩어리가 있으면 처리합니다.
-        if procedure_data_chunk:  
-            service_skeleton_code, command_class_variable = await create_service_skeleton(procedure_data_chunk, lower_name, entity_name_list)
-
-        return service_skeleton_code, command_class_variable 
+        service_skeleton_code, command_class_variable, service_class_name, service_skeleton_summarzied = await create_service_skeleton(procedure_data, declare_data, lower_name, entity_name_list, repository_interface_names)
+        return service_skeleton_code, command_class_variable, service_class_name, service_skeleton_summarzied 
      
     except Exception:
         logging.exception(f"Error occurred while procedure node token check")
@@ -77,18 +57,23 @@ async def calculate_tokens_and_process(procedure_data, lower_name, entity_name_l
 #      - procedure_data : 분석할 프로시저 데이터 그룹
 #      - lower_name : 소문자 프로젝트 이름
 #      - entity_name_list : 엔티티 이름 리스트
+#      - repository_interface_names : 리포지토리 인터페이스 이름 리스트
 # 반환값: 
 #      - service : 서비스 스켈레톤 클래스 코드
 #      - command_class_variable : 프로시저의 입력 매개변수(Command 클래스에 선언된 변수 목록)
-async def create_service_skeleton(procedure_data_group, lower_name, entity_name_list):
+async def create_service_skeleton(procedure_data, declare_data, lower_name, entity_name_list, repository_interface_names):
     
     try:
         # * LLM을 사용하여 주어진 데이터를 분석하고 받은 결과에서 정보를 추출합니다
-        analysis_data = convert_service_skeleton_code(procedure_data_group, lower_name)  
-        command_class_name = analysis_data['commandName']
-        command_class_code = analysis_data['command']
-        command_class_variable = analysis_data['command_class_variable']
-        service_class_code = analysis_data['service']
+        analysis_command = convert_command_code(procedure_data, lower_name)  
+        command_class_name = analysis_command['commandName']
+        command_class_code = analysis_command['command']
+        command_class_variable = analysis_command['command_class_variable']
+
+        analysis_service_skeleton = convert_service_skeleton_code(declare_data, lower_name, command_class_name)  
+        service_class_name = analysis_service_skeleton['serviceName']
+        service_class_code = analysis_service_skeleton['service']
+        repository_injection_code = ""
         
 
         # * package 선언 다음에 줄바꿈을 추가하고 entity import 문을 삽입합니다.
@@ -101,9 +86,46 @@ async def create_service_skeleton(procedure_data_group, lower_name, entity_name_
             modified_service_code += f"import com.example.{lower_name}.entity.{entity_name};\n"
 
 
+        # * repository_interface_names의 각 항목에 대해 import 문을 추가합니다.
+        for repo_interface in repository_interface_names.keys():
+            modified_service_code += f"import com.example.{lower_name}.repository.{repo_interface}Repository;\n"
+
+
+        # * import 문과 클래스 선언 사이에 빈 줄 추가
+        modified_service_code += '\n'  
+
+
         # * 나머지 코드를 추가합니다.
         modified_service_code += service_class_code[package_line_end:]
+
+
+        # * 리포지토리 주입 코드를 생성합니다.
+        repository_injection_code = ""
+        for pascal_name, camel_name in repository_interface_names.items():
+            repository_injection_code += f"    @Autowired\n    private {pascal_name}Repository {camel_name}Repository;\n\n"
+
+
+        # * 생성된 리포지토리 주입 코드를 서비스 클래스에 삽입합니다.
+        if "CodePlaceHolder1" in modified_service_code:
+            modified_service_code = modified_service_code.replace("CodePlaceHolder1", repository_injection_code.rstrip())
+
+
         service_class_code = modified_service_code
+
+
+        service_skeleton_summarzied = f"""
+@RestController
+@Transactional
+public class {service_class_name} {{
+
+    @PostMapping(path="/Endpoint")
+    public ResponseEntity<String> methodName(@RequestBody {command_class_name} {command_class_name}Dto) {{
+        //Here is business logic
+
+        return ResponseEntity.ok("Operation completed successfully");
+    }}
+}}
+"""
 
 
         # * command 클래스 파일을 저장할 디렉토리를 설정하고, 없으면 생성합니다.
@@ -119,7 +141,7 @@ async def create_service_skeleton(procedure_data_group, lower_name, entity_name_
             await file.write(command_class_code)  
             logging.info(f"\nSuccess Create {command_class_name} Java File\n") 
 
-        return service_class_code, command_class_variable
+        return service_class_code, command_class_variable, service_class_name, service_skeleton_summarzied
 
     except Exception:
         logging.exception(f"Error occurred while create service skeleton and command")
@@ -130,10 +152,11 @@ async def create_service_skeleton(procedure_data_group, lower_name, entity_name_
 # 매개변수: 
 #      - lower_name : 소문자 프로젝트 이름
 #      - entity_name_list : 엔티티 이름 리스트
+#      - repository_interface_names : 리포지토리 인터페이스 이름 리스트
 # 반환값: 
 #      - service : 서비스 스켈레톤 클래스 코드
 #      - command_class_variable : 프로시저의 입력 매개변수(Command 클래스에 선언된 변수 목록)
-async def start_service_skeleton_processing(lower_name, entity_name_list):
+async def start_service_skeleton_processing(lower_name, entity_name_list, repository_interface_names):
     
     try:
         connection = Neo4jConnection()  
@@ -142,7 +165,8 @@ async def start_service_skeleton_processing(lower_name, entity_name_list):
         query = ['MATCH (n:CREATE_PROCEDURE_BODY) RETURN n', 'MATCH (n:DECLARE) RETURN n']  
         procedure_declare_nodes = await connection.execute_queries(query)  
         logging.info("\nSuccess Received Procedure, Declare Nodes from Neo4J\n")  
-        transformed_node_data = [] 
+        transformed_declare_data = [] 
+        transformed_procedure_data = [] 
         
 
         # * Neo4j로 부터 전달받은 프로시저 노드의 데이터의 구조를 사용하기 쉽게 변경합니다.
@@ -151,7 +175,7 @@ async def start_service_skeleton_processing(lower_name, entity_name_list):
                 'type': 'procedure',
                 'code': extract_procedure_variable_code(item['n']['summarized_code'])
             }
-            transformed_node_data.append(transformed_node)  
+            transformed_procedure_data.append(transformed_node)  
 
 
         # * Neo4j로 부터 전달받은 Declare노드의 데이터의 구조를 사용하기 쉽게 변경합니다.
@@ -160,13 +184,13 @@ async def start_service_skeleton_processing(lower_name, entity_name_list):
                 'type': 'declare',
                 'code': item['n']['node_code']
             }
-            transformed_node_data.append(transformed_node)   
+            transformed_declare_data.append(transformed_node)   
                 
 
         # * 변환된 데이터를 사용하여 토큰 계산 및 서비스 스켈레톤 생성을 수행합니다.
         logging.info("\nSuccess Transformed Procedure, Declare Nodes Data\n")  
-        service_skeleton, command_class_variable = await calculate_tokens_and_process(transformed_node_data, lower_name, entity_name_list)  
-        return service_skeleton, command_class_variable
+        service_skeleton, command_class_variable, service_class_name, service_skeleton_summarzied = await calculate_tokens_and_process(transformed_procedure_data, transformed_declare_data, lower_name, entity_name_list, repository_interface_names)  
+        return service_skeleton, command_class_variable, service_class_name, service_skeleton_summarzied
     
     except Exception:
         logging.exception(f"Error occurred while bring procedure node from neo4j")

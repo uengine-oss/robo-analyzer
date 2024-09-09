@@ -1,11 +1,58 @@
 import logging
+import anthropic
 import tiktoken
-from convert.converting_prompt.service_prompt import convert_code
-from convert.converting_prompt.parent_skeleton_prompt import convert_parent_skeleton
-from cypher.neo4j_connection import Neo4jConnection
+from prompt.service_prompt import convert_code
+from prompt.parent_service_skeleton_prompt import convert_parent_skeleton
+from understand.neo4j_connection import Neo4jConnection
 
 # * 인코더 설정 및 파일 이름 초기화
-encoder = tiktoken.get_encoding("cl100k_base")
+client = anthropic.Anthropic()
+
+
+# 역할: 주어진 범위에서 startLine과 endLine을 추출해서 스토어드 프로시저 코드를 잘라내는 함수입니다.
+# 매개변수: 
+#     - code : 스토어드 프로시저 코드
+#     - context_range : 잘라낼 범위를 나타내는 딕셔너리의 리스트
+# 반환값: 범위에 맞게 추출된 스토어드 프로시저 코드.
+def extract_code_within_range(code, context_range):
+    try:
+        if not (code and context_range):
+            return ""
+
+        # * context_range에서 가장 작은 시작 라인과 가장 큰 끝 라인을 찾습니다.
+        start_line = min(range_item['startLine'] for range_item in context_range)
+        end_line = max(range_item['endLine'] for range_item in context_range)
+
+
+        # * 코드를 라인별로 분리합니다.
+        code_lines = code.split('\n')
+        
+
+        # * 지정된 라인 번호를 기준으로 코드를 추출합니다.
+        extracted_lines = [
+            line for line in code_lines 
+            if ':' in line and start_line <= int(line.split(':')[0].split('~')[0].strip()) <= end_line
+        ]
+        
+        return '\n'.join(extracted_lines)
+    except Exception:
+        logging.exception("Error occurred while extracting code within range(understanding)")
+        raise
+
+
+# 역할: 주어진 스토어드 프로시저 코드의 토큰의 개수를 계산하는 함수입니다.
+# 매개변수: 
+#      - code - 토큰을 계산할 스토어드 프로시저
+# 반환값: 계산된 토큰의 수
+def count_tokens_anthropic(text):
+    try:
+        response = client.count_tokens(text)
+        print("클로드 토큰 확인 : ")
+        print(response)
+        return response
+    except Exception as e:
+        logging.exception("Anthropic API를 통한 토큰 수 계산 중 오류 발생")
+        raise
 
 
 # 역할: 변수 노드에서 실제로 사용된 변수 노드만 추려서 제공하는 함수
@@ -82,18 +129,73 @@ async def process_over_size_node(start_line, summarized_code, connection):
 #   - total_tokens : 초기화된 총 토큰 수
 #   - variable_dict : 초기화된 변수 딕셔너리
 #   - context_range : 컨텍스트 범위
-async def process_converting(convert_sp_code, total_tokens, variable_dict, context_range, connection, procedure_variables, service_skeleton, jpa_method_list):
-    
+async def process_converting(convert_sp_code, total_tokens, variable_dict, context_range, connection, procedure_variables, service_skeleton, used_jpa_method_list):
+
     try:
         # * 노드 업데이트 쿼리를 저장할 리스트 및 범위 개수
-        node_update_query = []
+        parent_context_range = []
         range_count = len(context_range)
 
 
         # * 프로시저 코드를 분석합니다(llm에게 전달)
-        analysis_result = convert_code(convert_sp_code, service_skeleton, variable_dict, procedure_variables, context_range, range_count, jpa_method_list)
-        logging.info(f"\nsuccessfully converted code\n")
+        analysis_result, prompt_template = convert_code(convert_sp_code, service_skeleton, variable_dict, procedure_variables, context_range, range_count, used_jpa_method_list)
+        combined_context = f"{convert_sp_code}\n{prompt_template}\n{context_range}\n{service_skeleton}\n{variable_dict}\n{procedure_variables}\n{analysis_result}\n{used_jpa_method_list}"
+        combined_context_tokens = count_tokens_anthropic(combined_context)
+        print(f"\n\n토큰 수 초과??? : {combined_context_tokens}\n\n")
+        
+        if combined_context_tokens > 3400 and range_count > 1:
+            print(f"분할 시작")
+            largest_range_index = max(range(len(context_range)), key=lambda i: context_range[i]['endLine'] - context_range[i]['startLine'])
+            parent_context_range.append(context_range.pop(largest_range_index))
+            half_point = len(context_range) // 2
 
+            for sub_range in [context_range[:half_point], context_range[half_point:]]:
+                sub_jpa_method_list = []
+                if sub_range:
+                    
+                    # * JPA 
+                    for method_dict in used_jpa_method_list:
+                        for key, value in method_dict.items():
+                            start_line = int(key.split('_')[-1].split('~')[0])
+                            for range_item in sub_range:
+                                if range_item['startLine'] == start_line:
+                                    sub_jpa_method_list.append(f"{key}: {value}")
+                                    print(f"메서드 추가됨: {value}")
+                    
+
+                    extract_sub_code = extract_code_within_range(convert_sp_code, sub_range)
+                    sub_analysis_result, _ = convert_code(extract_sub_code, service_skeleton, variable_dict, procedure_variables, sub_range, len(sub_range), used_jpa_method_list)
+                    await handle_analysis_result(sub_analysis_result, connection)
+            
+            if parent_context_range:
+                    parent_analysis_result, _ = convert_code(convert_sp_code, service_skeleton, variable_dict, procedure_variables, parent_context_range, len(parent_context_range), used_jpa_method_list)
+                    await handle_analysis_result(parent_analysis_result, connection)
+        else:
+            await handle_analysis_result(analysis_result, connection)
+
+
+        logging.info(f"\nsuccessfully converted code\n")
+        convert_sp_code = ""
+        total_tokens = 0
+        context_range.clear()
+        variable_dict.clear()
+        used_jpa_method_list.clear()
+
+        return (convert_sp_code, total_tokens, variable_dict, context_range, used_jpa_method_list)
+
+    except Exception:
+        logging.exception("An error occurred during analysis results processing(converting)")
+        raise
+
+
+# 역할: 
+# 매개변수 : 
+#   - analysis_result :
+# 반환값 : 
+async def handle_analysis_result(analysis_result, connection):
+    
+    try:
+        node_update_query = []
 
         # * 분석 결과 각각의 데이터를 추출하고, 필요한 변수를 초기화합니다 
         for result in analysis_result['analysis']:
@@ -105,17 +207,6 @@ async def process_converting(convert_sp_code, total_tokens, variable_dict, conte
 
         # * 노드 업데이트 쿼리를 실행하는 메서드를 호출 
         await process_node_update_java_properties(node_update_query, connection)
-
-
-        # * 다음 분석 주기를 위해 필요한 변수를 초기화합니다
-        convert_sp_code = ""
-        total_tokens = 0
-        context_range.clear()
-        variable_dict.clear()
-
-        return (convert_sp_code, total_tokens, variable_dict, context_range)
-
-
     except Exception:
         logging.exception("An error occurred during analysis results processing(converting)")
         raise
@@ -139,6 +230,7 @@ async def traverse_node_for_service(node_list, connection, procedure_variables, 
     small_parent_info = {}
     big_parent_info = {}
     another_big_parent_startLine = 0
+    used_jpa_method_list = []
 
     # * Converting 하기 위한 노드의 순회 시작
     for node in traverse_node:
@@ -150,8 +242,13 @@ async def traverse_node_for_service(node_list, connection, procedure_variables, 
         print(f"시작 노드 : [ 시작 라인 : {start_node['startLine']}, 이름 : ({start_node['name']}), 끝라인: {start_node['endLine']}, 토큰 : {start_node['token']}")
         print(f"관계: {relationship}")
         if end_node: print(f"종료 노드 : [ 시작 라인 : {end_node['startLine']}, 이름 : ({end_node['name']}), 끝라인: {end_node['endLine']}, 토큰 : {end_node['token']}")
-     
-        
+
+
+        if "EXECUTE_IMMDDIATE" in start_node['name']:
+            print("넘어갑니다.")
+            continue
+
+
         # * 가독성을 위해 복잡한 조건을 변수로 
         is_small_parent_traverse_1deth = start_node['startLine'] == small_parent_info.get("startLine", 0) and relationship == "NEXT"
         is_big_parent_traverse_1deth = start_node['startLine'] == big_parent_info.get("startLine", 0) and relationship == "NEXT"
@@ -169,7 +266,7 @@ async def traverse_node_for_service(node_list, connection, procedure_variables, 
         elif is_big_parent_traverse_1deth:
             print(f"큰 부모 노드({start_node['startLine']})의 1단계 깊이 자식들 순회 완료")
             big_parent_info["nextLine"] = end_node['startLine']
-            (convert_sp_code, total_tokens, variable_dict, context_range) = await process_converting(convert_sp_code, total_tokens, variable_dict, context_range, connection, procedure_variables, service_skeleton, jpa_method_list)
+            (convert_sp_code, total_tokens, variable_dict, context_range, used_jpa_method_list) = await process_converting(convert_sp_code, total_tokens, variable_dict, context_range, connection, procedure_variables, service_skeleton, used_jpa_method_list)
             continue
 
 
@@ -214,9 +311,18 @@ async def traverse_node_for_service(node_list, connection, procedure_variables, 
         # * 총 토큰 수 검사를 진행합니다.
         if is_token_limit_exceeded:
             print(f"토큰 및 결과 범위 초과로 converting 진행합니다.")
-            (convert_sp_code, total_tokens, variable_dict, context_range) = await process_converting(convert_sp_code, total_tokens, variable_dict, context_range, connection, procedure_variables, service_skeleton, jpa_method_list)
+            (convert_sp_code, total_tokens, variable_dict, context_range, used_jpa_method_list) = await process_converting(convert_sp_code, total_tokens, variable_dict, context_range, connection, procedure_variables, service_skeleton, used_jpa_method_list)
         print(f"토큰 합계 : {total_tokens + node_tokens}, 결과 개수 : {len(context_range)}")
         total_tokens += node_tokens
+
+
+        # * JPA 
+        for method_dict in jpa_method_list:
+            for key, value in method_dict.items():
+                start_line = int(key.split('_')[-1].split('~')[0])
+                if start_node['startLine'] == start_line:
+                    used_jpa_method_list.append({key: value})
+                    print(f"메서드 추가됨: {value}")
 
 
         # * 가독성을 위해 조건을 변수로 분리
@@ -269,7 +375,7 @@ async def traverse_node_for_service(node_list, connection, procedure_variables, 
             variable_dict = await fetch_variable_nodes(start_node['startLine'], variable_dict, variable_node)
         elif another_big_parent_startLine == start_node['startLine'] and context_range and convert_sp_code: 
             print(f"부모 노드안에 또 다른 부모 노드의 순회 끝 converting 진행 -> 흐름이 섞이지 않게")
-            (convert_sp_code, total_tokens, variable_dict, context_range) = await process_converting(convert_sp_code, total_tokens, variable_dict, context_range, connection, procedure_variables, service_skeleton, jpa_method_list)
+            (convert_sp_code, total_tokens, variable_dict, context_range, used_jpa_method_list) = await process_converting(convert_sp_code, total_tokens, variable_dict, context_range, connection, procedure_variables, service_skeleton, used_jpa_method_list)
         else:
             print("아무것도 처리되지 않습니다.")
     
@@ -277,7 +383,7 @@ async def traverse_node_for_service(node_list, connection, procedure_variables, 
     # * 마지막 그룹에 대한 처리를 합니다.
     if context_range and convert_sp_code:
         print("순회가 끝났지만 남은 context_range와 convert_sp_code가 있어 converting을 진행합니다.")
-        (convert_sp_code, total_tokens, variable_dict, context_range) = await process_converting(convert_sp_code, total_tokens, variable_dict, context_range, connection, procedure_variables, service_skeleton, jpa_method_list)
+        (convert_sp_code, total_tokens, variable_dict, context_range, used_jpa_method_list) = await process_converting(convert_sp_code, total_tokens, variable_dict, context_range, connection, procedure_variables, service_skeleton, used_jpa_method_list)
 
 
 
@@ -311,6 +417,7 @@ async def start_service_processing(service_skeleton, jpa_method_list, procedure_
         # * 쿼리 실행
         results = await connection.execute_queries(node_query)
         
+        logging.info("서비스 전환 시작")
 
         # * 결과를 함수로 전달
         await traverse_node_for_service(results, connection, procedure_variable, service_skeleton, jpa_method_list)

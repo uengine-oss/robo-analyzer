@@ -17,8 +17,7 @@ venv/
 *.sw?
 
 # etc
-/cypher/sql/
-/cypher/analysis/
+/data/
 Pipfile.lock
 langchain.db
 .env
