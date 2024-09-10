@@ -113,7 +113,7 @@ async def process_service_class(node_list, connection):
 #   - service_skeleton : 서비스 스켈레톤
 #   - service_class_name : 서비스 클래스 이름
 # 반환값: 없음
-async def merge_service_code(lower_file_name, service_skeleton, service_class_name):
+async def start_service_Postprocessing(lower_file_name, service_skeleton, service_class_name):
     
     connection = Neo4jConnection() 
     
@@ -145,8 +145,8 @@ async def merge_service_code(lower_file_name, service_skeleton, service_class_na
 
 
         # * 서비스 클래스 생성을 위한 경로를 설정합니다.
-        base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT', 'convert')
-        service_directory = os.path.join(base_directory, 'converting_result', f'{lower_file_name}', 'src', 'main', 'java', 'com', 'example', f'{lower_file_name}','service')
+        base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT', 'data')
+        service_directory = os.path.join(base_directory, 'java', f'{lower_file_name}', 'src', 'main', 'java', 'com', 'example', f'{lower_file_name}','service')
         os.makedirs(service_directory, exist_ok=True) 
         service_file_path = os.path.join(service_directory, f"{service_class_name}.java")
 

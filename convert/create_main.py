@@ -30,12 +30,10 @@ public class {pascal_file_name}Application {{
 }}
         """
 
-        raise Exception("의도적으로 발생시킨 예외")
-
 
         # * 메인 클래스 파일을 저장할 디렉토리 경로를 설정합니다.
-        base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT', 'convert')
-        main_class_directory = os.path.join(base_directory, 'converting_result', f'{lower_file_name}', 'src', 'main', 'java', 'com', 'example', f'{lower_file_name}')
+        base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT', 'data')
+        main_class_directory = os.path.join(base_directory, 'java', f'{lower_file_name}', 'src', 'main', 'java', 'com', 'example', f'{lower_file_name}')
         os.makedirs(main_class_directory, exist_ok=True)  
 
 

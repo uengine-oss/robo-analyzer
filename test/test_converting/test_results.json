@@ -1,0 +1,113 @@
+{
+  "table_data_list": [
+    {
+      "name": "employees",
+      "fields": [
+        [
+          "employee_type",
+          "VARCHAR2"
+        ],
+        [
+          "base_salary",
+          "NUMBER"
+        ],
+        [
+          "final_salary",
+          "NUMBER"
+        ],
+        [
+          "tax_deduction",
+          "NUMBER"
+        ],
+        [
+          "contract_tax_rate",
+          "NUMBER"
+        ],
+        [
+          "employee_id",
+          "NUMBER"
+        ],
+        [
+          "overtime_pay",
+          "NUMBER"
+        ],
+        [
+          "unpaid_deduction",
+          "NUMBER"
+        ]
+      ],
+      "keyType": "Long"
+    },
+    {
+      "name": "work_logs",
+      "fields": [
+        [
+          "work_date",
+          "DATE"
+        ],
+        [
+          "employee_id",
+          "NUMBER"
+        ],
+        [
+          "over_hours",
+          "NUMBER"
+        ]
+      ],
+      "keyType": "Long"
+    },
+    {
+      "name": "leave_records",
+      "fields": [
+        [
+          "leave_days",
+          "NUMBER"
+        ],
+        [
+          "leave_type",
+          "VARCHAR2"
+        ],
+        [
+          "employee_id",
+          "NUMBER"
+        ],
+        [
+          "leave_date",
+          "DATE"
+        ]
+      ],
+      "keyType": "Long"
+    }
+  ],
+  "entity_name_list": [
+    "Employee",
+    "WorkLog",
+    "LeaveRecord"
+  ],
+  "jpa_method_list": [
+    {
+      "employee_19~22": "Employee findByEmployeeId(@Param(\"employeeId\") Long employeeId)",
+      "employee_61~63": "Employee findEmployeeForSalaryUpdate(@Param(\"employeeId\") Long employeeId)"
+    },
+    {
+      "WorkLog_26~30": "Long findOvertimeHoursByEmployeeIdAndDateRange(@Param(\"employeeId\") Long employeeId, @Param(\"startDate\") LocalDate startDate, @Param(\"endDate\") LocalDate endDate)"
+    },
+    {
+      "LeaveRecord_37~42": "Long findUnpaidLeaveDaysByEmployeeIdAndDateRange(@Param(\"employeeId\") Long employeeId, @Param(\"startDate\") LocalDate startDate, @Param(\"endDate\") LocalDate endDate)"
+    }
+  ],
+  "repository_interface_names": {
+    "Employee": "employee",
+    "WorkLog": "workLog",
+    "LeaveRecord": "leaveRecord"
+  },
+  "service_skeleton": "package com.example.pbcac120calcsuipstd.service;\n\nimport com.example.pbcac120calcsuipstd.entity.Employee;\nimport com.example.pbcac120calcsuipstd.entity.WorkLog;\nimport com.example.pbcac120calcsuipstd.entity.LeaveRecord;\nimport com.example.pbcac120calcsuipstd.repository.EmployeeRepository;\nimport com.example.pbcac120calcsuipstd.repository.WorkLogRepository;\nimport com.example.pbcac120calcsuipstd.repository.LeaveRecordRepository;\n\n\n\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport com.example.pbcac120calcsuipstd.command.CalculatePayrollCommand;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport java.util.List;\nimport org.springframework.transaction.annotation.Transactional;\n\n@RestController\n@Transactional\npublic class PayrollCalculationService {\n\n    @Autowired\n    private EmployeeRepository employeeRepository;\n\n    @Autowired\n    private WorkLogRepository workLogRepository;\n\n    @Autowired\n    private LeaveRecordRepository leaveRecordRepository;\n\n    private long overtimeHours;\n    private double overtimeRate = 1.5;\n    private double overtimePay = 0;\n    private long unpaidLeaveDays;\n    private double unpaidDeduction = 0;\n    private double taxRate = 0.1;\n    private double contractTaxRate;\n    private double taxDeduction = 0;\n    private long baseSalary;\n    private String employeeType;\n\n    @PostMapping(path=\"/calculatePayroll\")\n    public ResponseEntity<String> calculatePayroll(@RequestBody CalculatePayrollCommand calculatePayrollCommandDto) {\n        overtimeHours = 0;\n        overtimeRate = 0;\n        overtimePay = 0;\n        unpaidLeaveDays = 0;\n        unpaidDeduction = 0;\n        taxRate = 0;\n        contractTaxRate = 0;\n        taxDeduction = 0;\n        baseSalary = 0;\n        employeeType = \"\";\n\nCodePlaceHolder2\n\n        return ResponseEntity.ok(\"Operation completed successfully\");\n    }\n}",
+  "command_class_variable": [
+    "private long employeeId;",
+    "private boolean includeOvertime = true;",
+    "private boolean includeUnpaidLeave = true;",
+    "private boolean includeTax = true;"
+  ],
+  "service_skeleton_name": "PayrollCalculationService",
+  "summarzied_service_skeleton": "\n@RestController\n@Transactional\npublic class PayrollCalculationService {\n\n    @PostMapping(path=\"/Endpoint\")\n    public ResponseEntity<String> methodName(@RequestBody CalculatePayrollCommand CalculatePayrollCommandDto) {\n        //Here is business logic\n\n        return ResponseEntity.ok(\"Operation completed successfully\");\n    }\n}\n"
+}

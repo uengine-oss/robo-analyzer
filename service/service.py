@@ -9,8 +9,8 @@ from convert.create_pomxml import start_pomxml_processing
 from convert.create_properties import start_APLproperties_processing
 from convert.create_repository import start_repository_processing
 from convert.create_entity import start_entity_processing
-from convert.create_service_preprocessing import start_service_processing
-from convert.create_service_postprocessing import merge_service_code 
+from convert.create_service_preprocessing import start_service_Preprocessing
+from convert.create_service_postprocessing import start_service_Postprocessing 
 from convert.create_service_skeleton import start_service_skeleton_processing
 from understand.neo4j_connection import Neo4jConnection
 from understand.analysis import analysis
@@ -243,8 +243,8 @@ async def generate_spring_boot_project(fileName):
         yield f"Step3 completed\n"
         
         # * 4 단계 : 서비스 생성
-        await start_service_processing(summarzied_service_skeleton, jpa_method_list, procedure_variable_list)
-        await merge_service_code(lower_file_name, service_skeleton_code, service_class_name)
+        await start_service_Preprocessing(summarzied_service_skeleton, jpa_method_list, procedure_variable_list)
+        await start_service_Postprocessing(lower_file_name, service_skeleton_code, service_class_name)
         yield f"Step4 completed\n"
         
         # * 5 단계 : pom.xml 생성

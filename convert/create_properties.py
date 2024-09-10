@@ -13,8 +13,8 @@ async def start_APLproperties_processing(lower_case):
     try:
         # * properties 파일의 내용과 저장될 경로를 설정합니다.
         application_properties_content = f"spring.application.name={lower_case}\nserver.port=8082"
-        base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT', 'convert')
-        application_properties_directory = os.path.join(base_directory, 'converting_result', f'{lower_case}', 'src', 'main', 'resources')
+        base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT', 'data')
+        application_properties_directory = os.path.join(base_directory, 'java', f'{lower_case}', 'src', 'main', 'resources')
         os.makedirs(application_properties_directory, exist_ok=True)  
 
 

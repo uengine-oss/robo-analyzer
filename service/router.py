@@ -143,8 +143,8 @@ async def download_spring_project(request: Request):
         
         
         # * ZIP 파일로 만들기 위한 자바 프로젝트 파일들을 읽을 경로와, ZIP 파일로 저장할 경로 설정후 압축
-        output_zip_path = os.path.join('convert', 'zipfile', f'{original_name}.zip')
-        input_zip_path = os.path.join('convert', 'converting_result', f'{original_name}')
+        output_zip_path = os.path.join('data', 'zipfile', f'{original_name}.zip')
+        input_zip_path = os.path.join('data', 'java', f'{original_name}')
         await process_zip_file(input_zip_path, output_zip_path)
         return FileResponse(path=output_zip_path, filename=f"{original_name}.zip", media_type='application/octet-stream')
 

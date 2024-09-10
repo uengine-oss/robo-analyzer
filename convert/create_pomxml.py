@@ -95,8 +95,8 @@ async def start_pomxml_processing(lower_file_name):
 """
     
         # * pom.xml 파일을 저장할 디렉토리를 생성합니다.
-        base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT', 'convert')
-        pom_xml_directory = os.path.join(base_directory, 'converting_result', f'{lower_file_name}')
+        base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT', 'data')
+        pom_xml_directory = os.path.join(base_directory, 'java', f'{lower_file_name}')
         os.makedirs(pom_xml_directory, exist_ok=True)  
 
 

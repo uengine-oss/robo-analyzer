@@ -124,7 +124,7 @@ public class {service_skeleton_name} {{
     }}
 }}
 """    
-        return summarzied_service_skeleton
+        return summarzied_service_skeleton, service_skeleton_code
     
     except Exception:
         err_msg = "서비스 골격 클래스를 생성하는 과정에서 결과를 이용하여, 추가적인 정보를 설정하는 도중 문제가 발생했습니다."
@@ -161,13 +161,13 @@ async def create_service_skeleton(procedure_data, declare_data, lower_name, enti
         
 
         # * 서비스 골격 클래스에 추가적인 정보를 추가하는 작업을 진행합니다.
-        summarzied_service_skeleton = await modify_service_skeleton(service_skeleton_code, entity_name_list, repository_interface_names, lower_name, service_skeleton_name, command_class_name)
+        summarzied_service_skeleton, modified_service_skeleton = await modify_service_skeleton(service_skeleton_code, entity_name_list, repository_interface_names, lower_name, service_skeleton_name, command_class_name)
 
 
         # * command 클래스 파일을 저장할 디렉토리를 설정하고, 없으면 생성합니다.
         logging.info("\nSuccess RqRs LLM\n")  
-        base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT', 'convert')
-        command_class_directory = os.path.join(base_directory, 'converting_result', f'{lower_name}', 'src', 'main', 'java', 'com', 'example', f'{lower_name}','command')
+        base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT', 'data')
+        command_class_directory = os.path.join(base_directory, 'java', f'{lower_name}', 'src', 'main', 'java', 'com', 'example', f'{lower_name}','command')
         os.makedirs(command_class_directory, exist_ok=True) 
 
 
@@ -177,7 +177,7 @@ async def create_service_skeleton(procedure_data, declare_data, lower_name, enti
             await file.write(command_class_code)  
             logging.info(f"\nSuccess Create {command_class_name} Java File\n") 
 
-        return service_skeleton_code, command_class_variable, service_skeleton_name, summarzied_service_skeleton
+        return modified_service_skeleton, command_class_variable, service_skeleton_name, summarzied_service_skeleton
 
     except (LLMCallError, HandleResultError):
         raise
@@ -239,3 +239,5 @@ async def start_service_skeleton_processing(lower_name, entity_name_list, reposi
         err_msg = "서비스 골격 클래스를 생성하기 위해 데이터를 준비하는 도중 문제가 발생했습니다."
         logging.exception(err_msg)
         raise SkeletonCreationError(err_msg)
+    finally:
+        await connection.close()

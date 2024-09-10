@@ -22,6 +22,3 @@ Pipfile.lock
 langchain.db
 .env
 /neo4j
-test/test_converting/converting_result
-convert/converting_result/
-convert/zipfile/

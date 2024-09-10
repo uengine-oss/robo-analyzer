@@ -60,8 +60,8 @@ public interface {repository_pascal_name}Repository extends JpaRepository<{repos
     """
 
         # * 리포지토리 인터페이스를 저장할 경로를 설정합니다
-        base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT', 'convert')
-        entity_directory = os.path.join(base_directory, 'converting_result', f'{lower_file_name}', 'src', 'main', 'java', 'com', 'example', f'{lower_file_name}', 'repository')
+        base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT', 'data')
+        entity_directory = os.path.join(base_directory, 'java', f'{lower_file_name}', 'src', 'main', 'java', 'com', 'example', f'{lower_file_name}', 'repository')
         os.makedirs(entity_directory, exist_ok=True)
 
 
@@ -134,7 +134,7 @@ async def check_tokens_and_process(table_link_node, connection, lower_file_name)
     repository_code_list = []           # 리포지토리 코드를 모아두는 리스트 
     jpa_method_list = []                # JPA 쿼리 메서드 리스트
     repository_interface_names = {}     # JPA 쿼리 메서드의 이름 리스트
-    current_table_name = None                 # 현재 처리 중인 테이블의 이름을 추적
+    current_table_name = None           # 현재 처리 중인 테이블의 이름을 추적
     pascal_name = None                  # 파스칼 표기법이 적용된 엔티티의 이름
     camel_name = None                   # 카멜 표기법이 적용된 엔티티의 이름
     process_append_flag = True          # 데이터 추가를 제어하는 플래그
