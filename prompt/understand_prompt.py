@@ -8,6 +8,7 @@ from langchain.schema.runnable import RunnablePassthrough
 from langchain_anthropic import ChatAnthropic
 from langchain_openai import ChatOpenAI
 from util.exception  import LLMCallError
+from langchain_core.output_parsers import JsonOutputParser
 
 
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
@@ -30,7 +31,7 @@ prompt = PromptTemplate.from_template(
 1. 분석할 Stored Procedure Code의 범위 개수는 {count}개로, 반드시 'analysis'는  {count}개의 요소를 가져야합니다.
 2. 테이블의 별칭과 스키마 이름을 제외하고, 오로직 테이블 이름만을 사용하세요.
 3. 테이블의 컬럼이 'variable'에 포함되지 않도록, 테이블의 컬럼과 변수에 대한 구분을 확실히 하여 결과를 생성하세요.
-4. 변수의 역할의 경우, 어떤 테이블에서 사용되었고, 어떤 값을 저장했고, 어떤 목적에 사용되는지를 반드시 명시해야합니다. (예 : 직원 id를 저장하여, 직원 테이블 검색에 사용) 
+4. 변수의 역할의 경우, 어떤 테이블에서 사용되었고, 어떤 값을 저장했고, 어떤 목적에 사용되는지를 반드시 명시해야합니다. (예 : 직원 id를 저장하여, 직원 테이블 검색에 사용). 
 5. 테이블에 대한 정보가 식별되지 않을 경우, 'Tables'는 빈 사전 {{}}으로 반환하고, 테이블의 컬럼 타입이 식별되지 않을 경우, 적절한 타입을 넣으세요.
 
 
@@ -91,9 +92,13 @@ def understand_code(sp_code, context_ranges, context_range_count):
             | llm
 
         )
+
+        json_parser = JsonOutputParser()
         result = chain.invoke({"code": sp_code, "ranges": ranges_json, "count": context_range_count})
+        parsed_content = json_parser.parse(result.content)
+        
         transform_result = {
-            "content": result.content,
+            "content": parsed_content,
             "usage_metadata": result.usage_metadata
         }    
         return transform_result

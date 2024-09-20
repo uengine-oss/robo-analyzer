@@ -26,7 +26,7 @@ prompt = PromptTemplate.from_template(
 1. 전달된 JSON 객체 중에서 'type' 필드의 값이 'declare'인 항목들의 'code' 필드에서 사용된 모든 변수들을 포함한 Service Class의 기본 구조를 작성하세요.
 2. 모든 변수는 적절한 자바 데이터 타입을 사용하고, private 접근 제한자와 카멜 표기법을 적용하세요. (데이터 타입의 경우, 되도록이면 int 대신 long을 사용하세요.)
 3. Service의 이름은 로직에 알맞게 작성해주세요.
-4. 'CodePlaceHolder1', 'CodePlaceHolder2' 이 부분 하드코딩으로 그대로 반환하세요. 추후에 사용될 예정입니다.
+4. 'CodePlaceHolder1', 'CodePlaceHolder2' 이 부분 하드코딩으로 그대로 반환하고, 위치를 변경하지마세요. 추후에 사용될 예정입니다.
 5. 날짜나 시간을 다루는 필드의 경우 LocalDate를 사용하도록 하세요.
 6. 필요에 따라 추가적인 import문을 선언하세요.
 
@@ -48,11 +48,11 @@ public class ExampleController {{
 
 CodePlaceHolder1
 
+    Type variable1 = 0;
+    Type variable2 = 0;
+
     @PostMapping(path="/Endpoint")
     public ResponseEntity<String> methodName(@RequestBody {command_class_name} {command_class_name}Dto) {{
-        Type variable1 = 0;
-        Type variable2 = 0;
-        ...
 
 CodePlaceHolder2
 

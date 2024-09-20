@@ -140,6 +140,7 @@ async def start_service_Postprocessing(lower_file_name, service_skeleton, servic
 
 
         # * 결과를 바탕으로 서비스 클래스 생성 (바디 채우기)
+        all_java_code = all_java_code.strip()
         indented_java_code = textwrap.indent(all_java_code, '        ')
         completed_service_code = service_skeleton.replace("CodePlaceHolder2", indented_java_code)
 

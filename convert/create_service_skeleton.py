@@ -90,10 +90,6 @@ async def modify_service_skeleton(service_skeleton_code, entity_name_list, repos
             modified_service_skeleton += f"import com.example.{lower_name}.repository.{repo_interface}Repository;\n"
 
 
-        # * import 문과 클래스 선언 사이에 빈 줄 추가
-        modified_service_skeleton += '\n'  
-
-
         # * 나머지 코드를 추가합니다.
         modified_service_skeleton += service_skeleton_code[package_line_end:]
 
@@ -107,6 +103,7 @@ async def modify_service_skeleton(service_skeleton_code, entity_name_list, repos
         # * 생성된 리포지토리 주입 코드를 서비스 클래스에 삽입합니다.
         if "CodePlaceHolder1" in modified_service_skeleton:
             modified_service_skeleton = modified_service_skeleton.replace("CodePlaceHolder1", repository_injection_code.rstrip())
+
         service_skeleton_code = modified_service_skeleton
 
 

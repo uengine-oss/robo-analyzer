@@ -4,7 +4,7 @@ import os
 from fastapi import File, UploadFile, Form
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
-from service.service import save_file_to_disk, process_zip_file
+from service.service import save_file_to_disk, process_zip_file, transform_fileName
 from service.service import generate_and_execute_cypherQuery
 from service.service import generate_two_depth_match
 from service.service import generate_simple_java
@@ -140,11 +140,11 @@ async def download_spring_project(request: Request):
         # * 스토어드 프로시저 파일 정보에서 파일 이름을 추출하고 확장자를 제거합니다.
         project_folder_name = fileInfo['fileName']
         original_name, _ = os.path.splitext(project_folder_name)
-        
+        _, lower_file_name = await transform_fileName(original_name)
         
         # * ZIP 파일로 만들기 위한 자바 프로젝트 파일들을 읽을 경로와, ZIP 파일로 저장할 경로 설정후 압축
         output_zip_path = os.path.join('data', 'zipfile', f'{original_name}.zip')
-        input_zip_path = os.path.join('data', 'java', f'{original_name}')
+        input_zip_path = os.path.join('data', 'java', f'{lower_file_name}')
         await process_zip_file(input_zip_path, output_zip_path)
         return FileResponse(path=output_zip_path, filename=f"{original_name}.zip", media_type='application/octet-stream')
 

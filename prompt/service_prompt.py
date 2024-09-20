@@ -9,7 +9,8 @@ from langchain.prompts import PromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
 from langchain_anthropic import ChatAnthropic
 from util.exception import LLMCallError
-
+from langchain_core.output_parsers import JsonOutputParser
+import pyjson5 as json5
 
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
@@ -21,8 +22,9 @@ prompt = PromptTemplate.from_template(
 
 
 **결과를 생성시 반드시 지켜야할 사항** : 
-- JSON에서는 특수 문자(예: 줄바꿈)도 이스케이프 처리가 필요합니다. 예를 들어, 줄바꿈은 `\\n`으로 표현됩니다.
+- JSON에서는 특수 문자(예: `\n` 줄바꿈)도 이스케이프 처리가 필요합니다. 예를 들어, 줄바꿈은 `\\n`으로 표현됩니다.
 - JSON 문자열을 생성할 때, 문자열 내의 따옴표는 `\\"`로 이스케이프 처리해야 합니다.
+- JSON 문자열 내에서 백슬래시(`\\`)를 사용하려면 `\\\\`로 이스케이프 처리해야 합니다.
 
 
 Stored Procedure Code:
@@ -53,18 +55,23 @@ jpa_method_list:
 - 자바로 전환시, 비즈니스 로직은 최대한 간략하고 가독성 좋은 클린 코드 형태로 주세요.
 - 'Context Range'에서 주어진 범위내 Stored Procedure Code만 자바로 전환하고, 범위를 벗어나지 않도록 주의하세요. (예 : startLine": 212, "endLine": 212이면 해당하는 라인만 자바로 전환하세요.)
 - 'Serivce Class Code'에, //Here is business logic 위치에 들어갈 비즈니스 로직만을 생성하고, 들여쓰기를 적용하여 소스 코드 형태로 주세요.
+- 절대로 변수 선언은 하지말고, 'Used Variable'에 있는 변수를 사용하여 값만 대입하세요. 카멜 표기법을 사용 (예 : baseSalary = employee.getBaseSalary();)
 - 'Context Range' 범위는 {count}개로 총 {count}개의 'analysis'를 생성하세요.
-- 모든 변수는 이미 선언되어 있기 때문에 'Used Variable'만 참고하여, 변수 선언 없이, 값 초기화하는 로직만 추가하고, Camel 표기법으로 표현하세요.
+- 숫자 관련은 전부 'long' 타입을 쓰도록 하고, command 클래스 객체의 대소문자를 주의하세요. (카멜 표기법)
 
 
 'Stored Procedure Code'를 'Serivce Class Code'로 전환할 때, 아래를 참고하여 작업하세요:
 1. 'SELECT', 'DELETE', 'UPDATE', 'MERGE', 'INSERT'와 같은 SQL 키워드가 식별될 때:
    - 'jpa_method_list'에서 범위에 알맞는 JPA Query Method를 사용하여 CRUD로직을 생성하세요. 
+   - UPDATE와 MERGE 같이 수정하는 작업에 대해서는 'save()' 를 필수로 진행하세요.
 
-
+   
 2. 비즈니스 로직이 식별될 때:
    - 식별된 비즈니스 로직을 자바로 전환하고, 부가 설명이나 주석 및 다른 정보는 포함하지마세요.
-      
+   
+
+** 잊지마세요 반드시 이스케이프처리를 해야합니다. **
+
    
 아래는 결과 예시로, 부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요:
 {{
@@ -76,7 +83,6 @@ jpa_method_list:
    ]
 }}
 """)
-
 
 def preprocess_json(json_str):
    def escape_code(code):
@@ -119,12 +125,11 @@ def convert_service_code(convert_sp_code, service_skeleton, variable_list, proce
          | llm
       )
       result = chain.invoke({"code": convert_sp_code, "service": service_skeleton, "variable": variable_list, "command_variables": procedure_variables_json, "context_range": context_range_json, "count": count, "jpa_method_list": jpa_method_list})
+      data = json5.loads(result.content)
+      # processed_json = preprocess_json(result.content)
       
-      content = result.content
-      # processed_json = preprocess_json(content)
-
       transform_result = {
-         "content": content,
+         "content": data,
          "usage_metadata": result.usage_metadata
       }      
       return transform_result

@@ -1,33 +1,15 @@
 {
   "table_data_list": [
     {
-      "name": "temp_sql",
-      "fields": [
-        [
-          "sqltext",
-          "VARCHAR2(2000)"
-        ],
-        [
-          "SUIP_COMM_GBN",
-          "VARCHAR2(20)"
-        ],
-        [
-          "idx",
-          "NUMBER"
-        ]
-      ],
-      "keyType": "Long"
-    },
-    {
       "name": "TEMP_SUIP_STD_DATA_RESULT",
       "fields": [
         [
           "DIVN_CD",
-          "VARCHAR2(30)"
+          "VARCHAR2"
         ],
         [
           "INSR_CMPN_CD",
-          "VARCHAR2(30)"
+          "VARCHAR2"
         ],
         [
           "SUIP_AMT",
@@ -35,7 +17,7 @@
         ],
         [
           "STAT_COM_CD",
-          "VARCHAR2(30)"
+          "VARCHAR2"
         ]
       ],
       "keyType": "Long"
@@ -48,12 +30,12 @@
           "NUMBER"
         ],
         [
-          "CLCT_DIVN_CD",
-          "VARCHAR2"
-        ],
-        [
           "NUM_COL48",
           "NUMBER"
+        ],
+        [
+          "CLCT_DIVN_CD",
+          "VARCHAR2"
         ],
         [
           "NUM_COL47",
@@ -92,12 +74,12 @@
           "VARCHAR2"
         ],
         [
-          "EXCEL_CD",
-          "VARCHAR"
-        ],
-        [
           "BM_PYMT_TMS",
           "NUMBER"
+        ],
+        [
+          "EXCEL_CD",
+          "VARCHAR2"
         ],
         [
           "NUM_COL59",
@@ -112,12 +94,12 @@
           "NUMBER"
         ],
         [
-          "PLCYR_NM",
-          "VARCHAR2"
-        ],
-        [
           "NUM_COL56",
           "NUMBER"
+        ],
+        [
+          "PLCYR_NM",
+          "VARCHAR2"
         ],
         [
           "NUM_COL55",
@@ -161,7 +143,7 @@
         ],
         [
           "SLCT_INUSR_CD",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "DATE_COL5",
@@ -176,12 +158,12 @@
           "DATE"
         ],
         [
-          "DATE_COL4",
-          "DATE"
+          "PRC_PYMT_MTHD_CD",
+          "VARCHAR2"
         ],
         [
-          "PRC_PYMT_MTHD_CD",
-          "VARCHAR"
+          "DATE_COL4",
+          "DATE"
         ],
         [
           "DATE_COL1",
@@ -200,12 +182,12 @@
           "VARCHAR2"
         ],
         [
-          "NUM_COL29",
-          "NUMBER"
-        ],
-        [
           "CODE_COL5",
           "VARCHAR2"
+        ],
+        [
+          "NUM_COL29",
+          "NUMBER"
         ],
         [
           "NUM_COL28",
@@ -237,7 +219,7 @@
         ],
         [
           "SUIP_COMM_GBN",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "NUM_COL24",
@@ -288,12 +270,12 @@
           "VARCHAR2"
         ],
         [
-          "NAME_COL7",
+          "PRC_PYMT_TMS",
           "VARCHAR2"
         ],
         [
-          "PRC_PYMT_TMS",
-          "NUMBER"
+          "NAME_COL7",
+          "VARCHAR2"
         ],
         [
           "NAME_COL4",
@@ -313,7 +295,7 @@
         ],
         [
           "SLCT_EMP_NM",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "NAME_COL1",
@@ -321,7 +303,7 @@
         ],
         [
           "SLCT_EMP_NO",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "GRANT_DATE",
@@ -333,7 +315,7 @@
         ],
         [
           "PRC_PLCY_STAT_CD",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "NUM_COL39",
@@ -381,11 +363,11 @@
         ],
         [
           "SLCT_DIVN_CD",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "STOCK_NO",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "CODE_COL11",
@@ -460,12 +442,12 @@
           "NUMBER"
         ],
         [
-          "NAME_COL17",
-          "VARCHAR2"
-        ],
-        [
           "NUM_COL11",
           "NUMBER"
+        ],
+        [
+          "NAME_COL17",
+          "VARCHAR2"
         ],
         [
           "NUM_COL10",
@@ -512,20 +494,20 @@
           "VARCHAR2"
         ],
         [
-          "MONTH_COL4",
-          "VARCHAR2"
-        ],
-        [
           "NUM_COL3",
           "NUMBER"
         ],
         [
-          "MONTH_COL3",
+          "MONTH_COL4",
           "VARCHAR2"
         ],
         [
           "NUM_COL4",
           "NUMBER"
+        ],
+        [
+          "MONTH_COL3",
+          "VARCHAR2"
         ],
         [
           "MONTH_COL2",
@@ -536,19 +518,15 @@
           "NUMBER"
         ],
         [
-          "MONTH_COL1",
-          "VARCHAR2"
-        ],
-        [
           "NUM_COL6",
           "NUMBER"
         ],
         [
-          "NUM_COL1",
-          "NUMBER"
+          "MONTH_COL1",
+          "VARCHAR2"
         ],
         [
-          "NUM_COL2",
+          "NUM_COL1",
           "NUMBER"
         ],
         [
@@ -556,12 +534,16 @@
           "VARCHAR2"
         ],
         [
+          "NUM_COL2",
+          "NUMBER"
+        ],
+        [
           "APPYYMM",
           "VARCHAR2"
         ],
         [
           "INSR_CMPN_CD",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "FETUS_YN",
@@ -589,7 +571,7 @@
         ],
         [
           "PLCY_STAT_CD",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "PLCY_DATE",
@@ -627,11 +609,15 @@
       "fields": [
         [
           "STOCK_NO",
-          "VARCHAR2(100)"
+          "VARCHAR2"
         ],
         [
           "GEN_PERFORM_AMT",
           "NUMBER"
+        ],
+        [
+          "V_STD_INSERT_RST",
+          "VARCHAR2"
         ],
         [
           "GEN_AMT",
@@ -650,16 +636,16 @@
           "VARCHAR2"
         ],
         [
+          "SYS_CREATE_BY",
+          "VARCHAR2"
+        ],
+        [
           "PROD_CD",
           "VARCHAR2"
         ],
         [
           "AUTONOMY_GBN",
           "VARCHAR2"
-        ],
-        [
-          "EXCEL_CD",
-          "NUMBER"
         ],
         [
           "RECEIPT_METHOD",
@@ -671,7 +657,7 @@
         ],
         [
           "TL_ACC_ID",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "GROUP_OBJ_GBN",
@@ -679,11 +665,19 @@
         ],
         [
           "FETUS_DUE_DATE",
-          "VARCHAR2"
+          "DATE"
         ],
         [
           "ETC_AMT",
           "NUMBER"
+        ],
+        [
+          "SYS_TYPE",
+          "VARCHAR2"
+        ],
+        [
+          "SYS_MODIFY_BY",
+          "VARCHAR2"
         ],
         [
           "CHAUFFEUR_SERVICE_GBN",
@@ -698,8 +692,16 @@
           "VARCHAR2"
         ],
         [
+          "SYS_MODIFY_DATE",
+          "DATE"
+        ],
+        [
           "TWO_WHEELER_GBN",
           "VARCHAR2"
+        ],
+        [
+          "OtherColumns",
+          "nvarchar"
         ],
         [
           "INSURED",
@@ -711,7 +713,7 @@
         ],
         [
           "SYS_FLAG",
-          "VARCHAR2"
+          "CHAR"
         ],
         [
           "OA_AMT",
@@ -722,7 +724,15 @@
           "VARCHAR2"
         ],
         [
+          "SYS_CREATE_DATE",
+          "DATE"
+        ],
+        [
           "SLCT_INUSR_CD",
+          "VARCHAR2"
+        ],
+        [
+          "INPUT_METHOD",
           "VARCHAR2"
         ],
         [
@@ -735,7 +745,7 @@
         ],
         [
           "PRC_PYMT_MTHD_CD",
-          "VARCHAR2(100)"
+          "VARCHAR2"
         ],
         [
           "INSR_HWAN3",
@@ -758,16 +768,24 @@
           "NUMBER"
         ],
         [
+          "V_STND_CAR_CATEGORY",
+          "VARCHAR2"
+        ],
+        [
           "JIGUB_LOGIC_CD",
-          "VARCHAR2(100)"
+          "VARCHAR2"
         ],
         [
           "CAR_AMT",
           "NUMBER"
         ],
         [
+          "SYS_ID",
+          "VARCHAR2"
+        ],
+        [
           "SUIP_COMM_GBN",
-          "VARCHAR2(100)"
+          "VARCHAR2"
         ],
         [
           "LIABILITY_PREM_AMT",
@@ -782,19 +800,19 @@
           "NUMBER"
         ],
         [
+          "APPYYMM",
+          "VARCHAR2"
+        ],
+        [
           "AREA_GBN",
           "VARCHAR2"
         ],
         [
           "INSR_CMPN_CD",
-          "VARCHAR2(100)"
+          "VARCHAR2"
         ],
         [
           "FETUS_YN",
-          "VARCHAR"
-        ],
-        [
-          "SUPERIORITY_GBN",
           "VARCHAR2"
         ],
         [
@@ -802,8 +820,12 @@
           "NUMBER"
         ],
         [
+          "SUPERIORITY_GBN",
+          "VARCHAR2"
+        ],
+        [
           "PRC_PYMT_TMS",
-          "CHAR(100)"
+          "NUMBER"
         ],
         [
           "USG_GBN",
@@ -839,7 +861,7 @@
         ],
         [
           "SLCT_EMP_NO",
-          "VARCHAR2(100)"
+          "VARCHAR2"
         ],
         [
           "GRANT_DATE",
@@ -851,35 +873,31 @@
         ],
         [
           "PRC_PLCY_STAT_CD",
-          "VARCHAR2(100)"
-        ],
-        [
-          "MANAGE_AMT",
-          "NUMBER"
+          "VARCHAR2"
         ],
         [
           "ORDINARY_PEOPLE_GBN",
           "VARCHAR2"
         ],
         [
-          "ID_SEQ",
-          "CHAR(1000)"
-        ],
-        [
-          "STND_CAR_CATEGORY",
-          "VARCHAR2"
-        ],
-        [
-          "PLCY_DATE",
-          "VARCHAR2"
-        ],
-        [
-          "JUNGSUNG",
+          "MANAGE_AMT",
           "NUMBER"
         ],
         [
-          "TL_APL_ID",
+          "ID_SEQ",
           "VARCHAR"
+        ],
+        [
+          "PLCY_DATE",
+          "DATE"
+        ],
+        [
+          "JUNGSUNG",
+          "VARCHAR2"
+        ],
+        [
+          "TL_APL_ID",
+          "VARCHAR2"
         ],
         [
           "DANGER_GBN",
@@ -887,7 +905,7 @@
         ],
         [
           "PYMT_PERD",
-          "VARCHAR2"
+          "NUMBER"
         ],
         [
           "HAPPINESS_GBN",
@@ -895,11 +913,11 @@
         ],
         [
           "p_APPYYMM",
-          "VARCHAR2(100)"
+          "CHAR(6)"
         ],
         [
           "SUIP_STD_IDX",
-          "CHAR(1000)"
+          "NUMBER"
         ],
         [
           "SLCT_DIVN_CD",
@@ -925,7 +943,7 @@
       "fields": [
         [
           "STOCK_NO",
-          "VARCHAR2"
+          "VARCHAR2(50)"
         ],
         [
           "GEN_PERFORM_AMT",
@@ -937,7 +955,7 @@
         ],
         [
           "FETUS_BIGO",
-          "VARCHAR2"
+          "VARCHAR2(200)"
         ],
         [
           "PERFORM_AMT",
@@ -945,15 +963,15 @@
         ],
         [
           "EXTRA_CHARGE_GBN",
-          "VARCHAR2"
+          "VARCHAR2(30)"
         ],
         [
           "PROD_CD",
-          "VARCHAR2"
+          "VARCHAR2(30)"
         ],
         [
           "AUTONOMY_GBN",
-          "VARCHAR2"
+          "VARCHAR2(30)"
         ],
         [
           "V_STD_SUIP_DATA_COL",
@@ -961,19 +979,19 @@
         ],
         [
           "RECEIPT_METHOD",
-          "VARCHAR2"
+          "VARCHAR2(30)"
         ],
         [
           "ASSOCIATION_OBJ_GBN",
-          "VARCHAR2"
+          "VARCHAR2(50)"
         ],
         [
           "GROUP_OBJ_GBN",
-          "VARCHAR2"
+          "VARCHAR2(30)"
         ],
         [
           "FETUS_DUE_DATE",
-          "VARCHAR2"
+          "VARCHAR2(10)"
         ],
         [
           "ETC_AMT",
@@ -981,7 +999,7 @@
         ],
         [
           "CHAUFFEUR_SERVICE_GBN",
-          "VARCHAR2"
+          "VARCHAR2(30)"
         ],
         [
           "SUGUM_AMT",
@@ -989,15 +1007,19 @@
         ],
         [
           "PLCYR_NM",
-          "VARCHAR2"
+          "VARCHAR2(200)"
         ],
         [
           "TWO_WHEELER_GBN",
-          "VARCHAR2"
+          "VARCHAR2(30)"
+        ],
+        [
+          "OtherColumns",
+          "nvarchar"
         ],
         [
           "INSURED",
-          "VARCHAR2"
+          "VARCHAR2(200)"
         ],
         [
           "MONTH_PREM_AMT",
@@ -1009,11 +1031,11 @@
         ],
         [
           "SLCT_INUSR_CD",
-          "VARCHAR2"
+          "VARCHAR2(30)"
         ],
         [
           "CARTYPE",
-          "VARCHAR2"
+          "VARCHAR2(50)"
         ],
         [
           "INSR_HWAN4",
@@ -1021,7 +1043,7 @@
         ],
         [
           "PRC_PYMT_MTHD_CD",
-          "VARCHAR2"
+          "VARCHAR2(30)"
         ],
         [
           "INSR_HWAN3",
@@ -1037,7 +1059,7 @@
         ],
         [
           "CARNUM",
-          "VARCHAR2"
+          "VARCHAR2(30)"
         ],
         [
           "SEQ",
@@ -1045,7 +1067,7 @@
         ],
         [
           "JIGUB_LOGIC_CD",
-          "VARCHAR2"
+          "VARCHAR2(20)"
         ],
         [
           "CAR_AMT",
@@ -1053,7 +1075,7 @@
         ],
         [
           "SUIP_COMM_GBN",
-          "VARCHAR"
+          "nvarchar"
         ],
         [
           "LIABILITY_PREM_AMT",
@@ -1069,23 +1091,23 @@
         ],
         [
           "AREA_GBN",
-          "VARCHAR2"
+          "VARCHAR2(30)"
         ],
         [
           "INSR_CMPN_CD",
-          "VARCHAR2"
+          "VARCHAR2(30)"
         ],
         [
           "FETUS_YN",
-          "VARCHAR2"
-        ],
-        [
-          "SUPERIORITY_GBN",
-          "VARCHAR2"
+          "VARCHAR2(10)"
         ],
         [
           "JIGUB_CNT",
           "NUMBER"
+        ],
+        [
+          "SUPERIORITY_GBN",
+          "VARCHAR2(30)"
         ],
         [
           "PRC_PYMT_TMS",
@@ -1093,7 +1115,7 @@
         ],
         [
           "USG_GBN",
-          "VARCHAR2"
+          "VARCHAR2(200)"
         ],
         [
           "PREM_AMT",
@@ -1105,7 +1127,7 @@
         ],
         [
           "PROD_GROUP",
-          "VARCHAR2"
+          "VARCHAR2(30)"
         ],
         [
           "RENEWAL_AMT",
@@ -1117,23 +1139,23 @@
         ],
         [
           "SLCT_EMP_NM",
-          "VARCHAR2"
+          "VARCHAR2(50)"
         ],
         [
           "OTHERS_GBN",
-          "VARCHAR2"
+          "VARCHAR2(30)"
         ],
         [
           "OFFICIAL_USE",
-          "VARCHAR2"
+          "VARCHAR2(30)"
         ],
         [
           "SLCT_EMP_NO",
-          "VARCHAR2"
+          "VARCHAR2(50)"
         ],
         [
           "GRANT_DATE",
-          "VARCHAR2"
+          "VARCHAR2(10)"
         ],
         [
           "FETUS_CNT",
@@ -1141,19 +1163,19 @@
         ],
         [
           "PRC_PLCY_STAT_CD",
-          "VARCHAR2"
+          "VARCHAR2(50)"
+        ],
+        [
+          "ORDINARY_PEOPLE_GBN",
+          "VARCHAR2(30)"
         ],
         [
           "MANAGE_AMT",
           "NUMBER"
         ],
         [
-          "ORDINARY_PEOPLE_GBN",
-          "VARCHAR2"
-        ],
-        [
           "PLCY_DATE",
-          "VARCHAR2"
+          "VARCHAR2(10)"
         ],
         [
           "JUNGSUNG",
@@ -1161,31 +1183,31 @@
         ],
         [
           "DANGER_GBN",
-          "VARCHAR2"
+          "VARCHAR2(30)"
         ],
         [
           "PYMT_PERD",
-          "VARCHAR2"
+          "VARCHAR2(30)"
         ],
         [
           "HAPPINESS_GBN",
-          "VARCHAR2"
+          "VARCHAR2(30)"
         ],
         [
           "SUIP_STD_IDX",
-          "VARCHAR2"
+          "VARCHAR2(100)"
         ],
         [
           "SLCT_DIVN_CD",
-          "VARCHAR2"
+          "VARCHAR2(30)"
         ],
         [
           "RECEIPT_DATE",
-          "VARCHAR2"
+          "VARCHAR2(10)"
         ],
         [
           "PROD_NM",
-          "VARCHAR2"
+          "VARCHAR2(300)"
         ]
       ],
       "keyType": "Long"
@@ -1211,7 +1233,7 @@
         ],
         [
           "SUIP_COMM_GBN",
-          "NUMBER"
+          "VARCHAR2"
         ],
         [
           "DATA_CD",
@@ -1230,10 +1252,6 @@
           "NUMBER"
         ],
         [
-          "EXCEL_CD",
-          "NUMBER"
-        ],
-        [
           "SRC_FLT6_COMP_CD",
           "VARCHAR2"
         ],
@@ -1242,24 +1260,24 @@
           "VARCHAR2"
         ],
         [
-          "CALC_SIGN_VAL",
+          "SRC_FLT1_VAL",
           "VARCHAR2"
         ],
         [
-          "SRC_FLT1_VAL",
-          "VARCHAR2"
+          "CALC_SIGN_VAL",
+          "NUMBER"
         ],
         [
           "SUIP_DATA_CD",
           "VARCHAR2"
         ],
         [
-          "SRC_FLT4_CD",
-          "VARCHAR2"
-        ],
-        [
           "SORT_NO",
           "NUMBER"
+        ],
+        [
+          "SRC_FLT4_CD",
+          "VARCHAR2"
         ],
         [
           "SRC_FLT6_CD",
@@ -1278,11 +1296,11 @@
           "VARCHAR2"
         ],
         [
-          "SRC_FLT2_VAL",
+          "SRC_FLT3_COMP_CD",
           "VARCHAR2"
         ],
         [
-          "SRC_FLT3_COMP_CD",
+          "SRC_FLT2_VAL",
           "VARCHAR2"
         ],
         [
@@ -1298,11 +1316,11 @@
           "VARCHAR2"
         ],
         [
-          "SRC_FLT4_COMP_CD",
+          "SRC_SUIP_COM_CD",
           "VARCHAR2"
         ],
         [
-          "SRC_SUIP_COM_CD",
+          "SRC_FLT4_COMP_CD",
           "VARCHAR2"
         ],
         [
@@ -1312,6 +1330,14 @@
         [
           "STD_COM_CD",
           "VARCHAR2"
+        ],
+        [
+          "OTHER_COLUMN2",
+          "VARCHAR"
+        ],
+        [
+          "OTHER_COLUMN1",
+          "VARCHAR"
         ],
         [
           "SRC_EXCEL_CD",
@@ -1341,7 +1367,7 @@
       "fields": [
         [
           "RATE_MNG_YN",
-          "VARCHAR2"
+          "CHAR"
         ],
         [
           "ID_SEQ",
@@ -1353,31 +1379,23 @@
         ],
         [
           "APPYYMM",
-          "VARCHAR2"
+          "VARCHAR"
         ],
         [
           "DT_TYPE",
-          "VARCHAR2"
+          "VARCHAR"
         ],
         [
           "INSR_CMPN_CD",
           "VARCHAR2"
         ],
         [
-          "SRC_SUIP_COM_CD",
-          "VARCHAR2"
-        ],
-        [
           "DT_CR_CD",
-          "VARCHAR2"
+          "VARCHAR"
         ],
         [
           "EXCEL_CD",
-          "VARCHAR2"
-        ],
-        [
-          "EXCELDOWN_YN",
-          "VARCHAR2"
+          "NUMBER"
         ],
         [
           "CALC_STEP",
@@ -1385,7 +1403,11 @@
         ],
         [
           "USE_YN",
-          "VARCHAR2"
+          "CHAR"
+        ],
+        [
+          "EXCELDOWN_YN",
+          "CHAR"
         ],
         [
           "SUIP_COM_CD",
@@ -1397,7 +1419,7 @@
         ],
         [
           "SUIP_COM_NM",
-          "VARCHAR2"
+          "VARCHAR"
         ]
       ],
       "keyType": "Long"
@@ -1438,23 +1460,19 @@
           "VARCHAR2"
         ],
         [
+          "OTHER_COLUMN2",
+          "VARCHAR"
+        ],
+        [
+          "OTHER_COLUMN1",
+          "VARCHAR"
+        ],
+        [
           "AGGREGATE_EXP",
           "VARCHAR2"
         ],
         [
-          "COLUMN3",
-          "DATE"
-        ],
-        [
-          "COLUMN2",
-          "NUMBER"
-        ],
-        [
           "SUIP_DATA_CD",
-          "VARCHAR2"
-        ],
-        [
-          "COLUMN1",
           "VARCHAR2"
         ],
         [
@@ -1487,47 +1505,47 @@
       "fields": [
         [
           "CAR_AMT",
-          "DECIMAL"
+          "NUMBER"
         ],
         [
           "GEN_PERFORM_AMT",
-          "DECIMAL"
+          "NUMBER"
         ],
         [
           "SUGUM_AMT",
-          "DECIMAL"
+          "NUMBER"
         ],
         [
           "SUIP_COMM_GBN",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "MANAGE_AMT",
-          "DECIMAL"
+          "NUMBER"
         ],
         [
           "INSR_CMPN_CD",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "GEN_AMT",
-          "DECIMAL"
+          "NUMBER"
         ],
         [
           "JUNGSUNG",
-          "DECIMAL"
+          "NUMBER"
         ],
         [
           "PERFORM_AMT",
-          "DECIMAL"
+          "NUMBER"
         ],
         [
           "TOTAL_AMT",
-          "DECIMAL"
+          "NUMBER"
         ],
         [
           "OA_AMT",
-          "DECIMAL"
+          "NUMBER"
         ],
         [
           "RENEWAL_AMT",
@@ -1535,11 +1553,29 @@
         ],
         [
           "CAR_PERFORM_AMT",
-          "DECIMAL"
+          "NUMBER"
         ],
         [
           "ETC_AMT",
-          "DECIMAL"
+          "NUMBER"
+        ]
+      ],
+      "keyType": "Long"
+    },
+    {
+      "name": "temp_sql",
+      "fields": [
+        [
+          "sqltext",
+          "VARCHAR2"
+        ],
+        [
+          "SUIP_COMM_GBN",
+          "VARCHAR2"
+        ],
+        [
+          "idx",
+          "NUMBER"
         ]
       ],
       "keyType": "Long"
@@ -1549,27 +1585,27 @@
       "fields": [
         [
           "TL_APL_ID",
-          "UNKNOWN"
+          "VARCHAR2"
         ],
         [
           "SYS_FLAG",
-          "UNKNOWN"
+          "CHAR"
         ],
         [
           "APPYYMM",
-          "UNKNOWN"
+          "VARCHAR2"
         ],
         [
           "TL_ACC_ID",
-          "UNKNOWN"
+          "VARCHAR2"
         ],
         [
           "DIVN_CD",
-          "UNKNOWN"
+          "NUMBER"
         ],
         [
           "DIVN_UNIT_CD",
-          "UNKNOWN"
+          "VARCHAR2"
         ]
       ],
       "keyType": "Long"
@@ -1582,12 +1618,12 @@
           "NUMBER"
         ],
         [
-          "CLCT_DIVN_CD",
-          "VARCHAR2"
-        ],
-        [
           "NUM_COL48",
           "NUMBER"
+        ],
+        [
+          "CLCT_DIVN_CD",
+          "VARCHAR2"
         ],
         [
           "NUM_COL47",
@@ -1626,12 +1662,12 @@
           "VARCHAR2"
         ],
         [
-          "EXCEL_CD",
-          "VARCHAR2"
-        ],
-        [
           "BM_PYMT_TMS",
           "NUMBER"
+        ],
+        [
+          "EXCEL_CD",
+          "VARCHAR2"
         ],
         [
           "TL_ACC_ID",
@@ -1650,12 +1686,12 @@
           "NUMBER"
         ],
         [
-          "PLCYR_NM",
-          "VARCHAR2"
-        ],
-        [
           "NUM_COL56",
           "NUMBER"
+        ],
+        [
+          "PLCYR_NM",
+          "VARCHAR2"
         ],
         [
           "NUM_COL55",
@@ -1714,12 +1750,12 @@
           "DATE"
         ],
         [
-          "DATE_COL4",
-          "DATE"
-        ],
-        [
           "PRC_PYMT_MTHD_CD",
           "VARCHAR2"
+        ],
+        [
+          "DATE_COL4",
+          "DATE"
         ],
         [
           "DATE_COL1",
@@ -1738,12 +1774,12 @@
           "VARCHAR2"
         ],
         [
-          "NUM_COL29",
-          "NUMBER"
-        ],
-        [
           "CODE_COL5",
           "VARCHAR2"
+        ],
+        [
+          "NUM_COL29",
+          "NUMBER"
         ],
         [
           "NUM_COL28",
@@ -1826,12 +1862,12 @@
           "VARCHAR2"
         ],
         [
-          "NAME_COL7",
-          "VARCHAR2"
-        ],
-        [
           "PRC_PYMT_TMS",
           "NUMBER"
+        ],
+        [
+          "NAME_COL7",
+          "VARCHAR2"
         ],
         [
           "NAME_COL4",
@@ -2002,12 +2038,12 @@
           "NUMBER"
         ],
         [
-          "NAME_COL17",
-          "VARCHAR2"
-        ],
-        [
           "NUM_COL11",
           "NUMBER"
+        ],
+        [
+          "NAME_COL17",
+          "VARCHAR2"
         ],
         [
           "NUM_COL10",
@@ -2058,20 +2094,20 @@
           "VARCHAR2"
         ],
         [
-          "MONTH_COL4",
-          "VARCHAR2"
-        ],
-        [
           "NUM_COL3",
           "NUMBER"
         ],
         [
-          "MONTH_COL3",
+          "MONTH_COL4",
           "VARCHAR2"
         ],
         [
           "NUM_COL4",
           "NUMBER"
+        ],
+        [
+          "MONTH_COL3",
+          "VARCHAR2"
         ],
         [
           "MONTH_COL2",
@@ -2082,24 +2118,24 @@
           "NUMBER"
         ],
         [
-          "MONTH_COL1",
-          "VARCHAR2"
-        ],
-        [
           "NUM_COL6",
           "NUMBER"
+        ],
+        [
+          "MONTH_COL1",
+          "VARCHAR2"
         ],
         [
           "NUM_COL1",
           "NUMBER"
         ],
         [
-          "NUM_COL2",
-          "NUMBER"
-        ],
-        [
           "MONTH_COL5",
           "VARCHAR2"
+        ],
+        [
+          "NUM_COL2",
+          "NUMBER"
         ],
         [
           "APPYYMM",
@@ -2205,7 +2241,7 @@
         ],
         [
           "SYS_FLAG",
-          "CHAR"
+          "VARCHAR2"
         ],
         [
           "TL_ACC_ID",
@@ -2270,11 +2306,11 @@
           "VARCHAR2"
         ],
         [
-          "CALC_SIGN_VAL",
+          "SRC_FLT1_VAL",
           "VARCHAR2"
         ],
         [
-          "SRC_FLT1_VAL",
+          "CALC_SIGN_VAL",
           "VARCHAR2"
         ],
         [
@@ -2298,11 +2334,11 @@
           "VARCHAR2"
         ],
         [
-          "SRC_FLT2_VAL",
+          "SRC_FLT3_COMP_CD",
           "VARCHAR2"
         ],
         [
-          "SRC_FLT3_COMP_CD",
+          "SRC_FLT2_VAL",
           "VARCHAR2"
         ],
         [
@@ -2310,11 +2346,11 @@
           "VARCHAR2"
         ],
         [
-          "SRC_FLT4_COMP_CD",
+          "SRC_SUIP_COM_CD",
           "VARCHAR2"
         ],
         [
-          "SRC_SUIP_COM_CD",
+          "SRC_FLT4_COMP_CD",
           "VARCHAR2"
         ],
         [
@@ -2327,7 +2363,7 @@
         ],
         [
           "SYS_FLAG",
-          "CHAR"
+          "VARCHAR2"
         ],
         [
           "SRC_EXCEL_CD",
@@ -2353,39 +2389,35 @@
       "fields": [
         [
           "RATE_MNG_YN",
-          "VARCHAR2"
+          "CHAR"
         ],
         [
           "DATA_CD",
-          "VARCHAR2"
+          "VARCHAR"
         ],
         [
           "APPYYMM",
-          "VARCHAR2"
+          "VARCHAR"
         ],
         [
           "DT_TYPE",
-          "VARCHAR2"
+          "VARCHAR"
         ],
         [
           "INSR_CMPN_CD",
-          "VARCHAR2"
+          "VARCHAR"
         ],
         [
           "DT_CR_CD",
-          "VARCHAR2"
+          "VARCHAR"
         ],
         [
           "TL_APL_ID",
-          "VARCHAR2"
+          "VARCHAR"
         ],
         [
           "EXCEL_CD",
-          "VARCHAR2"
-        ],
-        [
-          "EXCELDOWN_YN",
-          "VARCHAR2"
+          "VARCHAR"
         ],
         [
           "CALC_STEP",
@@ -2393,19 +2425,23 @@
         ],
         [
           "USE_YN",
-          "VARCHAR2"
+          "CHAR"
+        ],
+        [
+          "EXCELDOWN_YN",
+          "CHAR"
         ],
         [
           "SYS_FLAG",
-          "VARCHAR2"
+          "CHAR"
         ],
         [
           "TL_ACC_ID",
-          "VARCHAR2"
+          "VARCHAR"
         ],
         [
           "SUIP_COM_CD",
-          "VARCHAR2"
+          "VARCHAR"
         ],
         [
           "SORT_NO",
@@ -2413,7 +2449,7 @@
         ],
         [
           "SUIP_COM_NM",
-          "VARCHAR2"
+          "VARCHAR"
         ]
       ],
       "keyType": "Long"
@@ -2423,7 +2459,7 @@
       "fields": [
         [
           "TL_APL_ID",
-          "VARCHAR2"
+          "NUMBER"
         ],
         [
           "SYS_FLAG",
@@ -2435,7 +2471,7 @@
         ],
         [
           "TL_ACC_ID",
-          "VARCHAR2"
+          "NUMBER"
         ],
         [
           "INSR_CMPN_CD",
@@ -2457,11 +2493,11 @@
       "fields": [
         [
           "PYMT_MTHD_CD",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "TL_APL_ID",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "SYS_FLAG",
@@ -2469,15 +2505,15 @@
         ],
         [
           "STOCK_NO",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "TL_ACC_ID",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "INSR_CMPN_CD",
-          "VARCHAR"
+          "VARCHAR2"
         ]
       ],
       "keyType": "Long"
@@ -2521,27 +2557,27 @@
       "fields": [
         [
           "TL_APL_ID",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "SYS_FLAG",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "PRC_CONT_STATUS",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "PRC_NAPMETHOD",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "TL_ACC_ID",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "INSR_CMPN_CD",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "START_PRC_NAPCNT",
@@ -2553,7 +2589,7 @@
         ],
         [
           "JIGUB_LOGIC_CD",
-          "VARCHAR"
+          "VARCHAR2"
         ]
       ],
       "keyType": "Long"
@@ -2563,99 +2599,99 @@
       "fields": [
         [
           "STOCK_NO",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "GEN_PERFORM_AMT",
-          "DECIMAL"
+          "NUMBER"
         ],
         [
           "GEN_AMT",
-          "DECIMAL"
+          "NUMBER"
         ],
         [
           "FETUS_BIGO",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "PERFORM_AMT",
-          "DECIMAL"
+          "NUMBER"
         ],
         [
           "EXTRA_CHARGE_GBN",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "SYS_CREATE_BY",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "PROD_CD",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "AUTONOMY_GBN",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "RECEIPT_METHOD",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "ASSOCIATION_OBJ_GBN",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "TL_ACC_ID",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "GROUP_OBJ_GBN",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "FETUS_DUE_DATE",
-          "VARCHAR"
+          "DATE"
         ],
         [
           "ETC_AMT",
-          "DECIMAL"
+          "NUMBER"
         ],
         [
           "SYS_TYPE",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "SYS_MODIFY_BY",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "CHAUFFEUR_SERVICE_GBN",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "SUGUM_AMT",
-          "DECIMAL"
+          "NUMBER"
         ],
         [
           "PLCYR_NM",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "SYS_MODIFY_DATE",
-          "TIMESTAMP"
+          "DATE"
         ],
         [
           "TWO_WHEELER_GBN",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "INSURED",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "MONTH_PREM_AMT",
-          "DECIMAL"
+          "NUMBER"
         ],
         [
           "SYS_FLAG",
@@ -2663,207 +2699,203 @@
         ],
         [
           "OA_AMT",
-          "DECIMAL"
-        ],
-        [
-          "MANUAL_WORK_GBN",
-          "VARCHAR2"
+          "NUMBER"
         ],
         [
           "SYS_CREATE_DATE",
-          "TIMESTAMP"
+          "DATE"
         ],
         [
           "SLCT_INUSR_CD",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "INPUT_METHOD",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "CARTYPE",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "INSR_HWAN4",
-          "DECIMAL"
+          "NUMBER"
         ],
         [
           "PRC_PYMT_MTHD_CD",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "INSR_HWAN3",
-          "DECIMAL"
+          "NUMBER"
         ],
         [
           "INSR_HWAN2",
-          "DECIMAL"
+          "NUMBER"
         ],
         [
           "INSR_HWAN1",
-          "DECIMAL"
+          "NUMBER"
         ],
         [
           "CARNUM",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "SEQ",
-          "INT"
+          "NUMBER"
         ],
         [
           "JIGUB_LOGIC_CD",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "CAR_AMT",
-          "DECIMAL"
+          "NUMBER"
         ],
         [
           "SYS_ID",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "SUIP_COMM_GBN",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "LIABILITY_PREM_AMT",
-          "DECIMAL"
+          "NUMBER"
         ],
         [
           "RECEIPT_PREM_AMT",
-          "DECIMAL"
+          "NUMBER"
         ],
         [
           "VOLUNTARY_PREM_AMT",
-          "DECIMAL"
+          "NUMBER"
         ],
         [
           "APPYYMM",
-          "CHAR"
+          "VARCHAR2"
         ],
         [
           "AREA_GBN",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "INSR_CMPN_CD",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "FETUS_YN",
-          "CHAR"
-        ],
-        [
-          "SUPERIORITY_GBN",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "JIGUB_CNT",
-          "INT"
+          "NUMBER"
+        ],
+        [
+          "SUPERIORITY_GBN",
+          "VARCHAR2"
         ],
         [
           "PRC_PYMT_TMS",
-          "INT"
+          "NUMBER"
         ],
         [
           "USG_GBN",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "PREM_AMT",
-          "DECIMAL"
+          "NUMBER"
         ],
         [
           "PROD_GROUP",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "RENEWAL_AMT",
-          "DECIMAL"
+          "NUMBER"
         ],
         [
           "CAR_PERFORM_AMT",
-          "DECIMAL"
+          "NUMBER"
         ],
         [
           "SLCT_EMP_NM",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "OTHERS_GBN",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "OFFICIAL_USE",
-          "CHAR"
+          "VARCHAR2"
         ],
         [
           "SLCT_EMP_NO",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "GRANT_DATE",
-          "VARCHAR"
+          "DATE"
         ],
         [
           "FETUS_CNT",
-          "INT"
+          "NUMBER"
         ],
         [
           "PRC_PLCY_STAT_CD",
-          "VARCHAR"
-        ],
-        [
-          "MANAGE_AMT",
-          "DECIMAL"
+          "VARCHAR2"
         ],
         [
           "ORDINARY_PEOPLE_GBN",
-          "VARCHAR"
+          "VARCHAR2"
+        ],
+        [
+          "MANAGE_AMT",
+          "NUMBER"
         ],
         [
           "PLCY_DATE",
-          "VARCHAR"
+          "DATE"
         ],
         [
           "JUNGSUNG",
-          "DECIMAL"
+          "VARCHAR2"
         ],
         [
           "TL_APL_ID",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "DANGER_GBN",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "PYMT_PERD",
-          "VARCHAR"
+          "NUMBER"
         ],
         [
           "HAPPINESS_GBN",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "SUIP_STD_IDX",
-          "VARCHAR"
+          "NUMBER"
         ],
         [
           "SLCT_DIVN_CD",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "RECEIPT_DATE",
-          "VARCHAR"
+          "DATE"
         ],
         [
           "PROD_NM",
-          "VARCHAR"
+          "VARCHAR2"
         ]
       ],
       "keyType": "Long"
@@ -2907,39 +2939,39 @@
       "fields": [
         [
           "SYS_ID",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "SUIP_COMM_GBN",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "APPYYMM",
-          "VARCHAR"
+          "CHAR"
         ],
         [
           "AMT",
-          "DECIMAL"
+          "NUMBER"
         ],
         [
           "INSR_CMPN_CD",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "SYS_MODIFY_DATE",
-          "TIMESTAMP"
+          "DATE"
         ],
         [
           "SYS_CREATE_BY",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "TL_APL_ID",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "STANDARD_CATEGORY",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "SYS_FLAG",
@@ -2947,26 +2979,25 @@
         ],
         [
           "SYS_CREATE_DATE",
-          "TIMESTAMP"
+          "DATE"
         ],
         [
           "TL_ACC_ID",
-          "VARCHAR"
+          "VARCHAR2"
         ],
         [
           "SYS_TYPE",
-          "VARCHAR"
+          "CHAR"
         ],
         [
           "SYS_MODIFY_BY",
-          "VARCHAR"
+          "VARCHAR2"
         ]
       ],
       "keyType": "Long"
     }
   ],
   "entity_name_list": [
-    "TempSql",
     "TempSuipStdDataResult",
     "TempSuipAmtBase",
     "TempSuipStdDataRst",
@@ -2976,6 +3007,7 @@
     "TempSuipStdMst",
     "TempCarConf",
     "TempSuipStdStat",
+    "TempSql",
     "BDivnMonth",
     "BSuipAmtMonth",
     "BSuipStdMstMonth",
@@ -2991,20 +3023,20 @@
   ],
   "jpa_method_list": [
     {
-      "TempSuipAmtBase_403~417": "List<TempSuipAmtBase> findByInsrCmpnCdAndExcelCdAndPrcPlcyStatCdIn(@Param(\"insrCmpnCd\") String insrCmpnCd)",
+      "TempSuipAmtBase_403~417": "List<TempSuipAmtBase> findTempSuipAmtBaseGrouped(@Param(\"insrCmpnCd\") String insrCmpnCd)",
       "TempSuipAmtBase_228~228": "List<TempSuipAmtBase> findAllTempSuipAmtBase()"
     },
     {
       "TempSuipAmtBase_230~275": "List<TempSuipAmtBase> findTempSuipAmtBaseByConditions(String tlAplId, String tlAccId, String appyymm, String insrCmpnCd)"
     },
     {
-      "TempSuipAmtBase_401~431": "List<TempSuipAmtBase> findGroupedTempSuipAmtBase(@Param(\"insrCmpnCd\") String insrCmpnCd)",
+      "TempSuipAmtBase_401~431": "List<TempSuipAmtBase> findTempSuipAmtBaseGrouped(@Param(\"insrCmpnCd\") String insrCmpnCd)",
       "TempSuipAmtBase_434~439": "List<TempSuipAmtBase> findTempSuipAmtBaseForDeletion(@Param(\"insrCmpnCd\") String insrCmpnCd)",
       "TempSuipAmtBase_446~453": "List<TempSuipAmtBase> findTempSuipAmtBaseForStatusUpdate(@Param(\"insrCmpnCd\") String insrCmpnCd)"
     },
     {
-      "TempSuipAmtBase_487~502": "List<TempSuipAmtBase> findTempSuipAmtBaseToBeUpdated(@Param(\"insrCmpnCd\") String insrCmpnCd)",
-      "TempSuipAmtBase_509~530": "List<TempSuipAmtBase> findTempSuipAmtBaseToBeSlctUpdated(@Param(\"insrCmpnCd\") String insrCmpnCd)"
+      "TempSuipAmtBase_487~502": "List<TempSuipAmtBase> findByInsrCmpnCdAndExcelCdAndPrcPymtMthdCd(@Param(\"insrCmpnCd\") String insrCmpnCd)",
+      "TempSuipAmtBase_509~530": "List<TempSuipAmtBase> findByInsrCmpnCdAndExcelCdAndPrcPlcyStatCdAndPrcPymtTmsAndNumCol11LessThan(@Param(\"insrCmpnCd\") String insrCmpnCd)"
     },
     {
       "TempSuipAmtBase_533~554": "List<TempSuipAmtBase> findTempSuipAmtBaseForUpdate(@Param(\"insrCmpnCd\") String insrCmpnCd, @Param(\"slctInusrCd\") String slctInusrCd)",
@@ -3012,24 +3044,32 @@
       "TempSuipAmtBase_578~580": "List<TempSuipAmtBase> findTempSuipAmtBaseBySuipCommGbnCar()"
     },
     {
-      "TempSuipStdDataRst_1602~1628": "List<TempSuipStdDataRst> findActivePoliciesWithPartialRefund(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm, @Param(\"insrCmpnCd\") String insrCmpnCd)",
-      "TempSuipStdDataRst_1228~1232": "List<TempSuipStdDataRst> findFetusDataByInsuranceCompany(@Param(\"insrCmpnCd\") String insrCmpnCd)"
+      "BSuipStandardDataMonth_1602~1628": "List<BSuipStandardDataMonth> findInactivePolicies(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm, @Param(\"insrCmpnCd\") String insrCmpnCd, @Param(\"prcPymtTms\") Integer prcPymtTms)"
     },
     {
-      "TempSuipStdDataRst_1236~1240": "List<TempSuipStdDataRst> findTempSuipStdDataRstForFetusUpdate(@Param(\"insrCmpnCd\") String insrCmpnCd)",
-      "TempSuipStdDataRst_1257~1277": "List<TempSuipStdDataRst> findTempSuipStdDataRstForPymtMthdUpdate(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId)"
+      "TempSuipStdDataRst_1812~1831": "List<TempSuipStdDataRst> findTempSuipStdDataRstGroupedByInsrCmpnCdAndSuipCommGbn();"
     },
     {
-      "TempSuipStdDataRst_1280~1300": "List<TempSuipStdDataRst> findTempSuipStdDataRstForUpdate(@Param(\"stockNo\") String stockNo, @Param(\"insrCmpnCd\") String insrCmpnCd)",
+      "TempSuipStdDataRst_1942~1977": "List<TempSuipStdDataRst> findTempSuipStdDataRst(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm)"
+    },
+    {
+      "TempSuipStdDataRst_223~223": "List<TempSuipStdDataRst> deleteAllTempSuipStdDataRst()",
+      "TempSuipStdDataRst_1228~1232": "List<TempSuipStdDataRst> findByInsrCmpnCdAndFetusYnNotInAndSuipCommGbn(@Param(\"insrCmpnCd\") String insrCmpnCd)",
+      "TempSuipStdDataRst_1236~1240": "List<TempSuipStdDataRst> findByInsrCmpnCdAndFetusYnNotInAndSuipCommGbn(@Param(\"insrCmpnCd\") String insrCmpnCd)",
+      "TempSuipStdDataRst_1257~1277": "List<TempSuipStdDataRst> findByInsrCmpnCdAndPrcPymtMthdCdEmptyWithExistingBFcPlcyMstMonth(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId)"
+    },
+    {
+      "TempSuipStdDataRst_1280~1300": "List<TempSuipStdDataRst> findTempSuipStdDataRstForUpdateL02L13(@Param(\"stockNo\") String stockNo, @Param(\"insrCmpnCd\") String insrCmpnCd)",
       "TempSuipStdDataRst_1307~1329": "List<TempSuipStdDataRst> findTempSuipStdDataRstForUpdateN20(@Param(\"stockNo\") String stockNo, @Param(\"insrCmpnCd\") String insrCmpnCd)"
     },
     {
-      "TempSuipStdDataRst_1332~1354": "List<TempSuipStdDataRst> findTempSuipStdDataRstForUpdate(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId)"
+      "TempSuipStdDataRst_1332~1354": "List<TempSuipStdDataRst> findTempSuipStdDataRstForUpdate(@Param(\"stockNo\") String stockNo, @Param(\"insrCmpnCd\") String insrCmpnCd)"
     },
     {
       "TempSuipStdDataRst_1365~1383": "List<TempSuipStdDataRst> findTempSuipStdDataRstForMonthPremAmtUpdate();",
+      "TempSuipStdDataRst_1387~1391": "List<TempSuipStdDataRst> findTempSuipStdDataRstForZeroMonthPremAmt();",
       "TempSuipStdDataRst_1402~1406": "List<TempSuipStdDataRst> findTempSuipStdDataRstForJigubLogicCdUpdate();",
-      "TempSuipStdDataRst_1411~1418": "List<TempSuipStdDataRst> findTempSuipStdDataRstForJigubLogicCdUpdateIlsinap();"
+      "TempSuipStdDataRst_1411~1418": "List<TempSuipStdDataRst> findTempSuipStdDataRstForIlsinapJigubLogicCdUpdate();"
     },
     {
       "TempSuipStdDataRst_1422~1446": "List<TempSuipStdDataRst> findTempSuipStdDataRstForUpdate(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId)"
@@ -3039,38 +3079,43 @@
       "TempSuipStdDataRst_1483~1492": "List<TempSuipStdDataRst> findTempSuipStdDataRstForMaintenance(@Param(\"insrCmpnCd\") String insrCmpnCd)"
     },
     {
-      "TempSuipStdDataRst_1495~1511": "List<TempSuipStdDataRst> findTempSuipStdDataRstForJigubLogicUpdate(@Param(\"insrCmpnCd\") String insrCmpnCd)",
-      "TempSuipStdDataRst_1514~1522": "List<TempSuipStdDataRst> findTempSuipStdDataRstForJigubLogicUpdateToSugum(@Param(\"insrCmpnCd\") String insrCmpnCd)",
-      "TempSuipStdDataRst_1555~1569": "List<TempSuipStdDataRst> findTempSuipStdDataRstForSlctInfoUpdate()"
+      "TempSuipStdDataRst_1495~1511": "List<TempSuipStdDataRst> findTempSuipStdDataRstForUpdate(@Param(\"insrCmpnCd\") String insrCmpnCd)",
+      "TempSuipStdDataRst_1514~1522": "List<TempSuipStdDataRst> findTempSuipStdDataRstForSecondUpdate(@Param(\"insrCmpnCd\") String insrCmpnCd)",
+      "TempSuipStdDataRst_1555~1569": "List<TempSuipStdDataRst> findTempSuipStdDataRstForThirdUpdate()"
     },
     {
-      "TempSuipStdDataRst_1572~1585": "List<TempSuipStdDataRst> findTempSuipStdDataRstForUpdate(@Param(\"insrCmpnCd\") String insrCmpnCd)"
+      "TempSuipStdDataRst_1572~1585": "List<TempSuipStdDataRst> findTempSuipStdDataRstForUpdate();"
     },
     {
-      "TempSuipStdDataRst_1595~1628": "List<TempSuipStdDataRst> findTempSuipStdDataRst(@Param(\"insrCmpnCd\") String insrCmpnCd)"
+      "TempSuipStdDataRst_1595~1628": "List<TempSuipStdDataRst> findTempSuipStdDataRst(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm, @Param(\"insrCmpnCd\") String insrCmpnCd)"
     },
     {
       "TempSuipStdDataRst_1631~1648": "List<TempSuipStdDataRst> findTempSuipStdDataRstForUpdate(@Param(\"insrCmpnCd\") String insrCmpnCd)",
-      "TempSuipStdDataRst_1660~1666": "List<TempSuipStdDataRst> findTempSuipStdDataRstForUpdateJigubLogic(@Param(\"insrCmpnCd\") String insrCmpnCd)"
+      "TempSuipStdDataRst_1660~1666": "List<TempSuipStdDataRst> findTempSuipStdDataRstForJigubLogicUpdate(@Param(\"insrCmpnCd\") String insrCmpnCd)"
     },
     {
       "TempSuipStdDataRst_1677~1701": "List<TempSuipStdDataRst> findTempSuipStdDataRstForUpdate(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm, @Param(\"insrCmpnCd\") String insrCmpnCd)"
     },
     {
-      "TempSuipStdDataRst_1712~1731": "List<TempSuipStdDataRst> findTempSuipStdDataRstForUpdate(String tlAplId, String tlAccId, String insrCmpnCd)"
+      "TempSuipStdDataRst_1712~1731": "List<TempSuipStdDataRst> findTempSuipStdDataRstByConditions(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"insrCmpnCd\") String insrCmpnCd)"
     },
     {
       "TempSuipStdDataRst_1742~1776": "List<TempSuipStdDataRst> findTempSuipStdDataRstForUpdate(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"insrCmpnCd\") String insrCmpnCd)"
     },
     {
-      "TempSuipStdDataRst_1785~1797": "List<TempSuipStdDataRst> findByAppyymm(@Param(\"appyymm\") String appyymm)"
+      "TempSuipStdDataRst_1785~1797": "List<TempSuipStdDataRst> findByAppyymm(@Param(\"appyymm\") String appyymm)",
+      "TempSuipStdDataRst_1808~1831": "List<TempSuipStdDataRst> findByInsrCmpnCdAndSuipCommGbn(@Param(\"insrCmpnCd\") String insrCmpnCd, @Param(\"suipCommGbn\") String suipCommGbn)",
+      "TempSuipStdStat_1808~1831": "List<TempSuipStdStat> findTempSuipStdStatGroupByInsrCmpnCdAndSuipCommGbn()"
+    },
+    {
+      "BSuipStandardDataMonth_1925~1977": "List<BSuipStandardDataMonth> findBSuipStandardDataMonthByAppyymmAndTlAplIdAndTlAccId(@Param(\"appyymm\") String appyymm, @Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId)"
     },
     {
       "TempSuipStdData_224~224": "List<TempSuipStdData> findAllTempSuipStdData()"
     },
     {
-      "TempSuipStdRule_709~709": "TempSuipStdRule findMaxIdSeq()",
-      "TempSuipStdRule_717~740": "TempSuipStdRule findByIdSeq(@Param(\"idSeq\") Long idSeq)"
+      "TempSuipStdRule_709~709": "TempSuipStdRule findTempSuipStdRuleWithMaxIdSeq()",
+      "TempSuipStdRule_717~740": "TempSuipStdRule findTempSuipStdRuleByIdSeq(@Param(\"idSeq\") Long idSeq)"
     },
     {
       "TempSuipStdRule_1024~1028": "Long countBySrcExcelCdAndInsrCmpnCd(@Param(\"srcExcelCd\") String srcExcelCd, @Param(\"insrCmpnCd\") String insrCmpnCd)",
@@ -3080,82 +3125,73 @@
       "TempSuipStdRule_306~340": "List<TempSuipStdRule> findTempSuipStdRules(@Param(\"appyymm\") String appyymm, @Param(\"insrCmpnCd\") String insrCmpnCd, @Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId)"
     },
     {
-      "TempSuipStdRuleRef_747~754": "List<TempSuipStdRuleRef> findByExcelCdAndInsrCmpnCdAndSuipComCdAndInsrCmpnCdPrefix(String excelCd, String insrCmpnCd, String suipComCd, String insrCmpnCdPrefix)"
+      "TempSuipStdRuleRef_747~754": "TempSuipStdRuleRef findTempSuipStdRuleRef(String excelCd, String insrCmpnCd, String suipComCd, String insrCmpnCdPrefix)"
     },
     {
-      "TempSuipStdRuleRef_759~766": "TempSuipStdRuleRef findTempSuipStdRuleRef(@Param(\"excelCd\") String excelCd, @Param(\"insrCmpnCd\") String insrCmpnCd, @Param(\"suipComCd\") String suipComCd)"
+      "TempSuipStdRuleRef_759~766": "TempSuipStdRuleRef findByCriteria(@Param(\"excelCd\") String excelCd, @Param(\"insrCmpnCd\") String insrCmpnCd, @Param(\"suipComCd\") String suipComCd)"
     },
     {
       "TempSuipStdRuleRef_770~773": "TempSuipStdRuleRef findByIdSeq(@Param(\"idSeq\") Long idSeq)"
     },
     {
-      "TempSuipStdRuleRef_348~365": "List<TempSuipStdRuleRef> findTempSuipStdRuleRefData(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm, @Param(\"insrCmpnCd\") String insrCmpnCd)"
+      "TempSuipStdRuleRef_348~365": "List<TempSuipStdRuleRef> findTempSuipStdRuleRefByConditions(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm, @Param(\"insrCmpnCd\") String insrCmpnCd)"
     },
     {
-      "TempSuipStdMst_604~604": "TempSuipStdMst findMaxIdSeq()",
-      "TempSuipStdMst_635~638": "TempSuipStdMst findByIdSeq(@Param(\"idSeq\") Long idSeq)"
-    },
-    {
-      "TempSuipStdMst_283~298": "List<TempSuipStdMst> findTempSuipStdMstData(@Param(\"appyymm\") String appyymm, @Param(\"insrCmpnCd\") String insrCmpnCd, @Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId)"
+      "TempSuipStdMst_604~604": "Long findMaxIdSeq()",
+      "TempSuipStdMst_635~638": "TempSuipStdMst findByIdSeq(@Param(\"idSeq\") Long idSeq)",
+      "TempSuipStdMst_283~298": "List<TempSuipStdMst> findTempSuipStdMstByConditions(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm, @Param(\"insrCmpnCd\") String insrCmpnCd)"
     },
     {
       "TempCarConf_1155~1155": "TempCarConf findMaxIdSeq()",
       "TempCarConf_1162~1165": "TempCarConf findByIdSeq(@Param(\"idSeq\") Long idSeq)",
-      "TempCarConf_371~371": "List<TempCarConf> findByInsrCmpnCdAndStndCarCategory(@Param(\"insrCmpnCd\") String insrCmpnCd, @Param(\"stndCarCategory\") String stndCarCategory)",
-      "TempCarConf_374~385": "List<TempCarConf> findDistinctTempCarConfByBContractCarStndConf(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"insrCmpnCd\") String insrCmpnCd)"
+      "TempCarConf_371~371": "List<TempCarConf> findByInsrCmpnCdAndTlAplIdAndTlAccId(@Param(\"insrCmpnCd\") String insrCmpnCd, @Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId)"
     },
     {
-      "TempSuipStdStat_1812~1831": "List<TempSuipStdStat> findTempSuipStdStatGroupedByInsrCmpnCdAndSuipCommGbn();"
+      "TempCarConf_374~385": "List<TempCarConf> findDistinctTempCarConfByCriteria(String tlAplId, String tlAccId, String insrCmpnCd)"
     },
     {
-      "TempSuipStdStat_1853~1906": "List<TempSuipStdStat> findTempSuipStdStatByAppyymmAndInsrCmpnCdConditionOrderBySortNoAndInsrCmpnCd(@Param(\"appyymm\") String appyymm)"
+      "TempSuipStdStat_1871~1901": "List<TempSuipStdStat> findNonGenCarStats()",
+      "TempSuipStdStat_1891~1895": "List<TempSuipStdStat> findGenStats()",
+      "TempSuipStdStat_1897~1901": "List<TempSuipStdStat> findCarStats()"
     },
     {
-      "TempSuipStdStat_1871~1889": "List<TempSuipStdStat> findTempSuipStdStatNotGenCar()",
-      "TempSuipStdStat_1891~1895": "List<TempSuipStdStat> findTempSuipStdStatByGen()",
-      "TempSuipStdStat_1897~1901": "List<TempSuipStdStat> findTempSuipStdStatByCar()"
-    },
-    {
-      "TempSuipStdStat_1805~1805": "List<TempSuipStdStat> findAllTempSuipStdStatsForDeletion();",
-      "TempSuipStdStat_1808~1831": "List<TempSuipStdStat> findAllTempSuipStdStats();"
+      "TempSuipStdStat_1805~1805": "List<TempSuipStdStat> findAllTempSuipStdStats()"
     },
     {
       "BDivnMonth_198~205": "Long countBDivnMonth(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm)",
-      "BDivnMonth_209~216": "BDivnMonth findTopDivnCodeByConditions(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm)"
+      "BDivnMonth_209~216": "BDivnMonth findTopBDivnMonth(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm)"
     },
     {
-      "BSuipAmtMonth_250~275": "List<BSuipAmtMonth> findBSuipAmtMonthByParams(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm, @Param(\"insrCmpnCd\") String insrCmpnCd)"
+      "BSuipAmtMonth_250~275": "List<BSuipAmtMonth> findBSuipAmtMonthByConditions(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm, @Param(\"insrCmpnCd\") String insrCmpnCd)"
     },
     {
       "BSuipStdMstMonth_285~298": "List<BSuipStdMstMonth> findBSuipStdMstMonthByConditions(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm, @Param(\"insrCmpnCd\") String insrCmpnCd)"
     },
     {
-      "BSuipStdMstMonth_315~340": "List<BSuipStdMstMonth> findBSuipStdMstMonthWithRules(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm, @Param(\"insrCmpnCd\") String insrCmpnCd)"
+      "BSuipStdMstMonth_315~340": "List<BSuipStdMstMonth> findBSuipStdMstMonthData(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm, @Param(\"insrCmpnCd\") String insrCmpnCd)"
     },
     {
       "BSuipComMstMonth_351~365": "List<BSuipComMstMonth> findBSuipComMstMonthByConditions(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm, @Param(\"insrCmpnCd\") String insrCmpnCd)"
     },
     {
-      "BContractCarStndConf_375~385": "List<BContractCarStndConf> findDistinctBContractCarStndConfByTlAplIdAndTlAccIdAndInsrCmpnCd(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"insrCmpnCd\") String insrCmpnCd)"
+      "BContractCarStndConf_375~385": "List<BContractCarStndConf> findDistinctBContractCarStndConfByParams(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"insrCmpnCd\") String insrCmpnCd)"
     },
     {
-      "SuipStandardDataMonth_1942~1977": "List<SuipStandardDataMonth> findSuipStandardDataMonthByTlAplIdAndTlAccIdAndAppyymm(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm)"
+      "BSuipStandardDataMonth_1917~1922": "List<BSuipStandardDataMonth> findBySysFilterAndTlAplIdAndTlAccIdAndAppyymmAndInsrCmpnCd(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm, @Param(\"insrCmpnCd\") String insrCmpnCd)"
     },
     {
-      "BSuipStandardDataMonth_1917~1922": "List<BSuipStandardDataMonth> findBSuipStandardDataMonthForDeletion(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm, @Param(\"insrCmpnCd\") String insrCmpnCd)"
-    },
-    {
-      "BSuipStandardDataMonth_1925~1977": "List<BSuipStandardDataMonth> findBSuipStandardDataMonthByTlAplIdAndTlAccIdAndAppyymm(String tlAplId, String tlAccId, String appyymm)"
+      "BSuipStandardStatMonth_1853~1906": "List<BSuipStandardStatMonth> findBSuipStandardStatMonth(@Param(\"appyymm\") String appyymm, @Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"insrCmpnCd\") String insrCmpnCd, @Param(\"suipCommGbn\") String suipCommGbn, @Param(\"category\") String category)"
     },
     {
       "BSuipStandardStatMonth_1842~1847": "List<BSuipStandardStatMonth> findBSuipStandardStatMonthByConditions(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm, @Param(\"insrCmpnCd\") String insrCmpnCd)"
     },
     {
-      "BSuipStandardStatMonth_1850~1906": "List<BSuipStandardStatMonth> findBSuipStandardStatMonthByConditions(@Param(\"appyymm\") String appyymm, @Param(\"insrCmpnCd\") String insrCmpnCd, @Param(\"suipCommGbn\") String suipCommGbn, @Param(\"standardCategory\") String standardCategory)"
+      "BSuipStandardStatMonth_1850~1906": "List<BSuipStandardStatMonth> findBSuipStandardStatMonthData(String appyymm, String insrCmpnCd, String suipCommGbn, String standardCategory)"
     }
   ],
   "repository_interface_names": {
     "Tempsuipamtbase": "tempsuipamtbase",
+    "Bsuipstandarddatamonth": "bsuipstandarddatamonth",
     "Tempsuipstddatarst": "tempsuipstddatarst",
     "Tempsuipstddata": "tempsuipstddata",
     "Tempsuipstdrule": "tempsuipstdrule",
@@ -3168,11 +3204,9 @@
     "Bsuipstdmstmonth": "bsuipstdmstmonth",
     "Bsuipcommstmonth": "bsuipcommstmonth",
     "Bcontractcarstndconf": "bcontractcarstndconf",
-    "Suipstandarddatamonth": "suipstandarddatamonth",
-    "Bsuipstandarddatamonth": "bsuipstandarddatamonth",
     "Bsuipstandardstatmonth": "bsuipstandardstatmonth"
   },
-  "service_skeleton": "package com.example.pbcac120calcsuipstd.service;\n\nimport com.example.pbcac120calcsuipstd.entity.TempSql;\nimport com.example.pbcac120calcsuipstd.entity.TempSuipStdDataResult;\nimport com.example.pbcac120calcsuipstd.entity.TempSuipAmtBase;\nimport com.example.pbcac120calcsuipstd.entity.TempSuipStdDataRst;\nimport com.example.pbcac120calcsuipstd.entity.TempSuipStdData;\nimport com.example.pbcac120calcsuipstd.entity.TempSuipStdRule;\nimport com.example.pbcac120calcsuipstd.entity.TempSuipStdRuleRef;\nimport com.example.pbcac120calcsuipstd.entity.TempSuipStdMst;\nimport com.example.pbcac120calcsuipstd.entity.TempCarConf;\nimport com.example.pbcac120calcsuipstd.entity.TempSuipStdStat;\nimport com.example.pbcac120calcsuipstd.entity.BDivnMonth;\nimport com.example.pbcac120calcsuipstd.entity.BSuipAmtMonth;\nimport com.example.pbcac120calcsuipstd.entity.BSuipStdMstMonth;\nimport com.example.pbcac120calcsuipstd.entity.BSuipStdRuleMonth;\nimport com.example.pbcac120calcsuipstd.entity.BSuipComMstMonth;\nimport com.example.pbcac120calcsuipstd.entity.BContractCarStndConf;\nimport com.example.pbcac120calcsuipstd.entity.BFcPlcyMstMonth;\nimport com.example.pbcac120calcsuipstd.entity.BPlcyMonth;\nimport com.example.pbcac120calcsuipstd.entity.BSuipContJigubLogicConf;\nimport com.example.pbcac120calcsuipstd.entity.BSuipStandardDataMonth;\nimport com.example.pbcac120calcsuipstd.entity.BSuipStandardNewcntMonth;\nimport com.example.pbcac120calcsuipstd.entity.BSuipStandardStatMonth;\nimport com.example.pbcac120calcsuipstd.repository.TempsuipamtbaseRepository;\nimport com.example.pbcac120calcsuipstd.repository.TempsuipstddatarstRepository;\nimport com.example.pbcac120calcsuipstd.repository.TempsuipstddataRepository;\nimport com.example.pbcac120calcsuipstd.repository.TempsuipstdruleRepository;\nimport com.example.pbcac120calcsuipstd.repository.TempsuipstdrulerefRepository;\nimport com.example.pbcac120calcsuipstd.repository.TempsuipstdmstRepository;\nimport com.example.pbcac120calcsuipstd.repository.TempcarconfRepository;\nimport com.example.pbcac120calcsuipstd.repository.TempsuipstdstatRepository;\nimport com.example.pbcac120calcsuipstd.repository.BdivnmonthRepository;\nimport com.example.pbcac120calcsuipstd.repository.BsuipamtmonthRepository;\nimport com.example.pbcac120calcsuipstd.repository.BsuipstdmstmonthRepository;\nimport com.example.pbcac120calcsuipstd.repository.BsuipcommstmonthRepository;\nimport com.example.pbcac120calcsuipstd.repository.BcontractcarstndconfRepository;\nimport com.example.pbcac120calcsuipstd.repository.SuipstandarddatamonthRepository;\nimport com.example.pbcac120calcsuipstd.repository.BsuipstandarddatamonthRepository;\nimport com.example.pbcac120calcsuipstd.repository.BsuipstandardstatmonthRepository;\n\n\n\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport org.springframework.http.ResponseEntity;\nimport java.util.List;\nimport org.springframework.transaction.annotation.Transactional;\nimport com.example.pbcac120calcsuipstd.command.PBCAC120CalcSuipStdCommand;\n\n@RestController\n@Transactional\npublic class PBCAC120CalcSuipStdService {\n\n    @PostMapping(path=\"/calcSuipStd\")\n    public ResponseEntity<String> calculateSuipStandard(@RequestBody PBCAC120CalcSuipStdCommand PBCAC120CalcSuipStdCommandDto) {\n        String vResultValue = \"\";\n        long vDivnCnt = 0;\n        long vCnt = 0;\n        long vIdSeq = 0;\n        String vTopDivnCd = \"\";\n        String vSql = \"\";\n        String vSqlInsert = \"\";\n        String vSqlSelect = \"\";\n        String vSqlFrom = \"\";\n        String vSqlGroup = \"\";\n        String vSqlSet = \"\";\n        String vSqlWhere = \"\";\n        String vSqlWhere01 = \"\";\n        String vSqlWhere02 = \"\";\n        String vSqlWhere03 = \"\";\n        String vSqlWhere04 = \"\";\n        String vSqlWhere05 = \"\";\n        String vSqlWhere06 = \"\";\n        String vSqlUpdate = \"\";\n        String vSqlJoin = \"\";\n        String vStdDataCol = \"\";\n        String vStdSuipDataCol = \"\";\n        String vStdInsertRst = \"\";\n        String vStdSelectRst = \"\";\n        String vStdGroupRst = \"\";\n        String vCarStdDataCol = \"\";\n        String vCarStdSuipDataCol = \"\";\n        String vCarStdInsertRst = \"\";\n        String vCarStdSelectRst = \"\";\n        String vCarStdGroupRst = \"\";\n        String vGenStdDataCol = \"\";\n        String vGenStdSuipDataCol = \"\";\n        String vGenStdInsertRst = \"\";\n        String vGenStdSelectRst = \"\";\n        String vGenStdGroupRst = \"\";\n        long iIdx = 0;\n        long iMax = 0;\n        String vInsrCmpnCd = \"\";\n        String vSuipCommGbn = \"\";\n        String vStdComCd = \"\";\n        String vDataCd = \"\";\n        String vSuipDataCd = \"\";\n        String vAggregateExp = \"\";\n        String vDtType = \"\";\n        String vDtStandard = \"\";\n        long vSortNo = 0;\n        long vCalcOrder = 0;\n        String vCalcSign = \"\";\n        String vCalcSignVal = \"\";\n        String vSrcExcelCd = \"\";\n        String vSrcSuipComCd = \"\";\n        String vSrcFlt1Cd = \"\";\n        String vSrcFlt1CompCd = \"\";\n        String vSrcFlt1Val = \"\";\n        String vSrcFlt2Cd = \"\";\n        String vSrcFlt2CompCd = \"\";\n        String vSrcFlt2Val = \"\";\n        String vSrcFlt3Cd = \"\";\n        String vSrcFlt3CompCd = \"\";\n        String vSrcFlt3Val = \"\";\n        String vSrcFlt4Cd = \"\";\n        String vSrcFlt4CompCd = \"\";\n        String vSrcFlt4Val = \"\";\n        String vSrcFlt5Cd = \"\";\n        String vSrcFlt5CompCd = \"\";\n        String vSrcFlt5Val = \"\";\n        String vSrcFlt6Cd = \"\";\n        String vSrcFlt6CompCd = \"\";\n        String vSrcFlt6Val = \"\";\n        String vSrcSuipComCdMatch = \"\";\n        String vSrcSuipComCdOrg = \"\";\n        String vStndCarCategory = \"\";\n        \n            @Autowired\n    private TempsuipamtbaseRepository tempsuipamtbaseRepository;\n\n    @Autowired\n    private TempsuipstddatarstRepository tempsuipstddatarstRepository;\n\n    @Autowired\n    private TempsuipstddataRepository tempsuipstddataRepository;\n\n    @Autowired\n    private TempsuipstdruleRepository tempsuipstdruleRepository;\n\n    @Autowired\n    private TempsuipstdrulerefRepository tempsuipstdrulerefRepository;\n\n    @Autowired\n    private TempsuipstdmstRepository tempsuipstdmstRepository;\n\n    @Autowired\n    private TempcarconfRepository tempcarconfRepository;\n\n    @Autowired\n    private TempsuipstdstatRepository tempsuipstdstatRepository;\n\n    @Autowired\n    private BdivnmonthRepository bdivnmonthRepository;\n\n    @Autowired\n    private BsuipamtmonthRepository bsuipamtmonthRepository;\n\n    @Autowired\n    private BsuipstdmstmonthRepository bsuipstdmstmonthRepository;\n\n    @Autowired\n    private BsuipcommstmonthRepository bsuipcommstmonthRepository;\n\n    @Autowired\n    private BcontractcarstndconfRepository bcontractcarstndconfRepository;\n\n    @Autowired\n    private SuipstandarddatamonthRepository suipstandarddatamonthRepository;\n\n    @Autowired\n    private BsuipstandarddatamonthRepository bsuipstandarddatamonthRepository;\n\n    @Autowired\n    private BsuipstandardstatmonthRepository bsuipstandardstatmonthRepository;\n        \n        CodePlaceHolder2\n\n        return ResponseEntity.ok(\"Operation completed successfully\");\n    }\n\n}",
+  "service_skeleton": "package com.example.pbcac120calcsuipstd.service;\n\nimport com.example.pbcac120calcsuipstd.entity.TempSuipStdDataResult;\nimport com.example.pbcac120calcsuipstd.entity.TempSuipAmtBase;\nimport com.example.pbcac120calcsuipstd.entity.TempSuipStdDataRst;\nimport com.example.pbcac120calcsuipstd.entity.TempSuipStdData;\nimport com.example.pbcac120calcsuipstd.entity.TempSuipStdRule;\nimport com.example.pbcac120calcsuipstd.entity.TempSuipStdRuleRef;\nimport com.example.pbcac120calcsuipstd.entity.TempSuipStdMst;\nimport com.example.pbcac120calcsuipstd.entity.TempCarConf;\nimport com.example.pbcac120calcsuipstd.entity.TempSuipStdStat;\nimport com.example.pbcac120calcsuipstd.entity.TempSql;\nimport com.example.pbcac120calcsuipstd.entity.BDivnMonth;\nimport com.example.pbcac120calcsuipstd.entity.BSuipAmtMonth;\nimport com.example.pbcac120calcsuipstd.entity.BSuipStdMstMonth;\nimport com.example.pbcac120calcsuipstd.entity.BSuipStdRuleMonth;\nimport com.example.pbcac120calcsuipstd.entity.BSuipComMstMonth;\nimport com.example.pbcac120calcsuipstd.entity.BContractCarStndConf;\nimport com.example.pbcac120calcsuipstd.entity.BFcPlcyMstMonth;\nimport com.example.pbcac120calcsuipstd.entity.BPlcyMonth;\nimport com.example.pbcac120calcsuipstd.entity.BSuipContJigubLogicConf;\nimport com.example.pbcac120calcsuipstd.entity.BSuipStandardDataMonth;\nimport com.example.pbcac120calcsuipstd.entity.BSuipStandardNewcntMonth;\nimport com.example.pbcac120calcsuipstd.entity.BSuipStandardStatMonth;\nimport com.example.pbcac120calcsuipstd.repository.TempsuipamtbaseRepository;\nimport com.example.pbcac120calcsuipstd.repository.BsuipstandarddatamonthRepository;\nimport com.example.pbcac120calcsuipstd.repository.TempsuipstddatarstRepository;\nimport com.example.pbcac120calcsuipstd.repository.TempsuipstddataRepository;\nimport com.example.pbcac120calcsuipstd.repository.TempsuipstdruleRepository;\nimport com.example.pbcac120calcsuipstd.repository.TempsuipstdrulerefRepository;\nimport com.example.pbcac120calcsuipstd.repository.TempsuipstdmstRepository;\nimport com.example.pbcac120calcsuipstd.repository.TempcarconfRepository;\nimport com.example.pbcac120calcsuipstd.repository.TempsuipstdstatRepository;\nimport com.example.pbcac120calcsuipstd.repository.BdivnmonthRepository;\nimport com.example.pbcac120calcsuipstd.repository.BsuipamtmonthRepository;\nimport com.example.pbcac120calcsuipstd.repository.BsuipstdmstmonthRepository;\nimport com.example.pbcac120calcsuipstd.repository.BsuipcommstmonthRepository;\nimport com.example.pbcac120calcsuipstd.repository.BcontractcarstndconfRepository;\nimport com.example.pbcac120calcsuipstd.repository.BsuipstandardstatmonthRepository;\n\n\n\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport org.springframework.http.ResponseEntity;\nimport java.util.List;\nimport org.springframework.transaction.annotation.Transactional;\nimport com.example.pbcac120calcsuipstd.command.PBCAC120CalcSuipStdCommand;\n\n@RestController\n@Transactional\npublic class PBCAC120CalcSuipStdService {\n\n    @PostMapping(path=\"/calcSuipStd\")\n    public ResponseEntity<String> calculateSuipStandard(@RequestBody PBCAC120CalcSuipStdCommand PBCAC120CalcSuipStdCommandDto) {\n        String vResultValue = \"\";\n        long vDivnCnt = 0;\n        long vCnt = 0;\n        long vIdSeq = 0;\n        String vTopDivnCd = \"\";\n        String vSql = \"\";\n        String vSqlInsert = \"\";\n        String vSqlSelect = \"\";\n        String vSqlFrom = \"\";\n        String vSqlGroup = \"\";\n        String vSqlSet = \"\";\n        String vSqlWhere = \"\";\n        String vSqlWhere01 = \"\";\n        String vSqlWhere02 = \"\";\n        String vSqlWhere03 = \"\";\n        String vSqlWhere04 = \"\";\n        String vSqlWhere05 = \"\";\n        String vSqlWhere06 = \"\";\n        String vSqlUpdate = \"\";\n        String vSqlJoin = \"\";\n        String vStdDataCol = \"\";\n        String vStdSuipDataCol = \"\";\n        String vStdInsertRst = \"\";\n        String vStdSelectRst = \"\";\n        String vStdGroupRst = \"\";\n        String vCarStdDataCol = \"\";\n        String vCarStdSuipDataCol = \"\";\n        String vCarStdInsertRst = \"\";\n        String vCarStdSelectRst = \"\";\n        String vCarStdGroupRst = \"\";\n        String vGenStdDataCol = \"\";\n        String vGenStdSuipDataCol = \"\";\n        String vGenStdInsertRst = \"\";\n        String vGenStdSelectRst = \"\";\n        String vGenStdGroupRst = \"\";\n        long iIdx = 0;\n        long iMax = 0;\n        String vInsrCmpnCd = \"\";\n        String vSuipCommGbn = \"\";\n        String vStdComCd = \"\";\n        String vDataCd = \"\";\n        String vSuipDataCd = \"\";\n        String vAggregateExp = \"\";\n        String vDtType = \"\";\n        String vDtStandard = \"\";\n        long vSortNo = 0;\n        long vCalcOrder = 0;\n        String vCalcSign = \"\";\n        String vCalcSignVal = \"\";\n        String vSrcExcelCd = \"\";\n        String vSrcSuipComCd = \"\";\n        String vSrcFlt1Cd = \"\";\n        String vSrcFlt1CompCd = \"\";\n        String vSrcFlt1Val = \"\";\n        String vSrcFlt2Cd = \"\";\n        String vSrcFlt2CompCd = \"\";\n        String vSrcFlt2Val = \"\";\n        String vSrcFlt3Cd = \"\";\n        String vSrcFlt3CompCd = \"\";\n        String vSrcFlt3Val = \"\";\n        String vSrcFlt4Cd = \"\";\n        String vSrcFlt4CompCd = \"\";\n        String vSrcFlt4Val = \"\";\n        String vSrcFlt5Cd = \"\";\n        String vSrcFlt5CompCd = \"\";\n        String vSrcFlt5Val = \"\";\n        String vSrcFlt6Cd = \"\";\n        String vSrcFlt6CompCd = \"\";\n        String vSrcFlt6Val = \"\";\n        String vSrcSuipComCdMatch = \"\";\n        String vSrcSuipComCdOrg = \"\";\n        String vStndCarCategory = \"\";\n        \n            @Autowired\n    private TempsuipamtbaseRepository tempsuipamtbaseRepository;\n\n    @Autowired\n    private BsuipstandarddatamonthRepository bsuipstandarddatamonthRepository;\n\n    @Autowired\n    private TempsuipstddatarstRepository tempsuipstddatarstRepository;\n\n    @Autowired\n    private TempsuipstddataRepository tempsuipstddataRepository;\n\n    @Autowired\n    private TempsuipstdruleRepository tempsuipstdruleRepository;\n\n    @Autowired\n    private TempsuipstdrulerefRepository tempsuipstdrulerefRepository;\n\n    @Autowired\n    private TempsuipstdmstRepository tempsuipstdmstRepository;\n\n    @Autowired\n    private TempcarconfRepository tempcarconfRepository;\n\n    @Autowired\n    private TempsuipstdstatRepository tempsuipstdstatRepository;\n\n    @Autowired\n    private BdivnmonthRepository bdivnmonthRepository;\n\n    @Autowired\n    private BsuipamtmonthRepository bsuipamtmonthRepository;\n\n    @Autowired\n    private BsuipstdmstmonthRepository bsuipstdmstmonthRepository;\n\n    @Autowired\n    private BsuipcommstmonthRepository bsuipcommstmonthRepository;\n\n    @Autowired\n    private BcontractcarstndconfRepository bcontractcarstndconfRepository;\n\n    @Autowired\n    private BsuipstandardstatmonthRepository bsuipstandardstatmonthRepository;\n        \n        CodePlaceHolder2\n\n        return ResponseEntity.ok(\"Operation completed successfully\");\n    }\n\n}",
   "command_class_variable": [
     "String tlAplId",
     "String tlAccId",
