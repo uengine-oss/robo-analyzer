@@ -27,9 +27,16 @@ prompt = PromptTemplate.from_template(
 2. 각 테이블(JSON) 객체의 'name'은 파스칼 표기법을 적용한 클래스 이름으로 사용됩니다. (예: B_Plcy_Month -> BPlcyMonth)
 3. 클래스의 이름과 'entityName'은 복수형이 아닌 단수형으로 표현하세요. (예: Employees -> Employee)
 4. 'fields' 배열의 각 항목은 카멜 표기법을 적용한 클래스의 속성으로 사용됩니다. (예: B_Plcy_Month -> bPlcyMonth)
-5. 각 속성은 private 접근 제한자를 가져야하며, 속성명을 참고하여 적절한 자바 데이터 타입으로 설정하도록 하세요. (가급적이면 정수형에 대해서는, int 또는 long을 사용하도록 하세요.)
+5. 각 속성은 private 접근 제한자를 가져야하며, 속성명을 참고하여 적절한 자바 데이터 타입으로 설정하도록 하세요. 
 6. 날짜나 시간을 다루는 필드의 경우 LocalDate를 사용하도록 하세요.
 7. 필요에 따라 추가적인 import문을 선언하세요.
+
+
+아래는 필드 타입의 규칙이며, 기본 데이터 타입(primitive types)을 사용하도록 하세요.
+정수 -> long
+실수 -> double
+날짜 및 시간 -> LocalDate
+문자 및 문자열 -> String (char를 쓰지마세요.)
 
 
 아래는 자바 Entity 클래스의 기본 구조입니다:
@@ -45,7 +52,7 @@ import java.time.LocalDate
 public class EntityName {{
     @Id
     @GeneratedValue(strategy = GenerationType.AUTO)
-    private Long id;
+    private long id;
     private DataType fieldName1;
     private DataType fieldName2;
     ...

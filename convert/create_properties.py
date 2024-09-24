@@ -24,7 +24,7 @@ async def start_APLproperties_processing(lower_case):
         application_properties_file_path = os.path.join(application_properties_directory, "application.properties")  
         async with aiofiles.open(application_properties_file_path, 'w', encoding='utf-8') as file:  
             await file.write(application_properties_content)  
-            logging.info(f"\nSuccess Create Application Properties\n")  
+            logging.info(f"application.properties 파일이 생성되었습니다.\n")  
 
     except Exception:
         err_msg = "스프링부트의 application.properties 파일을 생성하는 도중 오류가 발생했습니다."

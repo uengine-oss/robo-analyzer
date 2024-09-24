@@ -93,7 +93,6 @@ async def create_entity_class(table_data_group, lower_file_name):
 # 매개변수: 
 #    - lower_file_name : 소문자로 구성된 스토어드 프로시저 파일 이름
 # 반환값:
-#   - transformed_table_data : 재구성된 테이블 노드 데이터
 #   - entity_name_list : 생성된 엔티티 클래스들의 이름 목록 
 async def start_entity_processing(lower_file_name):
     connection = Neo4jConnection()
@@ -110,15 +109,16 @@ async def start_entity_processing(lower_file_name):
             transformed_table_info = {
                 'name': item['n']['name'],
                 'fields': [(key, value) for key, value in item['n'].items() if key != 'name'],
-                'keyType': 'Long',  # TODO 실제 기본키 타입으로 변경 필요
+                'keyType': 'long',  # TODO 실제 기본키 타입으로 변경 필요
             }
             table_data_list.append(transformed_table_info)
         
 
         # * 엔티티 클래스 생성을 시작합니다.
         entity_name_list = await calculate_tokens_and_process(table_data_list, lower_file_name)
-        logging.info("Success Create Entity Class\n")
-        return table_data_list, entity_name_list
+        entity_count = len(entity_name_list)
+        logging.info(f"{entity_count}개의 엔티티가 생성되었습니다.\n")
+        return entity_name_list
     
     except (TokenCountError, Neo4jError, OSError, LLMCallError):
         raise

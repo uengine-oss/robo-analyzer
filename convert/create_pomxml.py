@@ -106,7 +106,7 @@ async def start_pomxml_processing(lower_file_name):
         pom_xml_path = os.path.join(pom_xml_directory, "pom.xml")  
         async with aiofiles.open(pom_xml_path, 'w', encoding='utf-8') as file:  
             await file.write(pom_xml_content)  
-            logging.info(f"\nSuccess Create Pom.xml\n")
+            logging.info(f"Pom.xml이 생성되었습니다.\n")
 
     except Exception:
         err_msg = "스프링부트의 Pom.xml 파일을 생성하는 도중 오류가 발생했습니다."

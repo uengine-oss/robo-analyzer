@@ -39,16 +39,15 @@ def extract_procedure_variable_code(procedure_code):
 #   - declare_data: 선언 노드 데이터
 #   - lower_name : 소문자로 구성된 프로젝트 이름
 #   - entity_name_list : 엔티티 이름 리스트
-#   - repository_interface_names : 리포지토리 인터페이스 이름 리스트
 # 반환값: 
 #   - service_skeleton_code : 서비스 스켈레톤 클래스 코드 
 #   - command_class_variable : Command 클래스에 선언된 변수 목록
 #   - service_skeleton_name: 서비스 클래스의 이름
 #   - summarzied_service_skeleton : 요약된 서비스 골격 클래스
-async def calculate_tokens_and_process(procedure_data, declare_data, lower_name, entity_name_list, repository_interface_names):
+async def calculate_tokens_and_process(procedure_data, declare_data, lower_name, entity_name_list):
 
     try:
-        service_skeleton_code, command_class_variable, service_skeleton_name, summarzied_service_skeleton = await create_service_skeleton(procedure_data, declare_data, lower_name, entity_name_list, repository_interface_names)
+        service_skeleton_code, command_class_variable, service_skeleton_name, summarzied_service_skeleton = await create_service_skeleton(procedure_data, declare_data, lower_name, entity_name_list)
         return service_skeleton_code, command_class_variable, service_skeleton_name, summarzied_service_skeleton 
     
     except (LLMCallError, HandleResultError, ProcessResultError):
@@ -64,13 +63,12 @@ async def calculate_tokens_and_process(procedure_data, declare_data, lower_name,
 #   - service_skeleton_code : 서비스 골격 클래스 코드
 #   - lower_name : 소문자 프로젝트 이름
 #   - entity_name_list : 엔티티 이름 리스트
-#   - repository_interface_names : 리포지토리 인터페이스 이름 리스트
 #   - service_skeleton_name :
 #   - command_class_name : 
 # 반환값: 
 #   - service : 서비스 스켈레톤 클래스 코드
 #   - command_class_variable : 프로시저의 입력 매개변수(Command 클래스에 선언된 변수 목록)
-async def modify_service_skeleton(service_skeleton_code, entity_name_list, repository_interface_names, lower_name, service_skeleton_name, command_class_name):
+async def modify_service_skeleton(service_skeleton_code, entity_name_list, lower_name, service_skeleton_name, command_class_name):
     
     repository_injection_code = ""
     
@@ -80,14 +78,14 @@ async def modify_service_skeleton(service_skeleton_code, entity_name_list, repos
         modified_service_skeleton = service_skeleton_code[:package_line_end] + '\n\n'
         
         
-        # * entity_name_list의 각 항목에 대해 import 문을 추가합니다.
+        # * entity class에 대한 import 문을 추가합니다.
         for entity_name in entity_name_list:
             modified_service_skeleton += f"import com.example.{lower_name}.entity.{entity_name};\n"
 
 
-        # * repository_interface_names의 각 항목에 대해 import 문을 추가합니다.
-        for repo_interface in repository_interface_names.keys():
-            modified_service_skeleton += f"import com.example.{lower_name}.repository.{repo_interface}Repository;\n"
+        # * repository interface의 대한 import 문을 추가합니다.
+        for entity_name in entity_name_list:
+            modified_service_skeleton += f"import com.example.{lower_name}.repository.{entity_name}Repository;\n"
 
 
         # * 나머지 코드를 추가합니다.
@@ -96,8 +94,9 @@ async def modify_service_skeleton(service_skeleton_code, entity_name_list, repos
 
         # * 리포지토리 주입 코드를 생성합니다.
         repository_injection_code = ""
-        for pascal_name, camel_name in repository_interface_names.items():
-            repository_injection_code += f"    @Autowired\n    private {pascal_name}Repository {camel_name}Repository;\n\n"
+        for entity_name in entity_name_list:
+            camel_case_name = entity_name[0].lower() + entity_name[1:]
+            repository_injection_code += f"    @Autowired\n    private {entity_name}Repository {camel_case_name}Repository;\n\n"
 
 
         # * 생성된 리포지토리 주입 코드를 서비스 클래스에 삽입합니다.
@@ -136,13 +135,12 @@ public class {service_skeleton_name} {{
 #   - declare_data : 선언 노드 데이터
 #   - lower_name : 소문자로 구성된 프로젝트 이름
 #   - entity_name_list : 엔티티 이름 리스트
-#   - repository_interface_names : 리포지토리 인터페이스 이름 리스트
 # 반환값: 
 #   - command_class_variable : Command 클래스에 선언된 변수 목록
 #   - service_skeleton_code: 서비스 골격 클래스 완성본
 #   - service_skeleton_name: 서비스 클래스 이름
 #   - summarzied_service_skeleton: 요약된 서비스 골격 클래스
-async def create_service_skeleton(procedure_data, declare_data, lower_name, entity_name_list, repository_interface_names):
+async def create_service_skeleton(procedure_data, declare_data, lower_name, entity_name_list):
     
     try:
         # * LLM을 사용하여 Command 클래스 생성에 필요한 정보를 받습니다.
@@ -158,7 +156,7 @@ async def create_service_skeleton(procedure_data, declare_data, lower_name, enti
         
 
         # * 서비스 골격 클래스에 추가적인 정보를 추가하는 작업을 진행합니다.
-        summarzied_service_skeleton, modified_service_skeleton = await modify_service_skeleton(service_skeleton_code, entity_name_list, repository_interface_names, lower_name, service_skeleton_name, command_class_name)
+        summarzied_service_skeleton, modified_service_skeleton = await modify_service_skeleton(service_skeleton_code, entity_name_list, lower_name, service_skeleton_name, command_class_name)
 
 
         # * command 클래스 파일을 저장할 디렉토리를 설정하고, 없으면 생성합니다.
@@ -186,13 +184,12 @@ async def create_service_skeleton(procedure_data, declare_data, lower_name, enti
 # 매개변수: 
 #      - lower_name : 소문자로 구성된 프로젝트 이름
 #      - entity_name_list : 엔티티 이름 리스트
-#      - repository_interface_names : 리포지토리 인터페이스 이름 리스트
 # 반환값: 
 #   - command_class_variable : Command 클래스에 선언된 변수 목록
 #   - service_skeleton_code: 서비스 골격 클래스 완성본
 #   - service_skeleton_name: 서비스 클래스 이름
 #   - summarzied_service_skeleton: 요약된 서비스 골격 클래스
-async def start_service_skeleton_processing(lower_name, entity_name_list, repository_interface_names):
+async def start_service_skeleton_processing(lower_name, entity_name_list):
     
     connection = Neo4jConnection()  
     logging.info("서비스 틀 생성을 시작합니다.")
@@ -225,8 +222,8 @@ async def start_service_skeleton_processing(lower_name, entity_name_list, reposi
                 
 
         # * 변환된 데이터를 사용하여 토큰 계산 및 서비스 스켈레톤 생성을 수행합니다.
-        service_skeleton, command_class_variable, service_skeleton_name, summarzied_service_skeleton = await calculate_tokens_and_process(transformed_procedure_data, transformed_declare_data, lower_name, entity_name_list, repository_interface_names)  
-        logging.info("Success Create Service Skeleton, Command Class\n") 
+        service_skeleton, command_class_variable, service_skeleton_name, summarzied_service_skeleton = await calculate_tokens_and_process(transformed_procedure_data, transformed_declare_data, lower_name, entity_name_list)  
+        logging.info("커맨드 클래스 및 서비스 골격을 생성했습니다.\n") 
         return service_skeleton, command_class_variable, service_skeleton_name, summarzied_service_skeleton
     
     except (ConvertingError, Neo4jError):

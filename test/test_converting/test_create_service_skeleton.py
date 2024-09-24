@@ -33,13 +33,12 @@ class TestSkeletonGeneration(unittest.IsolatedAsyncioTestCase):
 
 
             # * 결과 파일에서 테스트에 필요한 데이터를 가지고 옵니다.
-            repository_interface_names = test_data.get('repository_interface_names', [])
             entity_name_list = test_data.get('entity_name_list', [])
 
 
             # * Service Skeleton 생성 테스트 시작
             (service_skeleton, command_class_variable, service_skeleton_name, summarzied_service_skeleton) = await start_service_skeleton_processing(
-                lower_file_name, entity_name_list, repository_interface_names)
+                lower_file_name, entity_name_list)
             
             
             # * 결과를 결과 파일에 저장합니다.

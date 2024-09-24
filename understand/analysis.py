@@ -444,6 +444,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
     #   - startLine : 노드의 시작라인
     #   - statementType : 노드의 타입
     # 반환값 : 없음 
+    # TODO 스토어드 프로시저에만 맞게 설계됨 조정 필요함 
     def create_variable_node(filtered_code, startLine, statementType):
         try:
             # * 전달된 코드에서 공백으로 각 라인의 단어를 추출합니다.

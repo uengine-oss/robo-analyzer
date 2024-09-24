@@ -43,7 +43,7 @@ public class {pascal_file_name}Application {{
         main_class_path = os.path.join(main_class_directory, f"{pascal_file_name}Application.java")  
         async with aiofiles.open(main_class_path, 'w', encoding='utf-8') as file:  
             await file.write(main_class_content)  
-            logging.info(f"\nSuccess Create Main Class\n")  
+            logging.info(f"메인 클래스가 생성되었습니다.\n")  
         
     except Exception:
         err_msg = "스프링부트의 메인 클래스를 생성하는 도중 오류가 발생했습니다."

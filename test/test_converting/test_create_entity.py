@@ -24,7 +24,7 @@ class TestEntityGeneration(unittest.IsolatedAsyncioTestCase):
 
         try:
             # * 엔티티 클래스 생성 테스트 시작
-            table_data_list, entity_name_list = await start_entity_processing(lower_file_name)
+            entity_name_list = await start_entity_processing(lower_file_name)
             
 
             # * 파일이 존재하면 기존 데이터를 읽고, 없다면 새로 생성합니다.
@@ -37,7 +37,6 @@ class TestEntityGeneration(unittest.IsolatedAsyncioTestCase):
 
 
             # * 결과를 외부 파일에 저장
-            test_data["table_data_list"] = table_data_list
             test_data["entity_name_list"] = entity_name_list
             with open(result_file_path, 'w', encoding='utf-8') as f:
                 json.dump(test_data, f, ensure_ascii=False, indent=2)

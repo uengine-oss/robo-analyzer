@@ -31,18 +31,13 @@ class TestRepositoryGeneration(unittest.IsolatedAsyncioTestCase):
             else:
                 test_data = {}          
             
-            
-            # * 결과 파일에서 테스트에 필요한 데이터를 가지고 옵니다.
-            table_data_list = test_data.get('table_data_list', [])
-
 
             # * Repository Interface 생성 테스트 시작
-            jpa_method_list, repository_interface_names = await start_repository_processing(table_data_list, lower_file_name)
+            jpa_method_list = await start_repository_processing(lower_file_name)
             
 
             # * 결과를 결과 파일에 저장합니다.
             test_data["jpa_method_list"] = jpa_method_list
-            test_data["repository_interface_names"] = repository_interface_names
             with open(result_file_path, 'w', encoding='utf-8') as f:
                 json.dump(test_data, f, ensure_ascii=False, indent=2)
 

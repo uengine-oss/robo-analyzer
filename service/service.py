@@ -231,15 +231,15 @@ async def generate_spring_boot_project(fileName):
         pascal_file_name, lower_file_name = await transform_fileName(fileName)
 
         # * 1 단계 : 엔티티 클래스 생성
-        table_node_data, entity_name_list = await start_entity_processing(lower_file_name) 
+        entity_name_list = await start_entity_processing(lower_file_name) 
         yield f"Step1 completed\n"
         
         # * 2 단계 : 리포지토리 인터페이스 생성
-        jpa_method_list, repository_interface_names = await start_repository_processing(table_node_data, lower_file_name) 
+        jpa_method_list = await start_repository_processing(lower_file_name) 
         yield f"Step2 completed\n"
         
         # * 3 단계 : 서비스 스켈레톤 생성
-        service_skeleton_code, procedure_variable_list, service_class_name, summarzied_service_skeleton = await start_service_skeleton_processing(lower_file_name, entity_name_list, repository_interface_names)
+        service_skeleton_code, procedure_variable_list, service_class_name, summarzied_service_skeleton = await start_service_skeleton_processing(lower_file_name, entity_name_list)
         yield f"Step3 completed\n"
         
         # * 4 단계 : 서비스 생성
