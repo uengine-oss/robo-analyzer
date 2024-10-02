@@ -27,6 +27,7 @@ prompt = PromptTemplate.from_template(
 - JSON 문자열 내에서 백슬래시(`\\`)를 사용하려면 `\\\\`로 이스케이프 처리해야 합니다.
 - JSON 문자열 내에서 작은따옴표(')를 사용할 때는 `\\'`로 이스케이프 처리해야 합니다.
 - 문자열 연결을 위해 '+' 연산자를 사용하지 마세요. 대신 하나의 긴 문자열로 표현하세요.
+- 문자열의 끝을 올바르게 인식하도록 즉, 모든 문자열이 올바르게 열리고 닫히도록 큰 따옴표에 대해서 이스케이프 처리를 하세요.
 - JSON으로 파싱이 잘 되도록 적절한 이스케이프 처리를 하여 오류가 발생하지 않도록 하세요.
 
 
@@ -68,24 +69,26 @@ jpa_method_list:
 - 'Serivce Class Code'에, //Here is business logic 위치에 들어갈 비즈니스 로직만을 생성하고, 들여쓰기를 적용하여 소스 코드 형태로 주세요.
 - command 클래스 객체는 카멜 표기법을 사용하세요.
 - 변수 선언은 하지말고, 'Used Variable'에 있는 변수에 새로운 값을 할당하도록 하세요.
-- 반드시 이스케이프 처리 규칙을 참고하여, 자바로 전환시 이스케이프 처리를 진행하세요.
 
 
 'Stored Procedure Code'를 'Serivce Class Code'로 전환할 때, 아래를 참고하여 작업하세요:
 1. 'SELECT', 'DELETE', 'UPDATE', 'MERGE', 'INSERT'와 같은 SQL 키워드가 식별될 때:
    - 'jpa_method_list'에서 범위에 알맞는 JPA Query Method를 사용하여 CRUD로직을 생성하세요. 
-   - UPDATE와 MERGE 같이 수정하는 작업에 대해서는 'save()' 를 필수로 진행하세요.
-   - 만약 INSERT, UPDATE, MERGE 구문이 SELECT 구문을 포함하고 있다면, SELECT 구문을 담당하는 범위에 대해서는 SELECT 구문만 자바로 전환해서 결과가 중복되지 않도록 주의하세요. 즉, SELECT 구문을 담당하는 범위는 데이터를 업데이트하거나, 삽입하는 자바 로직이 있어서는 안됩니다.   
+   - 'UPDATE'와 'MERGE' 같이 수정하는 작업에 대해서는 'save()' 를 필수로 진행하세요.
+   - 만약  상위구문 : '1925~1977', 하위 구문 : '1942~1977' 범위가 있을 때, 상위 구문이 'INSERT INTO SELECT FROM' 영역이고, 'SELECT FROM' 영역이 하위구문이면, 하위 구문 범위만 정확하게 자바로 전환하세요. 즉, 데이터를 찾는 로직만 포함하세요. 'UPDATE'나 'MERGE' 구문 또한 SELECT 구문을 포함하고 있을 경우, 똑같이 진행하세요.
 
-   
+  
 2. 비즈니스 로직이 식별될 때:
    - 식별된 비즈니스 로직을 자바로 전환하고, 부가 설명이나 주석 및 다른 정보는 포함하지마세요.
 
 
 ** 'analysis' 결과를 생성시 아래 지시사항을 반드시 숙지하세요 ** :
-- 'Context Range' 범위는 {count}개로, 'code'는 총 {count}개의 자바 코드를 가져야 합니다. 모든 범위에 대해서 자바 코드로 전환해야하며, 범위가 중복되거나 겹치더라도, 각각의 범위에 맞는 자바 코드가 생성되어야 합니다.
+- 'Context Range' 범위는 {count}개로, 'code'는 총 {count}개의 자바 코드를 가져야 합니다. 모든 범위에 대해서 자바 코드로 전환해야하며, 범위가 중복되거나 겹치더라도, 생략하지 말고, 각각의 범위에 맞는 자바 코드가 생성되어야 합니다.
 - 'Used Variable'의 모든 변수들에 대해서 할당된 값에 대한 상세한 정보를 Stored Procedure Code를 분석하여, 추적 및 업데이트하고, 그 결과를 JSON 응답의 'variables' 부분에 포함시켜야 합니다. (예 : 동적 SQL 구성을 위해 "SELECT FROM users WHERE 1=1"를 할당. 이후 검색 조건에 따라 AND 절 추가 예정)
 - 'Command Class Variable' 변수들의 저장된 값은 Dto 객체에서 얻은 값으로 고정하고, 역할은 분석하여 할당하세요.
+
+
+예시 : {{startLine : 415, endLine: 478}}, {{startLine : 435, endLine: 478}}인 범위가 있을 경우, 큰 범위가 작은 범위를 포함하고 있는데, 이런 경우에도 각각의 범위에 해당하는 'Stored Procedure Code'만 자바로 전환하고, 그 결과를 JSON 응답의 'code' 부분에 포함시켜야 합니다. 
 
 
 아래는 결과 예시로, 부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요.('analysis' 결과는 반드시 리스트가 아닌 dictionary(사전) 형태여야 합니다.):
@@ -129,7 +132,11 @@ def convert_service_code(convert_sp_code, service_skeleton, variable_list, proce
       )
       result = chain.invoke({"code": convert_sp_code, "service": service_skeleton, "variable": variable_list, "command_variables": procedure_variables_json, "context_range": context_range_json, "count": count, "jpa_method_list": jpa_method_list})
       # TODO 여기서 최대 토큰이 4096이 넘은 경우 처리가 필요
-      logging.info(f"토큰 수: {result.usage_metadata}")          
+      logging.info(f"토큰 수: {result.usage_metadata}") 
+      output_tokens = result.usage_metadata['output_tokens']
+      if output_tokens > 4096:
+         logging.warning(f"출력 토큰 수가 4096을 초과했습니다: {output_tokens}")
+
       json_parsed_content = json5.loads(result.content)
       return json_parsed_content
 
