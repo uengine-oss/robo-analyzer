@@ -13,7 +13,7 @@ from langchain_core.output_parsers import JsonOutputParser
 
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
-llm = ChatOpenAI(model="gpt-4o")
+llm = ChatAnthropic(model="claude-3-5-sonnet-20240620", max_tokens=8000)
 prompt = PromptTemplate.from_template(
 """
 당신은 Oracle PLSQL 전문가입니다. 주어진 Stored Procedure Code를 철저히 분석하세요.
@@ -31,13 +31,12 @@ prompt = PromptTemplate.from_template(
 1. 분석할 Stored Procedure Code의 범위 개수는 {count}개로, 반드시 'analysis'는  {count}개의 요소를 가져야합니다.
 2. 테이블의 별칭과 스키마 이름을 제외하고, 오로직 테이블 이름만을 사용하세요.
 3. 테이블의 컬럼이 'variable'에 포함되지 않도록, 테이블의 컬럼과 변수에 대한 구분을 확실히 하여 결과를 생성하세요.
-4. 변수의 역할의 경우, 어떤 테이블에서 사용되었고, 어떤 값을 저장했고, 어떤 목적에 사용되는지를 반드시 명시해야합니다. (예 : 직원 id를 저장하여, 직원 테이블 검색에 사용). 
-5. 테이블에 대한 정보가 식별되지 않을 경우, 'Tables'는 빈 사전 {{}}으로 반환하고, 테이블의 컬럼 타입이 식별되지 않을 경우, 적절한 타입을 넣으세요.
+4. 테이블에 대한 정보가 식별되지 않을 경우, 'Tables'는 빈 사전 {{}}으로 반환하고, 테이블의 컬럼 타입이 식별되지 않을 경우, 적절한 타입을 넣으세요.
 
 
 지정된 범위의 Stored Procedure Code 에서 다음 정보를 추출하세요:
 1. 코드의 주요 내용을 한 문장으로 요약하세요.
-2. 각 범위에서 사용된 모든 변수들을 식별하고, 역할을 상세히 설명하세요. 일반적으로 변수는 이름 앞에 'V_' 또는 'p_' 접두사가 붙습니다.
+2. 각 범위에서 사용된 모든 변수들을 식별하세요. 일반적으로 변수는 이름 앞에 'V_' 또는 'p_' 접두사가 붙습니다.
 
 
 전체 Stored Procedure Code 에서 다음 정보를 추출하세요:
@@ -62,26 +61,20 @@ prompt = PromptTemplate.from_template(
     }},
     "tableReference": [{{"source": "tableName1", "target": "tableName2"}}],
     "variable": {{
-        "startLine~endLine": [
-            {{"name": "var1", "role": "역할"}}, 
-            {{"name": "var2", "role": "역할"}}
-        ],
-        "startLine~endLine": [
-            {{"name": "var1", "role": "역할"}}
-        ],
+        "startLine~endLine": ["var1", "var2"],
+        "startLine~endLine": ["var1"],
     }}
 }}
 """)
 
 
-# 역할 : 주어진 스토어드 프로시저 코드  분석하여, 그래프 생성에 필요한 정보 받습니다
+# 역할 : 주어진 스토어드 프로시저 코드  분석하여, 사이퍼쿼리 생성에 필요한 정보 받습니다
 # 매개변수: 
 #   - sp_code: 분석할 스토어드 프로시저 코드 
 #   - context_ranges : 분석할 스토어드 프로시저 코드의 범위 
 #   - context_range_count : 분석할 스토어드 프로시저 범위의 개수(결과 개수 유지를 위함)
 # 반환값 : 
-#   - result : llm의 분석 결과
-#   - prompt.template : 프롬포트 템플릿
+#   - parsed_content : JSON으로 파싱된 llm의 분석 결과
 def understand_code(sp_code, context_ranges, context_range_count):
     try:
         ranges_json = json.dumps(context_ranges)
@@ -90,18 +83,15 @@ def understand_code(sp_code, context_ranges, context_range_count):
             RunnablePassthrough()
             | prompt
             | llm
-
         )
 
         json_parser = JsonOutputParser()
         result = chain.invoke({"code": sp_code, "ranges": ranges_json, "count": context_range_count})
-        parsed_content = json_parser.parse(result.content)
-        
-        transform_result = {
-            "content": parsed_content,
-            "usage_metadata": result.usage_metadata
-        }    
-        return transform_result
+        # TODO 여기서 최대 토큰이 4096이 넘은 경우 처리가 필요
+        json_parsed_content = json_parser.parse(result.content)
+        logging.info(f"토큰 수: {result.usage_metadata}")     
+        return json_parsed_content
+    
     except Exception:
         err_msg = "Understanding 과정에서 LLM 호출하는 도중 오류가 발생했습니다."
         logging.exception(err_msg)

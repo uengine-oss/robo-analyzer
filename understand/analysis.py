@@ -253,45 +253,12 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
             context_range_count = len(context_range)
             context_range = sorted(context_range, key=lambda x: x['startLine'])
             LLM_count += 1
+            cypher_queries = []
 
 
-            # * 분석에 필요한 정보를 llm에게 보냄으로써, 분석을 시작합니다
-            analysis_result = understand_code(clean_code, context_range, context_range_count)
-            total_tokens = analysis_result['usage_metadata']['total_tokens']
-            logging.info(f"토큰 수: {total_tokens}")            
-            
-
-            # * 토큰 수가 초과하였는지 검사합니다.
-            if total_tokens <= 4096 and context_range_count > 0:
-                result = await handle_analysis_result(analysis_result['content'])
-            else:
-                # * 토큰 수가 초과된 경우 처리로 부모 범위를 찾고, 분석 범위를 절반으로 나눕니다.
-                logging.info("토큰 초과로 인한 분할 분석 시작")
-                cypher_queries = []
-                largest_range_index = max(range(len(context_range)), key=lambda i: context_range[i]['endLine'] - context_range[i]['startLine'])
-                parent_range = [context_range.pop(largest_range_index)]
-                child_ranges = [context_range[:len(context_range)//2], context_range[len(context_range)//2:]]
-
-
-                # * 분할된 자식들의 context_range를 처리합니다
-                for current_range in child_ranges:
-                    if current_range:
-                        current_code, _ = extract_code_within_range(clean_code, current_range)
-                        current_analysis = understand_code(current_code, [current_range], len(current_range))
-                        LLM_count += 1
-                        cypher_queries.extend(await handle_analysis_result(current_analysis['content']))
-                
-
-                # * 마지막으로 부모 범위를 처리합니다
-                for current_range in parent_range:
-                    parent_start_line = current_range['startLine']
-                    parent_schedule = next((schedule for schedule in schedule_stack if schedule['startLine'] == parent_start_line), None)
-                    if parent_schedule:
-                        parent_clean_code = parent_schedule['code']
-                        parent_analysis_result = understand_code(parent_clean_code, parent_range, len(parent_range))
-                        cypher_queries.extend(await handle_analysis_result(parent_analysis_result['content']))
-
-                result = cypher_queries
+            # * 분석에 필요한 정보를 llm에게 보냄으로써, 분석을 시작하고, 결과를 처리하는 함수를 호출
+            analysis_result = understand_code(clean_code, context_range, context_range_count)        
+            cypher_queries = await handle_analysis_result(analysis_result)
             
 
             # * 다음 분석 주기를 위해 필요한 변수를 초기화합니다
@@ -300,7 +267,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
             extract_code = ""
             sp_token_count = 0
             context_range.clear()
-            return result
+            return cypher_queries
         
         except UnderstandingError:
             raise
@@ -340,12 +307,10 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
 
 
             # * 변수 노드의 정보(역할)을 업데이트합니다.
-            for var_startLine, variables in variables_list.items():
-                sanitized_var_startLine = var_startLine.replace('~', '_')
-                for variable in variables:
-                    var_name = variable['name']
-                    var_role = variable['role'].replace("'", "\\'")
-                    variable_update_query = f"MATCH (v:Variable {{name: '{var_name}'}}) SET v.`{sanitized_var_startLine}` = '{var_role}'"
+            for var_range, var_names in variables_list.items():
+                sanitized_var_range = var_range.replace('~', '_')
+                for var_name in var_names:
+                    variable_update_query = f"MATCH (v:Variable {{name: '{var_name}'}}) SET v.`{sanitized_var_range}` = 'Used'"
                     cypher_query.append(variable_update_query)
 
             

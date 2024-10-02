@@ -233,8 +233,6 @@ async def process_llm_repository_interface(node_data, used_variable_nodes, conve
 
             # * @query 어노테이션 부분을 제거하고 최대한 축약해서 사용된 JPA 쿼리 메서드 목록들을 생성합니다.
             method_body = method_info['method'].split('\n')[1].strip()
-            # method_lines = method_info['method'].split('\n')
-            # method_body = next((line.strip() for line in method_lines if not line.strip().startswith('@')), '')
             used_jpa_method[f"{method_info['startLine']}~{method_info['endLine']}"] = method_body
 
         return grouped_query_methods, used_jpa_method
@@ -247,7 +245,7 @@ async def process_llm_repository_interface(node_data, used_variable_nodes, conve
         raise ProcessResultError(err_msg)
 
 
-# 역할: 주어진 테이블 노드 리스트를 기반으로 1단계 깊이의 연결된 노드를 가져와서 Repository 생성을 준비합니다
+# 역할: 테이블 노드와 1단계 깊이의 수준으로 연결된 노드를 가져와서 Repository 생성을 준비합니다
 # 매개변수: 
 #   - table_node_list : 테이블 노드의 리스트
 #   - lower_file_name : 소문자 프로젝트 이름

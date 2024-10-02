@@ -1,5 +1,11 @@
 {
   "entity_name_list": [
+    "BFcPlcyMstMonth",
+    "BPlcyMonth",
+    "BSuipContJigubLogicConf",
+    "BSuipStandardDataMonth",
+    "BSuipStandardNewcntMonth",
+    "BSuipStandardStatMonth",
     "TempSql",
     "TempSuipStdDataResult",
     "TempSuipAmtBase",
@@ -15,20 +21,14 @@
     "BSuipStdMstMonth",
     "BSuipStdRuleMonth",
     "BSuipComMstMonth",
-    "BContractCarStndConf",
-    "BFcPlcyMstMonth",
-    "BPlcyMonth",
-    "BSuipContJigubLogicConf",
-    "BSuipStandardDataMonth",
-    "BSuipStandardNewcntMonth",
-    "BSuipStandardStatMonth"
+    "BContractCarStndConf"
   ],
   "jpa_method_list": [
     {
       "198~205": "Long countBDivnMonth(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm);"
     },
     {
-      "209~216": "BDivnMonth findBDivnMonth(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm);"
+      "209~216": "BDivnMonth findTopDivnCd(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm);"
     },
     {
       "223~223": "List<TempSuipStdDataRst> findAllTempSuipStdDataRst();"
@@ -40,7 +40,7 @@
       "228~228": "List<TempSuipAmtBase> findAllTempSuipAmtBase();"
     },
     {
-      "250~275": "List<BSuipAmtMonth> findBSuipAmtMonthByConditions(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm, @Param(\"insrCmpnCd\") String insrCmpnCd);"
+      "250~275": "List<BSuipAmtMonth> findBySuipAmtMonthConditions(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm, @Param(\"insrCmpnCd\") String insrCmpnCd);"
     },
     {
       "280~280": "List<TempSuipStdMst> findAllTempSuipStdMst();"
@@ -52,7 +52,7 @@
       "303~303": "List<TempSuipStdRule> findAllTempSuipStdRules();"
     },
     {
-      "315~340": "List<BSuipStdMstMonth> findBSuipStdMstMonthWithRules(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm, @Param(\"insrCmpnCd\") String insrCmpnCd);"
+      "315~340": "List<BSuipStdMstMonth> findBSuipStdMstMonthData(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm, @Param(\"insrCmpnCd\") String insrCmpnCd);"
     },
     {
       "345~345": "List<TempSuipStdRuleRef> findAllTempSuipStdRuleRef();"
@@ -64,31 +64,31 @@
       "371~371": "List<TempCarConf> findAllTempCarConfs();"
     },
     {
-      "375~385": "List<BContractCarStndConf> findDistinctBContractCarStndConfs(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"insrCmpnCd\") String insrCmpnCd);"
+      "375~385": "List<Object[]> findDistinctInsrCmpnCdAndStndCarCategory(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"insrCmpnCd\") String insrCmpnCd);"
     },
     {
-      "401~431": "List<TempSuipAmtBase> findTempSuipAmtBaseByInsrCmpnCdAndExcelCdAndPrcPlcyStatCd(@Param(\"insrCmpnCd\") String insrCmpnCd);"
+      "401~431": "TempSuipAmtBase findTempSuipAmtBase(@Param(\"stockNo\") String stockNo, @Param(\"insrCmpnCd\") String insrCmpnCd, @Param(\"excelCd\") String excelCd, @Param(\"prcPlcyStatCd\") String prcPlcyStatCd);"
     },
     {
-      "403~417": "List<TempSuipAmtBase> findTempSuipAmtBaseGroupedByInsrCmpnCd(@Param(\"insrCmpnCd\") String insrCmpnCd);"
+      "403~417": "List<TempSuipAmtBase> findTempSuipAmtBaseGrouped(@Param(\"insrCmpnCd\") String insrCmpnCd);"
     },
     {
-      "434~439": "List<TempSuipAmtBase> findTempSuipAmtBaseWithZeroNumCol7(@Param(\"insrCmpnCd\") String insrCmpnCd);"
+      "434~439": "List<TempSuipAmtBase> findTempSuipAmtBaseForDeletion(@Param(\"insrCmpnCd\") String insrCmpnCd);"
     },
     {
-      "446~453": "List<TempSuipAmtBase> findWithdrawalPolicies(@Param(\"insrCmpnCd\") String insrCmpnCd);"
+      "446~453": "List<TempSuipAmtBase> findTempSuipAmtBaseForStatusUpdate(@Param(\"insrCmpnCd\") String insrCmpnCd);"
     },
     {
-      "487~502": "List<TempSuipAmtBase> findPoliciesWithDifferentPaymentMethod(@Param(\"insrCmpnCd\") String insrCmpnCd);"
+      "487~502": "List<TempSuipAmtBase> findTempSuipAmtBaseForPaymentMethodUpdate(@Param(\"insrCmpnCd\") String insrCmpnCd);"
     },
     {
-      "509~530": "List<TempSuipAmtBase> findPoliciesWithDifferentSelectedInsurer(@Param(\"insrCmpnCd\") String insrCmpnCd);"
+      "509~530": "List<TempSuipAmtBase> findTempSuipAmtBaseForUpdate(@Param(\"insrCmpnCd\") String insrCmpnCd, @Param(\"slctInusrCd\") String slctInusrCd);"
     },
     {
-      "533~554": "List<TempSuipAmtBase> findTempSuipAmtBaseForUpdate(@Param(\"insrCmpnCd\") String insrCmpnCd, @Param(\"slctInusrCd\") String slctInusrCd);"
+      "533~554": "List<TempSuipAmtBase> findTempSuipAmtBaseForUpdateWithNumCol9(@Param(\"insrCmpnCd\") String insrCmpnCd, @Param(\"slctInusrCd\") String slctInusrCd);"
     },
     {
-      "566~568": "List<TempSuipAmtBase> findTempSuipAmtBaseBySuipCommGbn();"
+      "566~568": "List<TempSuipAmtBase> findTempSuipAmtBaseByCommGbn();"
     },
     {
       "578~580": "List<TempSuipAmtBase> findTempSuipAmtBaseBySuipCommGbnCar();"
@@ -97,19 +97,19 @@
       "604~604": "Integer findMaxIdSeq();"
     },
     {
-      "635~638": "TempSuipStdMst findTempSuipStdMstByIdSeq(@Param(\"idSeq\") Integer idSeq);"
+      "635~638": "TempSuipStdMst findByIdSeq(@Param(\"idx\") Integer idx);"
     },
     {
       "709~709": "Integer findMaxIdSeq();"
     },
     {
-      "717~740": "TempSuipStdRule findByIdSeq(@Param(\"idx\") Long idx);"
+      "717~740": "TempSuipStdRule findByIdSeq(@Param(\"idx\") Integer idx);"
     },
     {
-      "747~754": "Long countByCriteria(@Param(\"excelCd\") String excelCd, @Param(\"insrCmpnCd\") String insrCmpnCd, @Param(\"suipComCd\") String suipComCd);"
+      "747~754": "Long countByExcelCdAndInsrCmpnCdAndSuipComCd(@Param(\"excelCd\") String excelCd, @Param(\"insrCmpnCd\") String insrCmpnCd, @Param(\"suipComCd\") String suipComCd);"
     },
     {
-      "759~766": "TempSuipStdRuleRef findByIdSeq(@Param(\"excelCd\") String excelCd, @Param(\"insrCmpnCd\") String insrCmpnCd, @Param(\"suipComCd\") String suipComCd);"
+      "759~766": "TempSuipStdRuleRef findByExcelCdAndInsrCmpnCdAndSuipComCd(@Param(\"excelCd\") String excelCd, @Param(\"insrCmpnCd\") String insrCmpnCd, @Param(\"suipComCd\") String suipComCd);"
     },
     {
       "770~773": "TempSuipStdRuleRef findByIdSeq(@Param(\"idSeq\") Long idSeq);"
@@ -124,34 +124,37 @@
       "1162~1165": "TempCarConf findByIdSeq(@Param(\"idSeq\") Long idSeq);"
     },
     {
-      "1228~1232": "List<TempSuipStdDataRst> findByInsrCmpnCdAndFetusYnAndSuipCommGbn();"
+      "1228~1232": "List<TempSuipStdDataRst> findByInsrCmpnCdAndFetusYnNotInAndSuipCommGbn();"
     },
     {
-      "1236~1240": "List<TempSuipStdDataRst> findByInsrCmpnCdAndFetusYnAndSuipCommGbn();"
+      "1236~1240": "List<TempSuipStdDataRst> findByInsrCmpnCdAndFetusYnNotInAndSuipCommGbnForN77();"
     },
     {
-      "1257~1277": "List<TempSuipStdDataRst> findTempSuipStdDataRstForUpdate(@Param(\"stockNo\") String stockNo, @Param(\"insrCmpnCd\") String insrCmpnCd, @Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId);"
+      "1257~1277": "List<TempSuipStdDataRst> findTempSuipStdDataRstForUpdate(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId);"
     },
     {
-      "1280~1300": "List<TempSuipStdDataRst> findTempSuipStdDataRstForUpdateFromPlcyMonth(@Param(\"stockNo\") String stockNo, @Param(\"insrCmpnCd\") String insrCmpnCd, @Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId);"
+      "1280~1300": "List<TempSuipStdDataRst> findTempSuipStdDataRstForUpdateFromBPlcyMonth(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId);"
     },
     {
-      "1307~1329": "List<TempSuipStdDataRst> findTempSuipStdDataRstForUpdate(@Param(\"stockNo\") String stockNo, @Param(\"insrCmpnCd\") String insrCmpnCd, @Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId);"
+      "1307~1329": "List<TempSuipStdDataRst> findTempSuipStdDataRstForUpdate(@Param(\"stockNo\") String stockNo, @Param(\"insrCmpnCd\") String insrCmpnCd);"
     },
     {
-      "1332~1354": "List<TempSuipStdDataRst> findTempSuipStdDataRstForUpdateWithBPlcyMonth(@Param(\"stockNo\") String stockNo, @Param(\"insrCmpnCd\") String insrCmpnCd, @Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId);"
+      "1332~1354": "List<TempSuipStdDataRst> findTempSuipStdDataRstForUpdateFromPlcyMonth(@Param(\"stockNo\") String stockNo, @Param(\"insrCmpnCd\") String insrCmpnCd);"
     },
     {
-      "1365~1383": "List<TempSuipStdDataRst> findByPrcPymtMthdCdAndPremAmtNotZero(@Param(\"prcPymtMthdCd\") String prcPymtMthdCd);"
+      "1365~1383": "List<TempSuipStdDataRst> findTempSuipStdDataRstForMonthPremAmtUpdate();"
     },
     {
-      "1402~1406": "List<TempSuipStdDataRst> findBySuipCommGbnInAndJigubLogicCdYnNot();"
+      "1387~1391": "List<TempSuipStdDataRst> findTempSuipStdDataRstForIlsinapUpdate(@Param(\"prcPymtMthdCd\") String prcPymtMthdCd);"
     },
     {
-      "1411~1418": "List<TempSuipStdDataRst> findByPrcPymtMthdCdAndInsrCmpnCdAndPrcPymtTmsAndSuipCommGbnInAndJigubLogicCdYnNot();"
+      "1402~1406": "List<TempSuipStdDataRst> findTempSuipStdDataRstForJigubLogicCdUpdate();"
     },
     {
-      "1422~1446": "List<TempSuipStdDataRst> findTempSuipStdDataRstForUpdate(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId);"
+      "1411~1418": "List<TempSuipStdDataRst> findTempSuipStdDataRstForJigubLogicUpdate();"
+    },
+    {
+      "1422~1446": "List<TempSuipStdDataRst> findTempSuipStdDataRstForJigubLogicUpdateWithConf(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId);"
     },
     {
       "1449~1472": "List<TempSuipStdDataRst> findTempSuipStdDataRstForUpdate(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId);"
@@ -166,19 +169,19 @@
       "1514~1522": "List<TempSuipStdDataRst> findTempSuipStdDataRstForSecondUpdate(@Param(\"insrCmpnCd\") String insrCmpnCd);"
     },
     {
-      "1555~1569": "List<TempSuipStdDataRst> findTempSuipStdDataRst(@Param(\"insrCmpnCd\") String insrCmpnCd, @Param(\"stockNo\") String stockNo, @Param(\"suipCommGbn\") String suipCommGbn, @Param(\"prcPymtTms\") String prcPymtTms, @Param(\"prcPymtMthdCd\") String prcPymtMthdCd, @Param(\"prcPlcyStatCd\") String prcPlcyStatCd, @Param(\"slctInusrCd\") String slctInusrCd);"
+      "1555~1569": "List<TempSuipStdDataRst> findTempSuipStdDataRstForThirdUpdate();"
     },
     {
-      "1572~1585": "List<TempSuipStdDataRst> findTempSuipStdDataRstWithEmptyFields(@Param(\"insrCmpnCd\") String insrCmpnCd, @Param(\"stockNo\") String stockNo, @Param(\"suipCommGbn\") String suipCommGbn, @Param(\"prcPymtTms\") String prcPymtTms, @Param(\"slctInusrCd\") String slctInusrCd);"
+      "1572~1585": "List<TempSuipStdDataRst> findTempSuipStdDataRstWithMissingInfo();"
     },
     {
-      "1602~1628": "List<BSuipStandardDataMonth> findInactivePolicies(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm, @Param(\"insrCmpnCd\") String insrCmpnCd);"
+      "1602~1628": "List<BSuipStandardDataMonth> findInactivePoliciesWithPartialRefund(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm, @Param(\"insrCmpnCd\") String insrCmpnCd);"
     },
     {
       "1631~1648": "List<TempSuipStdDataRst> findTempSuipStdDataRstForUpdate(@Param(\"insrCmpnCd\") String insrCmpnCd);"
     },
     {
-      "1660~1666": "List<TempSuipStdDataRst> findTempSuipStdDataRstForJigubLogicUpdate(@Param(\"insrCmpnCd\") String insrCmpnCd);"
+      "1660~1666": "List<TempSuipStdDataRst> findTempSuipStdDataRstForMaintenance(@Param(\"insrCmpnCd\") String insrCmpnCd);"
     },
     {
       "1677~1701": "List<TempSuipStdDataRst> findTempSuipStdDataRstForUpdate(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm, @Param(\"insrCmpnCd\") String insrCmpnCd);"
@@ -196,22 +199,35 @@
       "1805~1805": "List<TempSuipStdStat> findAllTempSuipStdStat();"
     },
     {
-      "1812~1831": "List<TempSuipStdDataRst> findAllGroupByInsrCmpnCdAndSuipCommGbn();"
+      "1812~1831": "List<TempSuipStdDataRst> findGroupedByInsrCmpnCdAndSuipCommGbn();"
     },
     {
-      "1842~1847": "List<BSuipStandardStatMonth> findByConditions(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm, @Param(\"insrCmpnCd\") String insrCmpnCd);"
+      "1842~1847": "List<BSuipStandardStatMonth> findBySysFlagAndTlAplIdAndTlAccIdAndAppyymmAndInsrCmpnCd(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm, @Param(\"insrCmpnCd\") String insrCmpnCd);"
     },
     {
-      "1853~1906": "List<TlAplCommAmount> findTlAplCommAmountByParameters(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm, @Param(\"workEmpNo\") String workEmpNo);"
+      "1853~1906": "List<TlAplIncomeSuip> findTlAplIncomeSuipByParams(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm, @Param(\"workEmpNo\") String workEmpNo);"
     },
     {
-      "1871~1901": "List<TempSuipStdStat> findByInsrCmpnCdAndSuipCommGbn(@Param(\"insrCmpnCd\") String insrCmpnCd, @Param(\"suipCommGbn\") String suipCommGbn);"
+      "1871~1901": "List<TempSuipStdStat> findAllTempSuipStdStats();"
     },
     {
-      "1917~1922": "List<BSuipStandardDataMonth> findBySysFlagAndTlAplIdAndTlAccIdAndAppyymmAndInsrCmpnCd(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm, @Param(\"insrCmpnCd\") String insrCmpnCd);"
+      "1917~1922": "List<BSuipStandardDataMonth> findBSuipStandardDataMonthByCriteria(@Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId, @Param(\"appyymm\") String appyymm, @Param(\"insrCmpnCd\") String insrCmpnCd);"
     },
     {
-      "1942~1977": "List<TempSuipStdDataRst> findByAppyymmAndWorkEmpNo(@Param(\"appyymm\") String appyymm, @Param(\"workEmpNo\") String workEmpNo);"
+      "1942~1977": "List<TempSuipStdDataRst> findByAppyymmAndTlAplIdAndTlAccId(@Param(\"appyymm\") String appyymm, @Param(\"tlAplId\") String tlAplId, @Param(\"tlAccId\") String tlAccId);"
     }
-  ]
+  ],
+  "service_skeleton": "package com.example.pbcac120calcsuipstd.service;\n\nimport com.example.pbcac120calcsuipstd.entity.BFcPlcyMstMonth;\nimport com.example.pbcac120calcsuipstd.entity.BPlcyMonth;\nimport com.example.pbcac120calcsuipstd.entity.BSuipContJigubLogicConf;\nimport com.example.pbcac120calcsuipstd.entity.BSuipStandardDataMonth;\nimport com.example.pbcac120calcsuipstd.entity.BSuipStandardNewcntMonth;\nimport com.example.pbcac120calcsuipstd.entity.BSuipStandardStatMonth;\nimport com.example.pbcac120calcsuipstd.entity.TempSql;\nimport com.example.pbcac120calcsuipstd.entity.TempSuipStdDataResult;\nimport com.example.pbcac120calcsuipstd.entity.TempSuipAmtBase;\nimport com.example.pbcac120calcsuipstd.entity.TempSuipStdDataRst;\nimport com.example.pbcac120calcsuipstd.entity.TempSuipStdData;\nimport com.example.pbcac120calcsuipstd.entity.TempSuipStdRule;\nimport com.example.pbcac120calcsuipstd.entity.TempSuipStdRuleRef;\nimport com.example.pbcac120calcsuipstd.entity.TempSuipStdMst;\nimport com.example.pbcac120calcsuipstd.entity.TempCarConf;\nimport com.example.pbcac120calcsuipstd.entity.TempSuipStdStat;\nimport com.example.pbcac120calcsuipstd.entity.BDivnMonth;\nimport com.example.pbcac120calcsuipstd.entity.BSuipAmtMonth;\nimport com.example.pbcac120calcsuipstd.entity.BSuipStdMstMonth;\nimport com.example.pbcac120calcsuipstd.entity.BSuipStdRuleMonth;\nimport com.example.pbcac120calcsuipstd.entity.BSuipComMstMonth;\nimport com.example.pbcac120calcsuipstd.entity.BContractCarStndConf;\nimport com.example.pbcac120calcsuipstd.repository.BFcPlcyMstMonthRepository;\nimport com.example.pbcac120calcsuipstd.repository.BPlcyMonthRepository;\nimport com.example.pbcac120calcsuipstd.repository.BSuipContJigubLogicConfRepository;\nimport com.example.pbcac120calcsuipstd.repository.BSuipStandardDataMonthRepository;\nimport com.example.pbcac120calcsuipstd.repository.BSuipStandardNewcntMonthRepository;\nimport com.example.pbcac120calcsuipstd.repository.BSuipStandardStatMonthRepository;\nimport com.example.pbcac120calcsuipstd.repository.TempSqlRepository;\nimport com.example.pbcac120calcsuipstd.repository.TempSuipStdDataResultRepository;\nimport com.example.pbcac120calcsuipstd.repository.TempSuipAmtBaseRepository;\nimport com.example.pbcac120calcsuipstd.repository.TempSuipStdDataRstRepository;\nimport com.example.pbcac120calcsuipstd.repository.TempSuipStdDataRepository;\nimport com.example.pbcac120calcsuipstd.repository.TempSuipStdRuleRepository;\nimport com.example.pbcac120calcsuipstd.repository.TempSuipStdRuleRefRepository;\nimport com.example.pbcac120calcsuipstd.repository.TempSuipStdMstRepository;\nimport com.example.pbcac120calcsuipstd.repository.TempCarConfRepository;\nimport com.example.pbcac120calcsuipstd.repository.TempSuipStdStatRepository;\nimport com.example.pbcac120calcsuipstd.repository.BDivnMonthRepository;\nimport com.example.pbcac120calcsuipstd.repository.BSuipAmtMonthRepository;\nimport com.example.pbcac120calcsuipstd.repository.BSuipStdMstMonthRepository;\nimport com.example.pbcac120calcsuipstd.repository.BSuipStdRuleMonthRepository;\nimport com.example.pbcac120calcsuipstd.repository.BSuipComMstMonthRepository;\nimport com.example.pbcac120calcsuipstd.repository.BContractCarStndConfRepository;\n\n\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport com.example.pbcac120calcsuipstd.command.PBCAC120CalcSuipStdCommand;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport java.util.List;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.http.ResponseEntity;\n\n@RestController\n@Transactional\npublic class PBCAC120CalcSuipStdService {\n\n    @Autowired\n    private BFcPlcyMstMonthRepository bFcPlcyMstMonthRepository;\n\n    @Autowired\n    private BPlcyMonthRepository bPlcyMonthRepository;\n\n    @Autowired\n    private BSuipContJigubLogicConfRepository bSuipContJigubLogicConfRepository;\n\n    @Autowired\n    private BSuipStandardDataMonthRepository bSuipStandardDataMonthRepository;\n\n    @Autowired\n    private BSuipStandardNewcntMonthRepository bSuipStandardNewcntMonthRepository;\n\n    @Autowired\n    private BSuipStandardStatMonthRepository bSuipStandardStatMonthRepository;\n\n    @Autowired\n    private TempSqlRepository tempSqlRepository;\n\n    @Autowired\n    private TempSuipStdDataResultRepository tempSuipStdDataResultRepository;\n\n    @Autowired\n    private TempSuipAmtBaseRepository tempSuipAmtBaseRepository;\n\n    @Autowired\n    private TempSuipStdDataRstRepository tempSuipStdDataRstRepository;\n\n    @Autowired\n    private TempSuipStdDataRepository tempSuipStdDataRepository;\n\n    @Autowired\n    private TempSuipStdRuleRepository tempSuipStdRuleRepository;\n\n    @Autowired\n    private TempSuipStdRuleRefRepository tempSuipStdRuleRefRepository;\n\n    @Autowired\n    private TempSuipStdMstRepository tempSuipStdMstRepository;\n\n    @Autowired\n    private TempCarConfRepository tempCarConfRepository;\n\n    @Autowired\n    private TempSuipStdStatRepository tempSuipStdStatRepository;\n\n    @Autowired\n    private BDivnMonthRepository bDivnMonthRepository;\n\n    @Autowired\n    private BSuipAmtMonthRepository bSuipAmtMonthRepository;\n\n    @Autowired\n    private BSuipStdMstMonthRepository bSuipStdMstMonthRepository;\n\n    @Autowired\n    private BSuipStdRuleMonthRepository bSuipStdRuleMonthRepository;\n\n    @Autowired\n    private BSuipComMstMonthRepository bSuipComMstMonthRepository;\n\n    @Autowired\n    private BContractCarStndConfRepository bContractCarStndConfRepository;\n\n    private String vResultValue = \"\";\n    private long vDivnCnt = 0;\n    private long vCnt = 0;\n    private long vIdSeq = 0;\n    private String vTopDivnCd = \"\";\n    private String vSql = \"\";\n    private String vSqlInsert = \"\";\n    private String vSqlSelect = \"\";\n    private String vSqlFrom = \"\";\n    private String vSqlGroup = \"\";\n    private String vSqlSet = \"\";\n    private String vSqlWhere = \"\";\n    private String vSqlWhere01 = \"\";\n    private String vSqlWhere02 = \"\";\n    private String vSqlWhere03 = \"\";\n    private String vSqlWhere04 = \"\";\n    private String vSqlWhere05 = \"\";\n    private String vSqlWhere06 = \"\";\n    private String vSqlUpdate = \"\";\n    private String vSqlJoin = \"\";\n    private String vStdDataCol = \"\";\n    private String vStdSuipDataCol = \"\";\n    private String vStdInsertRst = \"\";\n    private String vStdSelectRst = \"\";\n    private String vStdGroupRst = \"\";\n    private String vCarStdDataCol = \"\";\n    private String vCarStdSuipDataCol = \"\";\n    private String vCarStdInsertRst = \"\";\n    private String vCarStdSelectRst = \"\";\n    private String vCarStdGroupRst = \"\";\n    private String vGenStdDataCol = \"\";\n    private String vGenStdSuipDataCol = \"\";\n    private String vGenStdInsertRst = \"\";\n    private String vGenStdSelectRst = \"\";\n    private String vGenStdGroupRst = \"\";\n    private long iIdx = 0;\n    private long iMax = 0;\n    private String vInsrCmpnCd = \"\";\n    private String vSuipCommGbn = \"\";\n    private String vStdComCd = \"\";\n    private String vDataCd = \"\";\n    private String vSuipDataCd = \"\";\n    private String vAggregateExp = \"\";\n    private String vDtType = \"\";\n    private String vDtStandard = \"\";\n    private long vSortNo = 0;\n    private long vCalcOrder = 0;\n    private String vCalcSign = \"\";\n    private String vCalcSignVal = \"\";\n    private String vSrcExcelCd = \"\";\n    private String vSrcSuipComCd = \"\";\n    private String vSrcFlt1Cd = \"\";\n    private String vSrcFlt1CompCd = \"\";\n    private String vSrcFlt1Val = \"\";\n    private String vSrcFlt2Cd = \"\";\n    private String vSrcFlt2CompCd = \"\";\n    private String vSrcFlt2Val = \"\";\n    private String vSrcFlt3Cd = \"\";\n    private String vSrcFlt3CompCd = \"\";\n    private String vSrcFlt3Val = \"\";\n    private String vSrcFlt4Cd = \"\";\n    private String vSrcFlt4CompCd = \"\";\n    private String vSrcFlt4Val = \"\";\n    private String vSrcFlt5Cd = \"\";\n    private String vSrcFlt5CompCd = \"\";\n    private String vSrcFlt5Val = \"\";\n    private String vSrcFlt6Cd = \"\";\n    private String vSrcFlt6CompCd = \"\";\n    private String vSrcFlt6Val = \"\";\n    private String vSrcSuipComCdMatch = \"\";\n    private String vSrcSuipComCdOrg = \"\";\n    private String vStndCarCategory = \"\";\n\n    @PostMapping(path=\"/Endpoint\")\n    public ResponseEntity<String> methodName(@RequestBody PBCAC120CalcSuipStdCommand PBCAC120CalcSuipStdCommandDto) {\n\nCodePlaceHolder2\n\n    return ResponseEntity.ok(\"Operation completed successfully\");\n    }\n}",
+  "command_class_variable": [
+    "String tlAplId",
+    "String tlAccId",
+    "String appYyMm",
+    "String workGbn",
+    "String workDtlGbn",
+    "String insrCmpnCd",
+    "String workEmpNo",
+    "String result"
+  ],
+  "service_skeleton_name": "PBCAC120CalcSuipStdService",
+  "summarzied_service_skeleton": "\n@RestController\n@Transactional\npublic class PBCAC120CalcSuipStdService {\n\n    @PostMapping(path=\"/Endpoint\")\n    public ResponseEntity<String> methodName(@RequestBody PBCAC120CalcSuipStdCommand PBCAC120CalcSuipStdCommandDto) {\n        //Here is business logic\n\n        return ResponseEntity.ok(\"Operation completed successfully\");\n    }\n}\n"
 }

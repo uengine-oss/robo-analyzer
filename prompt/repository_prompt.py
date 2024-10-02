@@ -51,7 +51,7 @@ JPA Query Methods 생성시 반드시 숙지해야할 요구사항:
 
 아래는 JPA Query Methods의 기본 구조 입니다:
 @Query("적절한 쿼리문, value= 를 쓰지마세요")
-Type exampleJPAQueryMethod(@Param("Type TableColumn") Type exampleField, ...)
+\nType exampleJPAQueryMethod(@Param("Type TableColumn") Type exampleField, ...)
 
 
 아래는 결과 예시로, 부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요:

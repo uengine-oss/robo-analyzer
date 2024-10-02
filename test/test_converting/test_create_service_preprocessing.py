@@ -5,7 +5,7 @@ import os
 import logging
 import unittest
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-from convert.create_service_preprocessing import start_service_Preprocessing
+from convert.create_service_preprocessing import start_service_preprocessing
 
 
 # * 로그 레벨을 INFO로 설정
@@ -34,7 +34,7 @@ class TestPreServiceGeneration(unittest.IsolatedAsyncioTestCase):
 
 
             # * Service 전처리 테스트 시작
-            await start_service_Preprocessing(summarzied_service_skeleton, jpa_method_list, command_class_variable)
+            await start_service_preprocessing(summarzied_service_skeleton, jpa_method_list, command_class_variable)
             
             self.assertTrue(True, "전처리 Service 프로세스가 성공적으로 완료되었습니다.")
         except Exception:

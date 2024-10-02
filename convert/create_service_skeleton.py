@@ -180,7 +180,7 @@ async def create_service_skeleton(procedure_data, declare_data, lower_name, enti
         raise ProcessResultError(err_msg)
 
 
-# 역할: Neo4j 데이터베이스에서 프로시저, Declare 노드를 가져와서, 서비스 골격 클래스 생성을 준비하는 함수
+# 역할: Neo4j에서 프로시저, Declare 노드를 가져와서, 서비스 골격 클래스 생성을 준비하는 함수
 # 매개변수: 
 #      - lower_name : 소문자로 구성된 프로젝트 이름
 #      - entity_name_list : 엔티티 이름 리스트

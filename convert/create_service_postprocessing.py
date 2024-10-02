@@ -106,13 +106,13 @@ async def process_service_class(node_list, connection):
         raise TraverseCodeError(err_msg)
 
 
-# 역할: 노드 정보를 사용하여 서비스 클래스 생성을 시작하는 함수. 
+# 역할: 각 노드에 Java_code 이름의 속성을 이용하여,  최종적으로  서비스 클래스 파일을 생성하는 시작 함수. 
 # 매개변수: 
 #   - lower_file_name : 소문자로 구성된 프로젝트 이름
 #   - service_skeleton : 서비스 스켈레톤
 #   - service_class_name : 서비스 클래스 이름
 # 반환값: 없음
-async def start_service_Postprocessing(lower_file_name, service_skeleton, service_class_name):
+async def start_service_postprocessing(lower_file_name, service_skeleton, service_class_name):
     
     connection = Neo4jConnection() 
     logging.info("(후처리) 서비스 생성을 시작합니다.")

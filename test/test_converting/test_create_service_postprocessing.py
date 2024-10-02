@@ -5,7 +5,7 @@ import os
 import logging
 import unittest
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-from convert.create_service_postprocessing import start_service_Postprocessing
+from convert.create_service_postprocessing import start_service_postprocessing
 
 
 # * 로그 레벨을 INFO로 설정
@@ -38,7 +38,7 @@ class TestPostServiceGeneration(unittest.IsolatedAsyncioTestCase):
 
 
             # * Service 후처리 테스트 시작
-            await start_service_Postprocessing(lower_file_name, service_skeleton, service_skeleton_name)
+            await start_service_postprocessing(lower_file_name, service_skeleton, service_skeleton_name)
             
             self.assertTrue(True, "후처리 Service 프로세스가 성공적으로 완료되었습니다.")
         except Exception:

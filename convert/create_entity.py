@@ -89,7 +89,7 @@ async def create_entity_class(table_data_group, lower_file_name):
         raise OSError(err_msg)
 
 
-# 역할: Neo4J에서 모든 테이블 노드를 가져오고, 테이블 노드 데이터를 재구성
+# 역할: Neo4J에서 모든 테이블 노드를 가져오고, 테이블 노드 데이터를 재구성하는 함수
 # 매개변수: 
 #    - lower_file_name : 소문자로 구성된 스토어드 프로시저 파일 이름
 # 반환값:
