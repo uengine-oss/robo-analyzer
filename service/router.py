@@ -1,11 +1,9 @@
-import asyncio
 import logging
 import os
 import shutil
-from fastapi import File, UploadFile, Form
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
-from service.service import save_file_to_disk, process_zip_file, transform_fileName
+from service.service import process_zip_file, transform_fileName
 from service.service import generate_and_execute_cypherQuery
 from service.service import generate_two_depth_match
 from service.service import generate_simple_java
@@ -15,31 +13,26 @@ from service.service import generate_spring_boot_project
 router = APIRouter()
 
 
-# 역할: Antlr 서버에서 전달된 분석 결과를 받아 파일로 저장하고, 저장된 파일을 사용하여 사이퍼 쿼리를 생성 및 실행하는 함수
+# 역할: 전달된 파일 이름으로, 분석할 파일을 찾아서 사이퍼 쿼리를 생성 및 실행
 # 매개변수:
-#   antlr_file: Antlr 서버에서 전달된 구문 분석 결과 파일
-#   plsql_File: Antlr 서버에서 전달된 PL/SQL 파일
-#   sp_fileName: 스토어드 프로시저 파일의 이름
+#   request: 전달된 파일이름
 # 반환값: 
 #   - 스트림 : 그래프를 그리기 위한 데이터 모음
 @router.post("/cypherQuery/")
-async def understand_data(antlr_file: UploadFile = File(...), plsql_file: UploadFile = File(...), sp_fileName: str = Form(...)):
-    
+async def understand_data(request: Request):    
     try:
-        # * Antlr 서버에서 전달된 두 파일(스토어드 프로시저, ANTLR 구문 분석 결과)을 비동기적으로 읽어들임
-        antlr_data, sql_data = await asyncio.gather(antlr_file.read(), plsql_file.read())
-        logging.info(f"Received File: {sp_fileName}")
+        file_data = await request.json()
+        logging.info("Received Files Info: %s", file_data)
 
-
-        # * 읽어들인 데이터를 디스크에 저장하는 함수를 호출하고, 저장된 파일 이름과 마지막 라인 번호를 반환받음
-        saved_filename, last_line = await save_file_to_disk(antlr_data, sql_data, sp_fileName)
+        file_names = [(item['fileName'], item['objectName']) for item in file_data['fileNames']]
+        
+        if not file_names:
+            raise HTTPException(status_code=400, detail="파일 정보가 없습니다.")
         
     except Exception:
         raise HTTPException(status_code=500, detail="Understanding에 실패했습니다.")
 
-
-    # * 사이퍼쿼리를 생성하고 실행하는 함수를 호출하여, 결과를 스트림으로 전달
-    return StreamingResponse(generate_and_execute_cypherQuery(saved_filename, last_line))
+    return StreamingResponse(generate_and_execute_cypherQuery(file_names))
 
 
 
@@ -52,20 +45,13 @@ async def understand_data(antlr_file: UploadFile = File(...), plsql_file: Upload
 async def convert_java(request: Request):
 
     try:
-        # * 요청으로부터 테이블 노드 정보를 JSON 형태로 추출합니다
         node_info = await request.json()
         logging.info("Received Node Info for Java: %s", node_info)  
-
-
-        # * 테이블 노드 정보를 기반으로 2단계 깊이 조회를 위한 사이퍼 쿼리를 생성하고 실행합니다
         cypher_query_for_java = await generate_two_depth_match(node_info)
-
 
     except Exception:
         raise HTTPException(status_code=500, detail="테이블 노드 기준으로 자바 코드 생성에 실패했습니다.")
 
-
-    # * 사이퍼쿼리의 결과를 바탕으로 자바 코드로 변환하고, 그 결과를 스트리밍 응답으로 반환합니다
     return StreamingResponse(generate_simple_java(cypher_query_for_java))
     
 
@@ -79,20 +65,15 @@ async def convert_java(request: Request):
 async def receive_chat(request: Request):
 
     try:
-        # * 요청으로부터 채팅 정보를 JSON 형태로 추출합니다
         chat_info = await request.json()
         logging.info("Received chat Info for Java:", chat_info)
 
-
-        # * 채팅 정보에서 사용자의 입력과 이전 히스토리를 추출합니다
         userInput = chat_info['userInput']
         prevHistory = chat_info['prevHistory']
 
     except Exception:
         raise HTTPException(status_code=500, detail="자바 코드 생성을 위해 전달된 데이터가 잘못되었습니다.")
 
-
-    # * 전달된 정보를 바탕으로 자바 코드로 변환하여, 스트리밍으로 응답합니다
     return StreamingResponse(generate_simple_java(None, prevHistory, userInput))
 
 
@@ -106,20 +87,15 @@ async def receive_chat(request: Request):
 async def covnert_spring_project(request: Request):
 
     try:
-        # * 요청으로부터 스토어드 프로시저 파일 정보를 JSON 형태로 추출합니다.
         fileInfo = await request.json()
         logging.info("Received File Name for Convert Spring Boot:", fileInfo)
 
-
-        # * 스토어드 프로시저 파일 정보에서 파일 이름을 추출하고 확장자를 제거합니다.
         fileName = fileInfo['fileName']
         original_name, _ = os.path.splitext(fileName)
 
     except Exception:
         raise HTTPException(status_code=500, detail="스프링 부트 프로젝트 생성을 위해 전달된 데이터가 잘못되었습니다.")
 
-
-    # * 스프링부트 전환 과정이 시작되며, 각 단계마다 결과를 스트리밍으로 응답합니다
     return StreamingResponse(generate_spring_boot_project(original_name), media_type="text/plain")
 
 
@@ -133,17 +109,13 @@ async def covnert_spring_project(request: Request):
 async def download_spring_project(request: Request):
     
     try:
-        # * 요청으로부터 스토어드 프로시저 파일 정보를 JSON 형태로 추출합니다.
         fileInfo = await request.json()
         logging.info("Received File Name for Download Spring Boot:", fileInfo)
 
-
-        # * 스토어드 프로시저 파일 정보에서 파일 이름을 추출하고 확장자를 제거합니다.
         project_folder_name = fileInfo['fileName']
         original_name, _ = os.path.splitext(project_folder_name)
         _, lower_file_name = await transform_fileName(original_name)
         
-        # * ZIP 파일로 만들기 위한 자바 프로젝트 파일들을 읽을 경로와, ZIP 파일로 저장할 경로 설정후 압축
         output_zip_path = os.path.join('data', 'zipfile', f'{original_name}.zip')
         input_zip_path = os.path.join('data', 'java', f'{lower_file_name}')
         await process_zip_file(input_zip_path, output_zip_path)
@@ -152,11 +124,11 @@ async def download_spring_project(request: Request):
     except Exception:
         raise HTTPException(status_code=500, detail="스프링 부트 프로젝트를 Zip 파일로 압축하는데 실패했습니다.")
     
+    
 @router.post("/showJavaResult/")
 async def show_java_result(request: Request):
     try:
 
-        # Check if /target folder exists, if not create it
         target_folder = os.path.join(os.getcwd(), 'target')
         if not os.path.exists(target_folder):
             os.makedirs(target_folder)
@@ -189,34 +161,35 @@ async def show_java_result(request: Request):
         logging.error("Error showing Java result: %s", e)
         raise HTTPException(status_code=500, detail="스프링 부트 프로젝트 결과를 표시하는데 실패했습니다.")
 
-@router.get("/getFiles/")
-async def get_files():
-    try:
-        # Check if src folder exists, if not create it
-        src_directory = os.path.join(os.getcwd(), 'src')
-        if not os.path.exists(src_directory):
-            os.makedirs(src_directory)
-            logging.info("Created /src folder")
-        # * src 디렉토리 경로 설정
-        src_directory = os.path.join(os.getcwd(), 'src')
+
+# @router.get("/getFiles/")
+# async def get_files():
+#     try:
+#         # Check if src folder exists, if not create it
+#         src_directory = os.path.join(os.getcwd(), 'src')
+#         if not os.path.exists(src_directory):
+#             os.makedirs(src_directory)
+#             logging.info("Created /src folder")
+#         # * src 디렉토리 경로 설정
+#         src_directory = os.path.join(os.getcwd(), 'src')
         
-        # * 파일 목록과 정보를 저장할 리스트 초기화
-        files_info = []
+#         # * 파일 목록과 정보를 저장할 리스트 초기화
+#         files_info = []
         
-        # * src 디렉토리 내의 파일 목록을 가져옴
-        for file_name in os.listdir(src_directory):
-            file_path = os.path.join(src_directory, file_name)
+#         # * src 디렉토리 내의 파일 목록을 가져옴
+#         for file_name in os.listdir(src_directory):
+#             file_path = os.path.join(src_directory, file_name)
             
-            # * 파일인지 확인하고 정보를 읽음
-            if os.path.isfile(file_path):
-                file_info = {
-                    "name": file_name,
-                    "content": open(file_path, 'r', encoding='utf-8').read()
-                }
-                files_info.append(file_info)
+#             # * 파일인지 확인하고 정보를 읽음
+#             if os.path.isfile(file_path):
+#                 file_info = {
+#                     "name": file_name,
+#                     "content": open(file_path, 'r', encoding='utf-8').read()
+#                 }
+#                 files_info.append(file_info)
         
-        # * 파일 목록과 정보를 반환
-        return {"files": files_info}
+#         # * 파일 목록과 정보를 반환
+#         return {"files": files_info}
     
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to retrieve files: {str(e)}")
+#     except Exception as e:
+#         raise HTTPException(status_code=500, detail=f"Failed to retrieve files: {str(e)}")

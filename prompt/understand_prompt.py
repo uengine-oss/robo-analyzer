@@ -88,7 +88,7 @@ def understand_code(sp_code, context_ranges, context_range_count):
 
         json_parser = JsonOutputParser()
         result = chain.invoke({"code": sp_code, "ranges": ranges_json, "count": context_range_count})
-        # TODO 여기서 최대 토큰이 4096이 넘은 경우 처리가 필요
+        # TODO 여기서 최대 출력 토큰만 4096이 넘은 경우 처리가 필요
         json_parsed_content = json_parser.parse(result.content)
         logging.info(f"토큰 수: {result.usage_metadata}")     
         return json_parsed_content

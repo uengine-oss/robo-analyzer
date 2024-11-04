@@ -18,46 +18,11 @@ from prompt.java2deths_prompt import convert_2deths_java
 from util.exception import AddLineNumError, ConvertingError, Java2dethsError, LLMCallError, Neo4jError
 
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-SAVE_PLSQL_DIR = os.path.join(BASE_DIR, "src")
-SAVE_ANTLR_DIR = os.path.join(BASE_DIR, "analysis")
-os.makedirs(SAVE_PLSQL_DIR, exist_ok=True)
-os.makedirs(SAVE_ANTLR_DIR, exist_ok=True)
-
-
-# 역할: Antlr 서버에서 분석된 결과를 파일 형태로 저장하고, 파일 이름을 반환합니다.
-# 매개변수: 
-#   - antlr_data: Antlr 서버에서 분석된 결과 내용, 
-#   - sql_data: 원본 스토어드 프로시저 파일 내용, 
-#   - file_name: 저장할 파일의 기본 이름
-# 반환값: 
-#   - base_sp_file_name: 저장된 스토어드 프로시저  파일이름(확장자 제거)
-#   - last_line: 스토어드 프로시저 파일 내용의 마지막 라인 번호
-async def save_file_to_disk(antlr_data, plsql_data, sp_file_name):
-    try: 
-        # * 전달된 PLSQL 및 ANTLR 분석 내용을 파일로 저장하기 위한 준비
-        base_sp_file_name = os.path.splitext(sp_file_name)[0]
-        plplsql_file_path = os.path.join(SAVE_PLSQL_DIR, f"{base_sp_file_name}.txt")
-        antlr_file_path = os.path.join(SAVE_ANTLR_DIR, f"{base_sp_file_name}.json")
-
-
-        # * 전달된 PLSQL에 줄 번호 추가
-        contents, last_line = add_line_numbers(plsql_data.decode('utf-8'))
-
-
-        # * PLSQL 파일과 분석 결과 파일을 비동기적으로 저장
-        # async with aiofiles.open(plplsql_file_path, "wb") as plsql_file, aiofiles.open(antlr_file_path, "w") as antlr_file:
-        #     await asyncio.gather(plsql_file.write(contents.encode()), antlr_file.write(antlr_data.decode('utf-8')))
-
-        # logging.info("\nSuccessed File Saved\n")
-        return base_sp_file_name, last_line
-    
-    except AddLineNumError:
-        raise
-    except Exception:
-        err_msg = "Antlr에서 전달된 스토어드 프로시저 파일과 분석 결과 파일을 저장하는 도중 문제가 발생"
-        logging.exception(err_msg)
-        raise OSError(err_msg)
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+PLSQL_DIR = os.path.join(BASE_DIR, "src")
+ANALYSIS_DIR = os.path.join(BASE_DIR, "analysis")
+os.makedirs(PLSQL_DIR, exist_ok=True)
+os.makedirs(ANALYSIS_DIR, exist_ok=True)
 
 
 # 역할: 스토어드 프로시저의 각 라인에 줄 번호를 추가합니다.
@@ -65,15 +30,12 @@ async def save_file_to_disk(antlr_data, plsql_data, sp_file_name):
 #   - contents : 스토어드 프로시저 파일 내용
 # 반환값: 
 #   - numbered_contents : 라인 번호가 추가된 스토어드 프로시저 파일 내용 
-#   - last_line: 스토어드 프로시저 파일 내용의 마지막 라인번호
 def add_line_numbers(contents):
     try: 
         # * 각 라인에 번호를 추가합니다.
-        lines = contents.splitlines()
-        numbered_lines = [f"{index + 1}: {line}" for index, line in enumerate(lines)]
-        last_line = len(lines) 
-        numbered_contents = "\n".join(numbered_lines)
-        return numbered_contents, last_line
+        numbered_lines = [f"{index + 1}: {line}" for index, line in enumerate(contents)]
+        numbered_contents = "".join(numbered_lines)
+        return numbered_contents
     except Exception:
         err_msg = "전달된 스토어드 프로시저 코드에 라인번호를 추가하는 도중 문제가 발생했습니다."
         logging.exception(err_msg)
@@ -86,58 +48,64 @@ def add_line_numbers(contents):
 #    - last_line: 스토어드 프로시저 파일의 내용의 마지막 라인 번호
 # 반환값: 
 #   - 스트림 : 그래프를 그리기 위한 데이터들
-async def generate_and_execute_cypherQuery(base_sp_file_name, last_line):
+async def generate_and_execute_cypherQuery(file_names):
     connection = Neo4jConnection()
-    plsql_file_path = os.path.join(SAVE_PLSQL_DIR, f"{base_sp_file_name}.txt")
-    antlr_file_path = os.path.join(SAVE_ANTLR_DIR, f"{base_sp_file_name}.json")
     receive_queue = asyncio.Queue()
     send_queue = asyncio.Queue()
 
     try:
-        # * 스토어드 프로시저 파일과, ANTLR 구문 분석 파일 읽기 작업을 병렬로 처리
-        async with aiofiles.open(antlr_file_path, 'r', encoding='utf-8') as antlr_file, aiofiles.open(plsql_file_path, 'r', encoding='utf-8') as plsql_file:
-            antlr_data, plsql_content = await asyncio.gather(antlr_file.read(), plsql_file.readlines())
-            antlr_data = json.loads(antlr_data)
-        
+        for file_name, object_name in file_names:
+            plsql_file_path = os.path.join(PLSQL_DIR, file_name)
+            base_name = os.path.splitext(file_name)[0]
+            antlr_file_path = os.path.join(ANALYSIS_DIR, f"{base_name}.json")
 
-        # * 사이퍼쿼리를 생성 및 실행을 처리하는 메서드
-        async def process_analysis_code():
-            while True:
-                analysis_result = await receive_queue.get()
-                logging.info("Analysis Event Received!")
-                if analysis_result.get('type') == 'end_analysis':
-                    logging.info("Understanding Completed")
-                    break
-                
-                elif analysis_result.get('type') == 'error':
-                    logging.info("Understanding Failed")
-                    break
+            # * 스토어드 프로시저 파일과, ANTLR 구문 분석 파일 읽기 작업을 병렬로 처리
+            async with aiofiles.open(antlr_file_path, 'r', encoding='utf-8') as antlr_file, aiofiles.open(plsql_file_path, 'r', encoding='utf-8') as plsql_file:
+                antlr_data, plsql_content = await asyncio.gather(antlr_file.read(), plsql_file.readlines())
 
+                # * PLSQL, A데이터 전처리
+                antlr_data = json.loads(antlr_data)
+                last_line = len(plsql_content)
+                plsql_content = add_line_numbers(plsql_content)
 
-                # * 사이퍼쿼리 분석 과정에서 전달된 이벤트에서 각종 정보를 추출합니다 
-                cypher_queries = analysis_result.get('query_data', [])
-                next_analysis_line = analysis_result['line_number']
-                analysis_progress = int((next_analysis_line / last_line) * 100)
-
-
-                # * 전달된 사이퍼쿼리를 실행하여, 노드와 관계를 생성하고, 그래프 객체형태로 가져옵니다
-                await connection.execute_queries(cypher_queries)
-                graph_result = await connection.execute_query_and_return_graph()
+            # * 사이퍼쿼리를 생성 및 실행을 처리하는 메서드
+            async def process_analysis_code():
+                while True:
+                    analysis_result = await receive_queue.get()
+                    logging.info(f"Analysis Event Received for file: {file_name}")
+                    if analysis_result.get('type') == 'end_analysis':
+                        logging.info(f"Understanding Completed for {file_name}")
+                        break
+                    
+                    elif analysis_result.get('type') == 'error':
+                        logging.info(f"Understanding Failed for {file_name}")
+                        break
 
 
-                # * 그래프 객체, 다음 분석될 라인 번호, 분석 진행 상태를 묶어서 스트림 형태로 전달할 수 있게 처리합니다
-                stream_data = {"graph": graph_result, "line_number": next_analysis_line, "analysis_progress": analysis_progress}
-                encoded_stream_data = json.dumps(stream_data).encode('utf-8') + b"send_stream"
-                await send_queue.put({'type': 'process_completed'})
-                logging.info("Send Response")
-                yield encoded_stream_data
+                    # * 사이퍼쿼리 분석 과정에서 전달된 이벤트에서 각종 정보를 추출합니다 
+                    cypher_queries = analysis_result.get('query_data', [])
+                    next_analysis_line = analysis_result['line_number']
+                    analysis_progress = int((next_analysis_line / last_line) * 100)
 
-        # * understanding 과정을 비동기 태스크로 실행하고, 데이터 스트림 생성하여 전달
-        analysis_task = asyncio.create_task(analysis(antlr_data, plsql_content, receive_queue, send_queue, last_line))
-        async for stream_data_chunk in process_analysis_code():
-            yield stream_data_chunk
-        await analysis_task
-        yield "end_of_stream" # * 스트림 종료 신호
+
+                    # * 전달된 사이퍼쿼리를 실행하여, 노드와 관계를 생성하고, 그래프 객체형태로 가져옵니다
+                    await connection.execute_queries(cypher_queries)
+                    graph_result = await connection.execute_query_and_return_graph()
+
+
+                    # * 그래프 객체, 다음 분석될 라인 번호, 분석 진행 상태를 묶어서 스트림 형태로 전달할 수 있게 처리합니다
+                    stream_data = {"graph": graph_result, "line_number": next_analysis_line, "analysis_progress": analysis_progress, "current_file": file_name}
+                    encoded_stream_data = json.dumps(stream_data).encode('utf-8') + b"send_stream"
+                    await send_queue.put({'type': 'process_completed'})
+                    logging.info(f"Send Response for {file_name}")
+                    yield encoded_stream_data
+
+            # * understanding 과정을 비동기 태스크로 실행하고, 데이터 스트림 생성하여 전달
+            analysis_task = asyncio.create_task(analysis(antlr_data, plsql_content, receive_queue, send_queue, last_line, object_name))
+            async for stream_data_chunk in process_analysis_code():
+                yield stream_data_chunk
+            await analysis_task
+            yield "end_of_stream" # * 스트림 종료 신호
 
 
     except Exception:
@@ -184,7 +152,7 @@ async def generate_two_depth_match(node_info):
 #   - previous_history: 이전 히스토리
 #   - requirements_chat: 요구사항
 # 반환값: 
-#   - ��트림 : 자바 코드
+#   - 스트림 : 자바 코드
 async def generate_simple_java(cypher_query=None, previous_history=None, requirements_chat=None):
     try:
         # * 사이퍼 쿼리, 요구사항, 이전 히스토리를 바탕으로 자바 코드 생성 프로세스를 실행합니다
