@@ -436,11 +436,17 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
             # * 전달된 코드에서 공백으로 각 라인의 단어를 추출합니다.
             for line in filtered_code.split('\n'):
                 parts = line.split()
-                if len(parts) < 3: 
-                    continue  # parts의 길이가 3보다 작으면 다음 라인으로 넘어갑니다.
 
-                var_name = parts[2]
-                var_type = parts[4] if startLine == 1 and 'IN' in parts else (parts[3] if len(parts) > 3 else 'UNKNOWN')
+                # * 파라미터 선언 (p_employee_id IN NUMBER)
+                if len(parts) >= 3:
+                    var_name = parts[2]
+                    var_type = parts[4] if startLine == 1 and 'IN' in parts else parts[3]
+                # * 일반 변수 선언 (vBool BOOLEAN)
+                elif len(parts) == 2:
+                    var_name = parts[0]
+                    var_type = parts[1].rstrip(';')
+                else:
+                    continue
 
                 # * 추출된 변수 이름과 타입을 이용하여, 변수 노드를 생성하는 사이퍼쿼리를 작성합니다.
                 variable_query = f"MERGE (v:Variable {{name: '{var_name}', procedure_name: '{object_name}'}}) SET v.type = '{var_type}'"
