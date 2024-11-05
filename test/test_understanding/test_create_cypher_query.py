@@ -15,12 +15,18 @@ logging.getLogger('asyncio').setLevel(logging.ERROR)
 class TestCypherQueryGeneration(unittest.IsolatedAsyncioTestCase):
     async def test_generate_and_execute_cypher(self):
         
-        # * 테스트할 파일 이름과 마지막 라인 번호 설정
-        test_filename = "P_B_CAC120_CALC_SUIP_STD"
-        last_line = 67
+        # * 테스트할 파일 이름과 프로시저 이름을 설정
+        file_names = [
+            ("TPX_TMF_SYNC_JOB_STATUS.sql", "TPX_TMF_SYNC_JOB_STATUS"),
+            ("TPX_ALARM.sql", "TPX_ALARM"),
+            ("TPX_ALARM_CONTENT.sql", "TPX_ALARM_CONTENT"),
+            ("TPX_TMF_SYNC_JOB_STATUS.sql", "TPX_TMF_SYNC_JOB_STATUS"),
+            ("TPX_ALARM_FILE.sql", "TPX_ALARM_FILE"),
+            ("TPX_ALARM_RECIPIENT.sql", "TPX_ALARM_RECIPIENT"),
+        ]
 
         # * 검증 로직 없이 함수 실행만 확인
-        async for _ in generate_and_execute_cypherQuery(test_filename, last_line):
+        async for _ in generate_and_execute_cypherQuery(file_names):
             pass  
 
 if __name__ == '__main__':

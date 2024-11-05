@@ -172,7 +172,6 @@ def remove_unnecessary_information(code):
 def extract_node_code(file_content, start_line, end_line):
     try:
         if end_line == 0:
-            print(f"file_content: {file_content}")
             end_line = start_line
 
         # * 지정된 라인 번호를 기준으로 코드를 추출합니다.
@@ -181,7 +180,6 @@ def extract_node_code(file_content, start_line, end_line):
 
         # * 추출된 라인들 앞에 라인 번호를 추가하고 하나의 문자열로 연결합니다.
         extracted_node_code = '\n'.join(f"{i + start_line}: {line}" for i, line in enumerate(extracted_lines))
-        print(f"Final Extracted Node Code: {extracted_node_code}")
         return extracted_node_code
     
     except Exception:
@@ -481,7 +479,6 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
         summarized_code = remove_unnecessary_information(summarized_code)
         node_code = extract_node_code(file_content, start_line, end_line)
         node_code = remove_unnecessary_information(node_code)
-        print(node_code)
         node_size = count_tokens_in_text(node_code)
         children = node.get('children', [])
         node_alias = f"n{start_line}"
