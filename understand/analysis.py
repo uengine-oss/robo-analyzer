@@ -78,10 +78,10 @@ def extract_and_summarize_code(file_content, node):
     def summarize_code(start_line, end_line, children):
 
         # * 시작 라인과 끝 라인을 기준으로 스토어드 프로시저 코드 라인을 추출합니다.
-        code_lines = file_content[start_line-1:end_line]
+        lines = file_content.split('\n')  # 문자열을 줄 단위로 분리하여 리스트로 변환
+        code_lines = lines[start_line-1:end_line]  # 리스트에서 인덱싱
         summarized_code = []
         last_end_line = start_line - 1
-
 
         # * 각 자식 노드에 대해 코드를 추출한 뒤, 요약 처리를 반복합니다.
         for child in children:
@@ -89,7 +89,6 @@ def extract_and_summarize_code(file_content, node):
             summarized_code.extend([f"{i+last_end_line+1}: {line}" for i, line in enumerate(before_child_code)])
             summarized_code.append(f"{child['startLine']}: ... code ...\n")
             last_end_line = child['endLine']
-        
 
         # * 마지막 자식 노드의 끝나는 지점 이후부터 노드의 끝나는 지점까지의 코드를 추가합니다
         after_last_child_code = code_lines[last_end_line-start_line+1:]
@@ -99,7 +98,8 @@ def extract_and_summarize_code(file_content, node):
     try:
         # * 자식 노드가 없는 경우, 해당 노드의 코드만을 추출합니다.
         if not node.get('children'):
-            code_lines = file_content[node['startLine']-1:node['endLine']]
+            lines = file_content.split('\n')  # 문자열을 줄 단위로 분리하여 리스트로 변환
+            code_lines = lines[node['startLine']-1:node['endLine']]  # 리스트에서 인덱싱
             return ''.join([f"{i+node['startLine']}: {line}" for i, line in enumerate(code_lines)])
         else:
             # * 자식 노드가 있는 경우, summarize_code 함수를 호출하여 처리합니다.
@@ -436,9 +436,15 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
                 parts = line.split()
 
                 # * 파라미터 선언 (p_employee_id IN NUMBER)
-                if len(parts) >= 3:
+                if len(parts) > 4 and startLine == 1 and 'IN' in parts:
                     var_name = parts[2]
-                    var_type = parts[4] if startLine == 1 and 'IN' in parts else parts[3]
+                    var_type = parts[4]
+                elif len(parts) > 3:
+                    var_name = parts[2]
+                    var_type = parts[3]
+                # if len(parts) >= 3:
+                #     var_name = parts[2]
+                #     var_type = parts[4] if startLine == 1 and 'IN' in parts else parts[3]
                 # * 일반 변수 선언 (vBool BOOLEAN)
                 elif len(parts) == 2:
                     var_name = parts[0]
