@@ -24,7 +24,7 @@ async def understand_data(request: Request):
         file_data = await request.json()
         logging.info("Received Files Info: %s", file_data)
 
-        file_names = [(item['fileName'], item['objectName']) for item in file_data['fileNames']]
+        file_names = [(item['fileName'], item['objectName']) for item in file_data['fileInfos']]
         
         if not file_names:
             raise HTTPException(status_code=400, detail="파일 정보가 없습니다.")
@@ -80,23 +80,26 @@ async def receive_chat(request: Request):
 
 # 역할: 스토어드 프로시저를 스프링부트 기반의 자바 프로젝트로 전환하여, 각 단계의 완료를 스트리밍하는 함수
 # 매개변수: 
-#   - fileName : 스토어드 프로시저 파일 이름
+#   - fileInfos : converting할 스토어드 프로시저 파일 정보들
 # 반환값: 
 #   - 스트림 : 각 단계의 완료 메시지
+# TODO 그래프를 순회할텐데 이게 다 연결되어있기 때문에, 어떤식으로 접근을 해야할지 ..
 @router.post("/springBoot/")
 async def covnert_spring_project(request: Request):
 
     try:
-        fileInfo = await request.json()
-        logging.info("Received File Name for Convert Spring Boot:", fileInfo)
 
-        fileName = fileInfo['fileName']
-        original_name, _ = os.path.splitext(fileName)
+        file_data = await request.json()
+        logging.info("Received File Info for Convert Spring Boot: %s", file_data)
+        file_names = [(item['fileName'], item['objectName']) for item in file_data['fileInfos']]
+        
+        if not file_names:
+            raise HTTPException(status_code=400, detail="파일 정보가 없습니다.")
 
     except Exception:
         raise HTTPException(status_code=500, detail="스프링 부트 프로젝트 생성을 위해 전달된 데이터가 잘못되었습니다.")
 
-    return StreamingResponse(generate_spring_boot_project(original_name), media_type="text/plain")
+    return StreamingResponse(generate_spring_boot_project(file_names), media_type="text/plain")
 
 
  
@@ -105,6 +108,7 @@ async def covnert_spring_project(request: Request):
 #   - fileName : 스토어드 프로시저 파일 이름
 # 반환값: 
 #   - 스프링부트 기반의 자바 프로젝트(Zip)
+# TODO 여러개 파일을 전달할텐데 생성된 프로젝트 폴더 이름을 어떻게 선정?
 @router.post("/downloadJava/")
 async def download_spring_project(request: Request):
     
@@ -124,7 +128,8 @@ async def download_spring_project(request: Request):
     except Exception:
         raise HTTPException(status_code=500, detail="스프링 부트 프로젝트를 Zip 파일로 압축하는데 실패했습니다.")
     
-    
+
+# TODO 여러개 파일을 전달할텐데 생성된 프로젝트 폴더 이름을 어떻게 선정?
 @router.post("/showJavaResult/")
 async def show_java_result(request: Request):
     try:
@@ -160,36 +165,3 @@ async def show_java_result(request: Request):
     except Exception as e:
         logging.error("Error showing Java result: %s", e)
         raise HTTPException(status_code=500, detail="스프링 부트 프로젝트 결과를 표시하는데 실패했습니다.")
-
-
-# @router.get("/getFiles/")
-# async def get_files():
-#     try:
-#         # Check if src folder exists, if not create it
-#         src_directory = os.path.join(os.getcwd(), 'src')
-#         if not os.path.exists(src_directory):
-#             os.makedirs(src_directory)
-#             logging.info("Created /src folder")
-#         # * src 디렉토리 경로 설정
-#         src_directory = os.path.join(os.getcwd(), 'src')
-        
-#         # * 파일 목록과 정보를 저장할 리스트 초기화
-#         files_info = []
-        
-#         # * src 디렉토리 내의 파일 목록을 가져옴
-#         for file_name in os.listdir(src_directory):
-#             file_path = os.path.join(src_directory, file_name)
-            
-#             # * 파일인지 확인하고 정보를 읽음
-#             if os.path.isfile(file_path):
-#                 file_info = {
-#                     "name": file_name,
-#                     "content": open(file_path, 'r', encoding='utf-8').read()
-#                 }
-#                 files_info.append(file_info)
-        
-#         # * 파일 목록과 정보를 반환
-#         return {"files": files_info}
-    
-#     except Exception as e:
-#         raise HTTPException(status_code=500, detail=f"Failed to retrieve files: {str(e)}")

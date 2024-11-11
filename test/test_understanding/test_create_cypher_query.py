@@ -17,12 +17,7 @@ class TestCypherQueryGeneration(unittest.IsolatedAsyncioTestCase):
         
         # * 테스트할 파일 이름과 프로시저 이름을 설정
         file_names = [
-            ("TPX_TMF_SYNC_JOB_STATUS.sql", "TPX_TMF_SYNC_JOB_STATUS"),
-            ("TPX_ALARM.sql", "TPX_ALARM"),
-            ("TPX_ALARM_CONTENT.sql", "TPX_ALARM_CONTENT"),
-            ("TPX_TMF_SYNC_JOB_STATUS.sql", "TPX_TMF_SYNC_JOB_STATUS"),
-            ("TPX_ALARM_FILE.sql", "TPX_ALARM_FILE"),
-            ("TPX_ALARM_RECIPIENT.sql", "TPX_ALARM_RECIPIENT"),
+            ("TPX_TMF_SYNC_JOB.sql", "TPX_TMF_SYNC_JOB"),
         ]
 
         # * 검증 로직 없이 함수 실행만 확인
