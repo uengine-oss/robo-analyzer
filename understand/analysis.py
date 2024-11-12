@@ -241,7 +241,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
     #   - cypher_queries: 생성된 사이퍼쿼리 목록
     async def handle_analysis_result(analysis_result):
         nonlocal sp_token_count, focused_code, extract_code, context_range
-        commands = ["SELECT", "INSERT", "ASSIGNMENT", "UPDATE", "DELETE", "EXECUTE_IMMDDIATE", "IF", "FOR", "COMMIT", "MERGE", "WHILE", "CALL"]
+        commands = ["SELECT", "INSERT", "ASSIGNMENT", "UPDATE", "DELETE", "EXECUTE_IMMDDIATE", "IF", "FOR", "COMMIT", "MERGE", "WHILE", "CALL", "PACKAGE_SPEC_MEMBER", "DELCARE", "PACKAGE_BODY_MEMBER", "FUNCTION_SPEC_MEMBER", "FUNCTION", "RETURN", "RAISE", "EXCEPTION"]
         table_fields = defaultdict(set)
                 
         try:
@@ -280,13 +280,18 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
                 summary = result['summary']
                 role = result['role']
                 tableName = result.get('tableNames', [])
-                called_procedures = result.get('calledProcedures', [])
+                called_nodes = result.get('calls', [])
                 variables = result.get('variables', [])
                 var_range = f"{start_line}_{end_line}"
 
 
+                # * 구문의 타입과 테이블 관계 타입을 얻어냅니다
+                statement_type = next((command for command in commands if f"{command}_{start_line}" in node_statementType), None)
+                table_relationship_type = "FROM" if statement_type == "SELECT" else "WRITES" if statement_type in ["UPDATE", "INSERT", "DELETE", "MERGE"] else "EXECUTE" if statement_type == "EXECUTE_IMMDDIATE" else None
+
+
                 # * 구문의 역할을 반영하는 사이퍼쿼리를 생성합니다
-                role_query = f"MATCH (n {{startLine: {start_line}, procedure_name: '{object_name}'}}) WITH n SET n.role = '{role}'"
+                role_query = f"MATCH (n:{statement_type} {{startLine: {start_line}, procedure_name: '{object_name}'}}) WITH n SET n.role = '{role}'"
                 cypher_query.append(role_query)
 
 
@@ -298,30 +303,25 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
                         break
 
 
-                # * 변수 노드를 생성합니다.
+                # * 변수 노드를 생성 및 업데이트를 합니다.
                 for variable in variables:
-                    variable_query = f"MERGE (v:Variable {{name: '{variable}', procedure_name: '{object_name}'}}) SET v.`{var_range}` = 'Used'"
+                    if statement_type in ["PACKAGE_SPEC_MEMBER", "DELCARE", "CREATE_PROCEDURE_BODY"]:
+                        variable_query = f"MERGE (v:Variable {{name: '{variable}', procedure_name: '{object_name}'}}) SET v.`{var_range}` = 'Used'"
+                        variable_relationship_query = f"MERGE (n:{statement_type} {{startLine: {start_line}, procedure_name: '{object_name}'}}) MERGE (v:Variable {{name: '{variable}', procedure_name: '{object_name}'}}) MERGE (n)-[:SCOPE]->(v)"
+                        cypher_query.append(variable_relationship_query)
+                    else:
+                        variable_query = f"MATCH (v:Variable {{name: '{variable}', procedure_name: '{object_name}'}}) WITH v SET v.`{var_range}` = 'Used'"
                     cypher_query.append(variable_query)
 
 
-                # * 구문의 타입과 테이블 관계 타입을 얻어냅니다
-                statement_type = next((command for command in commands if f"{command}_{start_line}" in node_statementType), None)
-                table_relationship_type = "FROM" if statement_type == "SELECT" else "WRITES" if statement_type in ["UPDATE", "INSERT", "DELETE", "MERGE"] else "EXECUTE" if statement_type == "EXECUTE_IMMDDIATE" else None
-
-
-                # * statement_type이 CALL인 경우 호출된 프로시저 노드를 생성합니다
-                # TODO 수정 필요
+                # * statement_type이 CALL인 경우 호출 관계를 생성합니다
                 if statement_type == "CALL":
+                    for name in called_nodes:
+                        call_relation_query = f"MATCH (c:CALL {{startLine: {start_line}, procedure_name: '{object_name}'}}), (p {{name: '{name}', procedure_name: '{object_name}'}}) MERGE (c)-[:CALLS]->(p)"
+                        cypher_query.append(call_relation_query)
                     
-                    # * 호출된 모든 프로시저에 대해 노드를 생성하고 연결합니다
-                    for procedure_name in called_procedures:
-                        procedure_query = f"MERGE (p:CREATE_PROCEDURE_BODY {{name: '{procedure_name}'}})"
-                        cypher_query.append(procedure_query)
+                    # TODO 다른 프로시저 및 패키지에서 사용된 함수를 호출할 경우 추가 작업 필요
 
-                        # * CALL 노드와 프로시저 노드를 연결합니다
-                        call_procedure_query = f"MATCH (c:CALL {{startLine: {start_line}, procedure_name: '{object_name}'}}), (p:CREATE_PROCEDURE_BODY {{name: '{procedure_name}'}}) MERGE (c)-[:CALLS]->(p)"
-                        cypher_query.append(call_procedure_query)
-                    
 
                 # * 테이블과 노드간의 관계를 생성합니다
                 if table_relationship_type and tableName:

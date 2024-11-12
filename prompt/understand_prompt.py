@@ -36,8 +36,8 @@ prompt = PromptTemplate.from_template(
 
 지정된 범위의 Stored Procedure Code 에서 다음 정보를 추출하세요:
 1. 코드의 주요 내용을 한 문장으로 요약하세요.
-2. 각 범위에서 사용된 모든 변수들을 식별하세요. 일반적으로 변수는 이름 앞에 'v_', 'p_', 'i' 접두사가 붙습니다.
-3. 코드 내에서 프로시저 호출을 식별하고, 호출된 프로시저의 이름을 추출하여 'calledProcedures' 배열에 저장하세요.
+2. 각 범위에서 사용된 모든 변수들을 식별하세요. 일반적으로 변수는 이름 앞에 'v', 'p', 'i', 'o' 접두사가 붙습니다.
+3. 코드 내에서 프로시저, 패키지, 함수 호출을 식별하고, 호출된 이름을 추출하여 'calls' 배열에 저장하세요.
 4. 각 구문에 대한 역할을 상세히 설명하여, 'role'에 저장하세요.
 
 
@@ -56,7 +56,7 @@ prompt = PromptTemplate.from_template(
             "summary": "summary of the code",
             "role": "role of the code",
             "tableNames": ["tableName1", "tableName2"],
-            "calledProcedures": ["procedure1", "procedure2"], 
+            "calls": ["procedure1", "function1", "package1"], 
             "variables": ["variable1", "variable2"]
         }}
     ],
