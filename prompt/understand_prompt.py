@@ -14,6 +14,7 @@ from langchain_core.output_parsers import JsonOutputParser
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
 llm = ChatAnthropic(model="claude-3-5-sonnet-20240620", max_tokens=8000)
+
 prompt = PromptTemplate.from_template(
 """
 당신은 Oracle PLSQL 전문가입니다. 주어진 Stored Procedure Code를 철저히 분석하세요.
@@ -35,12 +36,23 @@ prompt = PromptTemplate.from_template(
 
 
 지정된 범위의 Stored Procedure Code 에서 다음 정보를 추출하세요:
-1. 코드의 주요 내용을 한 문장으로 요약하세요.
-2. 각 범위에서 사용된 모든 변수들을 식별하세요. 일반적으로 변수는 이름 앞에 'v', 'p', 'i', 'o' 접두사가 붙습니다.
-3. 코드 내에서 프로시저, 패키지, 함수 호출을 식별하고, 호출된 이름을 추출하여 'calls' 배열에 저장하세요.
-4. 각 구문에 대한 역할을 상세히 설명하여, 'role'에 저장하세요.
+1. 코드의 역할과 동작을 2-3줄로 상세하게 설명하세요:
+   - 어떤 비즈니스 로직을 수행하는지
+   - 어떤 데이터를 처리하고 어떤 결과를 생성하는지
+   - 주요 처리 단계나 중요한 로직은 무엇인지
+   - 주석이 있다면 주석을 참고하여 작성하세요.
 
+2. 각 범위에서 사용된 모든 변수들을 식별하세요. 변수는 다음과 같은 유형을 모두 포함합니다:
+   - 일반 변수 (보통 'v_', 'p_', 'i_', 'o_' 접두사)
+   - %ROWTYPE 변수
+   - %TYPE 변수
 
+3. 코드 내에서 프로시저, 패키지, 함수 호출을 식별하세요:
+   - 외부 패키지의 호출: 'PACKAGE_NAME.PROCEDURE_NAME' 형식으로 저장
+   - 현재 패키지 내부 호출: 'PROCEDURE_NAME' 형식으로 저장
+   - 모든 호출을 'calls' 배열에 저장하세요.
+
+   
 전체 Stored Procedure Code 에서 다음 정보를 추출하세요:
 1. SQL CRUD 문에서 'INSERT INTO', 'MERGE INTO', 'FROM', 'UPDATE' 절 이후에 나오는 테이블 이름을 찾아 순서대로 식별합니다.
 2. SQL CRUD 문에서 사용된 모든 테이블의 모든 컬럼들과 컬럼의 타입을 식별하세요.
@@ -54,7 +66,6 @@ prompt = PromptTemplate.from_template(
             "startLine": startLine,
             "endLine": endLine,
             "summary": "summary of the code",
-            "role": "role of the code",
             "tableNames": ["tableName1", "tableName2"],
             "calls": ["procedure1", "function1", "package1"], 
             "variables": ["variable1", "variable2"]
@@ -67,7 +78,6 @@ prompt = PromptTemplate.from_template(
     "tableReference": [{{"source": "tableName1", "target": "tableName2"}}]
 }}
 """)
-
 
 # 역할 : 주어진 스토어드 프로시저 코드  분석하여, 사이퍼쿼리 생성에 필요한 정보 받습니다
 # 매개변수: 

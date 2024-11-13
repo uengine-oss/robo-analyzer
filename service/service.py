@@ -63,7 +63,7 @@ async def generate_and_execute_cypherQuery(file_names):
             async with aiofiles.open(antlr_file_path, 'r', encoding='utf-8') as antlr_file, aiofiles.open(plsql_file_path, 'r', encoding='utf-8') as plsql_file:
                 antlr_data, plsql_content = await asyncio.gather(antlr_file.read(), plsql_file.readlines())
 
-                # * PLSQL, A데이터 전처리
+                # * PLSQL, Antlr 데이터 전처리
                 antlr_data = json.loads(antlr_data)
                 last_line = len(plsql_content)
                 plsql_content = add_line_numbers(plsql_content)

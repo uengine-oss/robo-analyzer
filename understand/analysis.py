@@ -66,6 +66,27 @@ def extract_code_within_range(code, context_range):
         raise ExtractCodeError(err_msg)
 
 
+# 역할: PROCEDURE나 FUNCTION 선언 코드에서 이름을 추출하는 함수
+# 매개변수: 
+#   - code : 프로시저/함수 선언이 포함된 코드
+# 반환값: 
+#   - match.group(1) : 추출된 프로시저/함수 이름
+#   - None : 매칭되지 않을 경우 반환
+def extract_procedure_name(code):
+    
+    # * 첫 번째 줄만 검사
+    first_line = code.split('\n')[0]
+    
+    # * PROCEDURE나 FUNCTION 다음에 오는 이름을 추출하는 정규식
+    pattern = r'(?:PROCEDURE|FUNCTION)\s+(\w+)'
+    match = re.search(pattern, first_line)
+    
+    # * 매칭된 결과가 있으면 이름을 반환, 없으면 None 반환
+    if match:
+        return match.group(1)
+    return None
+
+
 # 역할: 전달된 노드의 스토어드 프로시저 코드에서 자식이 있을 경우 자식 부분을 요약하는 함수
 # 매개변수: 
 #   - file_content : 스토어드 프로시저 파일 전체 내용
@@ -85,13 +106,13 @@ def extract_and_summarize_code(file_content, node):
         # * 각 자식 노드에 대해 코드를 추출한 뒤, 요약 처리를 반복합니다.
         for child in children:
             before_child_code = code_lines[last_end_line-start_line+1:child['startLine']-start_line]
-            summarized_code.extend([f"{i+last_end_line+1}: {line}" for i, line in enumerate(before_child_code)])
+            summarized_code.extend([f"{i+last_end_line+1}: {line}\n" for i, line in enumerate(before_child_code)])
             summarized_code.append(f"{child['startLine']}: ... code ...\n")
             last_end_line = child['endLine']
 
         # * 마지막 자식 노드의 끝나는 지점 이후부터 노드의 끝나는 지점까지의 코드를 추가합니다
         after_last_child_code = code_lines[last_end_line-start_line+1:]
-        summarized_code.extend([f"{i+last_end_line+1}: {line}" for i, line in enumerate(after_last_child_code)])
+        summarized_code.extend([f"{i+last_end_line+1}: {line}\n" for i, line in enumerate(after_last_child_code)])
         return ''.join(summarized_code)
     
     try:
@@ -99,7 +120,7 @@ def extract_and_summarize_code(file_content, node):
         if not node.get('children'):
             lines = file_content.split('\n')  # 문자열을 줄 단위로 분리하여 리스트로 변환
             code_lines = lines[node['startLine']-1:node['endLine']]  # 리스트에서 인덱싱
-            return ''.join([f"{i+node['startLine']}: {line}" for i, line in enumerate(code_lines)])
+            return ''.join([f"{i+node['startLine']}: {line}\n" for i, line in enumerate(code_lines)])
         else:
             # * 자식 노드가 있는 경우, summarize_code 함수를 호출하여 처리합니다.
             return summarize_code(node['startLine'], node['endLine'], node.get('children', []))
@@ -137,6 +158,9 @@ def create_focused_code(current_schedule, schedule_stack):
         err_msg = "Understanding 과정에서 분석할 코드 생성 도중에 오류가 발생했습니다."
         logging.exception(err_msg)
         raise FocusedCodeError(err_msg)
+
+
+# TODO 패키지 및 프로시저 내에 선언된 변수들을 추출하는 로직 또한 필요 -> 기존에 있던거 사용 AS 까지 잘라서 내부 변수들을 알맞게 llm으로 전달하도록 진행
 
 
 # 역할: 특정 노드의 스토어드 프로시저 코드를 추출하는 함수
@@ -241,7 +265,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
     #   - cypher_queries: 생성된 사이퍼쿼리 목록
     async def handle_analysis_result(analysis_result):
         nonlocal sp_token_count, focused_code, extract_code, context_range
-        commands = ["SELECT", "INSERT", "ASSIGNMENT", "UPDATE", "DELETE", "EXECUTE_IMMDDIATE", "IF", "FOR", "COMMIT", "MERGE", "WHILE", "CALL", "PACKAGE_SPEC_MEMBER", "DELCARE", "PACKAGE_BODY_MEMBER", "FUNCTION_SPEC_MEMBER", "FUNCTION", "RETURN", "RAISE", "EXCEPTION"]
+        commands = ["SELECT", "INSERT", "ASSIGNMENT", "UPDATE", "DELETE", "EXECUTE_IMMDDIATE", "IF", "FOR", "COMMIT", "MERGE", "WHILE", "CALL", "PACKAGE_SPEC_MEMBER", "DECLARE", "PACKAGE_BODY_MEMBER", "FUNCTION_SPEC_MEMBER", "FUNCTION", "RETURN", "RAISE", "EXCEPTION"]
         table_fields = defaultdict(set)
                 
         try:
@@ -255,10 +279,10 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
                 table_name = table.split('.')[-1]
                 table_fields[table_name].update(fields)
                 if not fields or '*' in fields:
-                    table_query = f"MERGE (t:Table {{name: '{table}', procedure_name: '{object_name}'}})"
+                    table_query = f"MERGE (t:Table {{name: '{table}', package_name: '{object_name}'}})"
                 else:
                     fields_update_string = ", ".join([f"t.{clean_field_name(field.split(':')[1])} = '{field.split(':')[0]}'" for field in fields])
-                    table_query = f"MERGE (t:Table {{name: '{table}', procedure_name: '{object_name}'}}) SET {fields_update_string}"
+                    table_query = f"MERGE (t:Table {{name: '{table}', package_name: '{object_name}'}}) SET {fields_update_string}"
                 cypher_query.append(table_query)
 
 
@@ -269,7 +293,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
                 
                 # * 자기 자신의 테이블을 참조하는 경우 무시합니다
                 if source_table != target_table:
-                    table_reference_query = f"MERGE (source:Table {{name: '{source_table}', procedure_name: '{object_name}'}}) MERGE (target:Table {{name: '{target_table}', procedure_name: '{object_name}'}}) MERGE (source)-[:REFERENCES]->(target)"
+                    table_reference_query = f"MERGE (source:Table {{name: '{source_table}', package_name: '{object_name}'}}) MERGE (target:Table {{name: '{target_table}', package_name: '{object_name}'}}) MERGE (source)-[:REFERENCES]->(target)"
                     cypher_query.append(table_reference_query)
 
 
@@ -278,7 +302,6 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
                 start_line = result['startLine']
                 end_line = result['endLine']
                 summary = result['summary']
-                role = result['role']
                 tableName = result.get('tableNames', [])
                 called_nodes = result.get('calls', [])
                 variables = result.get('variables', [])
@@ -291,8 +314,8 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
 
 
                 # * 구문의 역할을 반영하는 사이퍼쿼리를 생성합니다
-                role_query = f"MATCH (n:{statement_type} {{startLine: {start_line}, procedure_name: '{object_name}'}}) WITH n SET n.role = '{role}'"
-                cypher_query.append(role_query)
+                summary_query = f"MATCH (n:{statement_type} {{startLine: {start_line}, package_name: '{object_name}'}}) WITH n SET n.summary = {json.dumps(summary)}"
+                cypher_query.append(summary_query)
 
 
                 # * 스케줄 스택에서 있는 코드에서 ...code... 부분을 Summary로 교체해서 업데이트합니다
@@ -306,27 +329,28 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
                 # * 변수 노드를 생성 및 업데이트를 합니다.
                 for variable in variables:
                     if statement_type in ["PACKAGE_SPEC_MEMBER", "DELCARE", "CREATE_PROCEDURE_BODY"]:
-                        variable_query = f"MERGE (v:Variable {{name: '{variable}', procedure_name: '{object_name}'}}) SET v.`{var_range}` = 'Used'"
-                        variable_relationship_query = f"MERGE (n:{statement_type} {{startLine: {start_line}, procedure_name: '{object_name}'}}) MERGE (v:Variable {{name: '{variable}', procedure_name: '{object_name}'}}) MERGE (n)-[:SCOPE]->(v)"
+                        variable_query = f"MERGE (v:Variable {{name: '{variable}', package_name: '{object_name}'}}) SET v.`{var_range}` = 'Used'"
+                        variable_relationship_query = f"MERGE (n:{statement_type} {{startLine: {start_line}, package_name: '{object_name}'}}) MERGE (v:Variable {{name: '{variable}', package_name: '{object_name}'}}) MERGE (n)-[:SCOPE]->(v)"
                         cypher_query.append(variable_relationship_query)
                     else:
-                        variable_query = f"MATCH (v:Variable {{name: '{variable}', procedure_name: '{object_name}'}}) WITH v SET v.`{var_range}` = 'Used'"
+                        variable_query = f"MATCH (v:Variable {{name: '{variable}', package_name: '{object_name}'}}) WITH v SET v.`{var_range}` = 'Used'"
                     cypher_query.append(variable_query)
 
 
                 # * statement_type이 CALL인 경우 호출 관계를 생성합니다
-                if statement_type == "CALL":
+                if statement_type in ["CALL", "ASSIGNMENT", "EXCEPTION"]:
                     for name in called_nodes:
-                        call_relation_query = f"MATCH (c:CALL {{startLine: {start_line}, procedure_name: '{object_name}'}}), (p {{name: '{name}', procedure_name: '{object_name}'}}) MERGE (c)-[:CALLS]->(p)"
+                        call_relation_query = f"MATCH (c:{statement_type} {{startLine: {start_line}, package_name: '{object_name}'}}) WITH c MATCH (p {{package_name: '{object_name}', procedure_name: '{name}'}}) MERGE (c)-[:CALLS]->(p)"
                         cypher_query.append(call_relation_query)
                     
                     # TODO 다른 프로시저 및 패키지에서 사용된 함수를 호출할 경우 추가 작업 필요
+                    # 다른 프로시저 및 패키지에서 사용된 함수의 형태는 TPX_PROJECT.SET_KEY 처럼 패키지이름.함수이름으로 구성
 
 
                 # * 테이블과 노드간의 관계를 생성합니다
                 if table_relationship_type and tableName:
                     first_table_name = tableName[0].split('.')[-1]
-                    table_relationship_query = f"MERGE (n:{statement_type}{{startLine: {start_line}, procedure_name: '{object_name}'}}) MERGE (t:Table {{name: '{first_table_name}', procedure_name: '{object_name}'}}) MERGE (n)-[:{table_relationship_type}]->(t)"
+                    table_relationship_query = f"MERGE (n:{statement_type}{{startLine: {start_line}, package_name: '{object_name}'}}) MERGE (t:Table {{name: '{first_table_name}', package_name: '{object_name}'}}) MERGE (n)-[:{table_relationship_type}]->(t)"
                     cypher_query.append(table_relationship_query)
 
             return cypher_query
@@ -416,43 +440,14 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
         # * 노드의 타입에 따라서 사이퍼쿼리를 생성 및 해당 노드의 범위를 분석할 범위를 저장합니다
         if not children:
             context_range.append({"startLine": start_line, "endLine": end_line})
-            cypher_query.append(f"""
-            MERGE ({node_alias}:{statement_type} {{
-                startLine: {start_line}, 
-                procedure_name: '{object_name}'
-            }}) 
-            SET 
-                {node_alias}.endLine = {end_line},
-                {node_alias}.name = '{statement_type}[{start_line}]',
-                {node_alias}.node_code = '{node_code.replace("'", "\\'")}',
-                {node_alias}.token = {node_size},
-                {node_alias}.procedure_name = '{object_name}'
-            """)
+            cypher_query.append(f"MERGE ({node_alias}:{statement_type} {{startLine: {start_line}, package_name: '{object_name}'}}) SET {node_alias}.endLine = {end_line}, {node_alias}.name = '{statement_type}[{start_line}]', {node_alias}.node_code = '{node_code.replace("'", "\\'")}', {node_alias}.token = {node_size}, {node_alias}.package_name = '{object_name}'")
         else:
             if statement_type in ["ROOT"]:
-                cypher_query.append(f"""
-                MERGE ({node_alias}:{statement_type} {{
-                    startLine: {start_line}, 
-                    name: '{object_name}'
-                }}) 
-                SET 
-                    {node_alias}.endLine = {end_line},
-                    {node_alias}.name = '{object_name}',
-                """)
+                cypher_query.append(f"MERGE ({node_alias}:{statement_type} {{startLine: {start_line}, package_name: '{object_name}'}}) SET {node_alias}.endLine = {end_line}, {node_alias}.name = '{object_name}', {node_alias}.summary = '최상위 시작노드'")
+            elif statement_type in ["PACKAGE_BODY_MEMBER", "FUNCTION"]:
+                cypher_query.append(f"MERGE ({node_alias}:{statement_type} {{startLine: {start_line}, package_name: '{object_name}'}}) SET {node_alias}.endLine = {end_line}, {node_alias}.name = '{statement_type}[{start_line}]', {node_alias}.procedure_name = '{extract_procedure_name(node_code)}', {node_alias}.summarized_code = '{summarized_code.replace('\n', '\\n').replace("'", "\\'")}', {node_alias}.node_code = '{node_code.replace('\n', '\\n').replace("'", "\\'")}', {node_alias}.token = {node_size}, {node_alias}.package_name = '{object_name}'")
             else:
-                cypher_query.append(f"""
-                MERGE ({node_alias}:{statement_type} {{
-                    startLine: {start_line}, 
-                    procedure_name: '{object_name}'
-                }}) 
-                SET 
-                    {node_alias}.endLine = {end_line},
-                    {node_alias}.name = '{object_name}_{statement_type}[{start_line}]',
-                    {node_alias}.summarized_code = '{summarized_code.replace('\n', '\\n').replace("'", "\\'")}',
-                    {node_alias}.node_code = '{node_code.replace('\n', '\\n').replace("'", "\\'")}',
-                    {node_alias}.token = {node_size},
-                    {node_alias}.procedure_name = '{object_name}'
-                """)
+                cypher_query.append(f"MERGE ({node_alias}:{statement_type} {{startLine: {start_line}, package_name: '{object_name}'}}) SET {node_alias}.endLine = {end_line}, {node_alias}.name = '{statement_type}[{start_line}]', {node_alias}.summarized_code = '{summarized_code.replace('\n', '\\n').replace("'", "\\'")}', {node_alias}.node_code = '{node_code.replace('\n', '\\n').replace("'", "\\'")}', {node_alias}.token = {node_size}, {node_alias}.package_name = '{object_name}'")
 
 
         # * 스케줄 스택에 현재 스케줄을 넣고, 노드의 타입을 세트에 저장합니다
@@ -463,9 +458,9 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
         # * 부모 변수가 있을 경우(부모가 존재할 경우), 부모 노드와 현재 노드의 parent_of 라는 관계를 생성합니다
         if parent_alias:
             cypher_query.append(f"""
-                MATCH ({parent_alias}:{parent_statementType} {{startLine: {parent_startLine}, procedure_name: '{object_name}'}})
+                MATCH ({parent_alias}:{parent_statementType} {{startLine: {parent_startLine}, package_name: '{object_name}'}})
                 WITH {parent_alias}
-                MATCH ({node_alias}:{statement_type} {{startLine: {start_line}, procedure_name: '{object_name}'}})
+                MATCH ({node_alias}:{statement_type} {{startLine: {start_line}, package_name: '{object_name}'}})
                 MERGE ({parent_alias})-[:PARENT_OF]->({node_alias})
             """)
         prev_alias = prev_id = None
@@ -478,9 +473,9 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
             # * 현재 노드와 이전의 같은 레벨의 노드간의 NEXT 관계를 위한 사이퍼쿼리를 생성합니다.
             if prev_alias:
                 cypher_query.append(f"""
-                    MATCH ({prev_alias} {{startLine: {prev_id}, procedure_name: '{object_name}'}})
+                    MATCH ({prev_alias} {{startLine: {prev_id}, package_name: '{object_name}'}})
                     WITH {prev_alias}
-                    MATCH (n{child['startLine']} {{startLine: {child['startLine']}, procedure_name: '{object_name}'}})
+                    MATCH (n{child['startLine']} {{startLine: {child['startLine']}, package_name: '{object_name}'}})
                     MERGE ({prev_alias})-[:NEXT]->(n{child['startLine']})
                 """)
             prev_alias, prev_id = f"n{child['startLine']}", child['startLine']
