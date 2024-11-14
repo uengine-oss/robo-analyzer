@@ -313,7 +313,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
                 table_relationship_type = "FROM" if statement_type == "SELECT" else "WRITES" if statement_type in ["UPDATE", "INSERT", "DELETE", "MERGE"] else "EXECUTE" if statement_type == "EXECUTE_IMMDDIATE" else None
 
 
-                # * 구문의 역할을 반영하는 사이퍼쿼리를 생성합니다
+                # * 구문의 설명(Summary)을 반영하는 사이퍼쿼리를 생성합니다
                 summary_query = f"MATCH (n:{statement_type} {{startLine: {start_line}, package_name: '{object_name}'}}) WITH n SET n.summary = {json.dumps(summary)}"
                 cypher_query.append(summary_query)
 
@@ -342,7 +342,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
                     for name in called_nodes:
                         if '.' in name:  # 다른 패키지 호출인 경우
                             package_name, proc_name = name.split('.')
-                            call_relation_query = f"MATCH (c:{statement_type} {{startLine: {start_line}, package_name: '{object_name}'}}) WITH c MERGE (p {{package_name: '{package_name}', procedure_name: '{proc_name}'}}) MERGE (c)-[:CALLS]->(p)"
+                            call_relation_query = f"MATCH (c:{statement_type} {{startLine: {start_line}, package_name: '{object_name}'}}) WITH c MERGE (p:PACKAGE_BODY_MEMBER:FUNCTION {{package_name: '{package_name}', procedure_name: '{proc_name}', name: '{name}'}}) MERGE (c)-[:CALLS]->(p)"
                         else:            # 자신 패키지 내부 호출인 경우
                             call_relation_query = f"MATCH (c:{statement_type} {{startLine: {start_line}, package_name: '{object_name}'}}) WITH c MATCH (p {{package_name: '{object_name}', procedure_name: '{name}'}}) MERGE (c)-[:CALLS]->(p)"
                         cypher_query.append(call_relation_query)
