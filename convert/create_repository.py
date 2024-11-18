@@ -33,22 +33,25 @@ def calculate_code_token(text):
 # 역할: 리포지토리 인터페이스로 생성합니다. (파일로 생성하는 최종 단계)
 # 매개변수:
 #   - repository_codes : 리포지토리 인터페이스 생성을 위한 모든 JPA 쿼리 메서드 코드들
-#   - lower_file_name : 소문자로 구성된 프로젝트 이름
 # 반환값: 없음
-async def create_repository_interface(repository_codes, lower_file_name):
+async def create_repository_interface(repository_codes):
     
     
     try:
-        # * 리포지토리 인터페이스를 저장할 경로를 설정합니다
-        base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT', 'data')
-        entity_directory = os.path.join(base_directory, 'java', f'{lower_file_name}', 'src', 'main', 'java', 'com', 'example', f'{lower_file_name}', 'repository')
-        os.makedirs(entity_directory, exist_ok=True)
+        # * 리포지토리 인터페이스를 저장할 경로를 설정합니다.
+        base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT')
+        if base_directory:
+            repository_directory = os.path.join(base_directory, 'java', 'demo', 'src', 'main', 'java', 'com', 'example', 'demo', 'repository')
+        else:
+            current_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            repository_directory = os.path.join(current_dir, 'target', 'java', 'demo', 'src', 'main', 'java', 'com', 'example', 'demo', 'repository')
+        os.makedirs(repository_directory, exist_ok=True)
 
 
         # * 엔티티 클래스의 이름을 찾아내서 해당 엔티티를 위한 리포지토리 인터페이스 이름을 결정
         for table_name, methods in repository_codes.items():
-            enttiy_pascal_name = ''.join(word.capitalize() for word in table_name.split('_'))
-            entity_camel_name = enttiy_pascal_name[0].lower() + enttiy_pascal_name[1:]
+            entity_pascal_name = ''.join(word.capitalize() for word in table_name.split('_'))
+            entity_camel_name = entity_pascal_name[0].lower() + entity_pascal_name[1:]
         
 
             # * 전달된 JPA 쿼리 메서드들의 들여쓰기 조정하여 하나의 문자열로 생성
@@ -64,23 +67,23 @@ async def create_repository_interface(repository_codes, lower_file_name):
 
 
             # * 리포지토리 인터페이스를 생성합니다.
-            repository_interface = f"""package com.example.{lower_file_name}.repository;
+            repository_interface = f"""package com.example.demo.repository;
 import java.util.List;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.data.rest.core.annotation.RepositoryRestResource;
-import com.example.{lower_file_name}.entity.{enttiy_pascal_name};
+import com.example.demo.entity.{entity_pascal_name};
 import java.time.LocalDate;
 
 @RepositoryRestResource(collectionResourceRel = "{entity_camel_name}s", path = "{entity_camel_name}s")
-public interface {enttiy_pascal_name}Repository extends JpaRepository<{enttiy_pascal_name}, Long> {{
+public interface {entity_pascal_name}Repository extends JpaRepository<{entity_pascal_name}, Long> {{
 {merged_methods}
 }}
     """
 
             # * 설정된 경로에 리포지토리 인터페이스를 생성합니다
-            file_path = os.path.join(entity_directory, f"{enttiy_pascal_name}Repository.java")
+            file_path = os.path.join(repository_directory, f"{entity_pascal_name}Repository.java")
             async with aiofiles.open(file_path, 'w', encoding='utf-8') as file:
                 await file.write(repository_interface)
 
@@ -105,16 +108,12 @@ async def process_variable_nodes(startLine, variable_nodes):
         for node in variable_nodes:
             for key in node['v']:
                 if '_' in key:
-                    try:
-                        var_start, var_end = map(int, key.split('_'))
-                        if var_start == startLine:
-                            range_key = f'{var_start}~{var_end}'
-                            variable_info = f"{node['v'].get('type', 'Unknown')}: {node['v']['name']}"
-                            filtered_variable_info[range_key].append(variable_info)
-                            break
-                    except ValueError:
-                        # logging.warning(f"Invalid key format: {key}")
-                        continue
+                    var_start, var_end = map(int, key.split('_'))
+                    if var_start == startLine:
+                        range_key = f'{var_start}~{var_end}'
+                        variable_info = f"{node['v'].get('type', 'Unknown')}: {node['v']['name']}"
+                        filtered_variable_info[range_key].append(variable_info)
+                        break
 
 
         # * 필터링된 변수 정보의 토큰을 계산합니다.
@@ -133,10 +132,9 @@ async def process_variable_nodes(startLine, variable_nodes):
 # 매개변수: 
 #   - one_depth_nodes : 테이블과 직접적으로 연결된 노드 리스트
 #   - variable_nodes : 모든 변수 노드 리스트
-#   - lower_file_name : 소문자로 구성된 프로젝트 이름
 # 반환값: 
 #   - used_jpa_methods_list : JPA 쿼리 메서드 리스트
-async def check_tokens_and_process(one_depth_nodes, variable_nodes, lower_file_name):
+async def check_tokens_and_process(one_depth_nodes, variable_nodes):
     total_tokens = 0                        # 전체 토큰 수
     variable_tokens = 0                     # llm에게 전달할 변수 정보의 토큰 수
     table_link_node_chunk = []              # llm에게 전달할 노드 데이터 모음
@@ -196,7 +194,7 @@ async def check_tokens_and_process(one_depth_nodes, variable_nodes, lower_file_n
         
 
         # * 최종적으로 리포지토리 인터페이스를 생성합니다.
-        await create_repository_interface(repository_codes, lower_file_name)
+        await create_repository_interface(repository_codes)
 
         return used_jpa_methods_list
     
@@ -251,11 +249,10 @@ async def process_llm_repository_interface(node_data, used_variable_nodes, conve
 
 # 역할: 테이블 노드와 1단계 깊이의 수준으로 연결된 노드를 가져와서 Repository 생성을 준비합니다
 # 매개변수: 
-#   - table_node_list : 테이블 노드의 리스트
-#   - lower_file_name : 소문자 프로젝트 이름
+#   - object_name : 프로시저, 패키지 이름
 # 반환값: 
 #   - jpa_method_list : JPA 쿼리 메서드 리스트
-async def start_repository_processing(lower_file_name):
+async def start_repository_processing(object_name):
     
     logging.info("repository interface 생성을 시작합니다.")
 
@@ -265,16 +262,17 @@ async def start_repository_processing(lower_file_name):
 
         # * 테이블 노드와 직접적으로 연결된 노드와 모든 변수 노드들을 가지고오는 사이퍼쿼리를 준비하고 실행합니다.
         queries = [
-            "MATCH (n:Table)--(m) WHERE NOT m:Table AND NOT m:EXECUTE_IMMDDIATE AND NOT (m:INSERT AND m.summarized_code IS NOT NULL) RETURN m ORDER BY m.startLine",
-            "MATCH (v:Variable) RETURN v"
+            f"MATCH (n:Table {{package_name: '{object_name}'}})--(m {{package_name: '{object_name}'}}) WHERE NOT m:Table AND NOT m:EXECUTE_IMMDDIATE AND NOT (m:INSERT AND m.summarized_code IS NOT NULL) RETURN m ORDER BY m.startLine",
+            f"MATCH (v:Variable {{package_name: '{object_name}'}}) RETURN v"
         ]
+
         results = await connection.execute_queries(queries)
         one_depth_nodes = results[0]
         variable_nodes = results[1]
 
 
-        # * 토큰 수에 따라서 리포지토리 인��페이스 관련 작업을 처리하는 함수를 호출합니다.
-        jpa_method_list = await check_tokens_and_process(one_depth_nodes, variable_nodes, lower_file_name)
+        # * 토큰 수에 따라서 리포지토리 인터페이스 관련 작업을 처리하는 함수를 호출합니다.
+        jpa_method_list = await check_tokens_and_process(one_depth_nodes, variable_nodes)
         logging.info("리포지토리 인터페이스를 생성했습니다.\n")
         return jpa_method_list
     

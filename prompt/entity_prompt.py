@@ -4,6 +4,7 @@ import os
 from langchain.globals import set_llm_cache
 from langchain_community.cache import SQLiteCache
 from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
 from langchain_core.output_parsers import JsonOutputParser
 from langchain.prompts import PromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
@@ -17,7 +18,8 @@ api_key = os.getenv("OPENAI_API_KEY")
 if api_key is None:
     raise ValueError("OPENAI_API_KEY 환경 변수가 설정되지 않았습니다.")
 
-llm = ChatOpenAI(api_key=api_key, model_name="gpt-4o")
+# llm = ChatOpenAI(api_key=api_key, model_name="gpt-4o")
+llm = ChatAnthropic(model="claude-3-5-sonnet-20240620", max_tokens=8000)
 
 prompt = PromptTemplate.from_template(
 """
@@ -28,25 +30,39 @@ prompt = PromptTemplate.from_template(
 {table_json_data}
 
 
-테이블 데이터(JSON)을 Entity 클래스로 전환할 때, 아래를 참고하여 작업하세요:
-1. 각 테이블(JSON) 객체는 하나의 Entity 클래스로 변환되어야 합니다.
-2. 각 테이블(JSON) 객체의 'name'은 파스칼 표기법을 적용한 클래스 이름으로 사용됩니다. (예: B_Plcy_Month -> BPlcyMonth)
-3. 클래스의 이름과 'entityName'은 복수형이 아닌 단수형으로 표현하세요. (예: Employees -> Employee)
-4. 'fields' 배열의 각 항목은 카멜 표기법을 적용한 클래스의 속성으로 사용됩니다. (예: B_Plcy_Month -> bPlcyMonth)
-5. 각 속성은 private 접근 제한자를 가져야하며, 속성명을 참고하여 적절한 자바 데이터 타입으로 설정하도록 하세요. 
-6. 날짜나 시간을 다루는 필드의 경우 LocalDate를 사용하도록 하세요.
-7. 필요에 따라 추가적인 import문을 선언하세요.
+[SECTION 1] Entity 클래스 생성 규칙
+===============================================
+1. 변환 범위
+   - 각 테이블(JSON) 객체는 독립적인 Entity 클래스로 변환
+   - 하나의 JSON 객체 -> 하나의 Entity 클래스
+
+2. 클래스 명명 규칙
+   - JSON 객체의 'name' 필드를 파스칼 케이스로 변환
+   - 복수형을 단수형으로 변경
+   - entityName도 동일한 규칙 적용
+   예시) B_Plcy_Month -> BPlcyMonth
+        Employees -> Employee
+
+3. 필드 규칙
+   - 접근제한자: private
+   - 명명규칙: 카멜 케이스
+   - JSON의 'fields' 배열의 각 항목을 클래스 속성으로 변환
+   예시) B_PLCY_MONTH -> bPlcyMonth
+
+4. 데이터 타입 매핑
+   - 정수: long (기본 데이터 타입 사용)
+   - 실수: double (기본 데이터 타입 사용)
+   - 날짜/시간: LocalDate
+   - 문자/문자열: String (char 사용 금지)
+
+5. Import 선언
+   - 기본 제공되는 import문 유지
+   - 추가로 필요한 import문 선언
 
 
-아래는 필드 타입의 규칙이며, 기본 데이터 타입(primitive types)을 사용하도록 하세요.
-정수 -> long
-실수 -> double
-날짜 및 시간 -> LocalDate
-문자 및 문자열 -> String (char를 쓰지마세요.)
-
-
-아래는 자바 Entity 클래스의 기본 구조입니다:
-package com.example.{project_name}.entity;
+[SECTION 2] Entity 클래스 기본 템플릿
+===============================================
+package com.example.demo.entity;
 
 import jakarta.persistence.*;
 import lombok.Data;
@@ -65,7 +81,9 @@ public class EntityName {{
 }}
 
 
-아래는 결과 예시로, 부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요:
+[SECTION 3] JSON 출력 형식
+===============================================
+부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요:
 {{
     "analysis": [
         {{
@@ -81,10 +99,9 @@ public class EntityName {{
 # 역할 : 테이블 정보를 기반으로 스프링 부트 기반의 엔티티 클래스를 생성합니다
 # 매개변수: 
 #   - table_data : 테이블 노드 정보
-#   - spFile_name : 소문자로 구성된 프로젝트 이름
 # 반환값 : 
 #   - result : 엔티티 클래스
-def convert_entity_code(table_data, lower_file_name):
+def convert_entity_code(table_data):
     
     try:
         table_json_data = json.dumps(table_data)
@@ -95,7 +112,7 @@ def convert_entity_code(table_data, lower_file_name):
             | llm
             | JsonOutputParser()
         )
-        result = chain.invoke({"table_json_data": table_json_data, "project_name": lower_file_name})
+        result = chain.invoke({"table_json_data": table_json_data})
         return result
     except Exception:
         err_msg = "엔티티 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다."

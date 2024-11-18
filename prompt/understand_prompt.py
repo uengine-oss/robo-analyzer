@@ -46,6 +46,7 @@ prompt = PromptTemplate.from_template(
    - 일반 변수 (보통 'v_', 'p_', 'i_', 'o_' 접두사)
    - %ROWTYPE 변수
    - %TYPE 변수
+   - 변수의 type을 식별하세요.
 
 3. 코드 내에서 프로시저, 패키지, 함수 호출을 식별하세요:
    - 외부 패키지의 호출: 'PACKAGE_NAME.PROCEDURE_NAME' 형식으로 저장
@@ -68,7 +69,7 @@ prompt = PromptTemplate.from_template(
             "summary": "summary of the code",
             "tableNames": ["tableName1", "tableName2"],
             "calls": ["procedure1", "function1", "package1"], 
-            "variables": ["variable1", "variable2"]
+            "variables": ["type:variable1", "type:variable2"]
         }}
     ],
     "Tables": {{

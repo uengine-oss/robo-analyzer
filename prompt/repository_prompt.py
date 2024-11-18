@@ -28,33 +28,74 @@ Used Variable:
 {variable_node}
 
 
-아래의 지시사항을 참고하여, 제공된 데이터를 분석하고, JPA Query Methods를 생성하십시오:
-1. Stored Procedure Code에서 각 JSON 객체들은 JPA Query Methods로 전환되어야 합니다. 하나의 객체에서 여러 개의 JPA Query Methods가 생성될 수 도 있습니다.
-2. 전달된 Json 객체에 해당하는 Stored Procedure Code만 JPA Query Methods로 전환하고, ...code... 부분이 있다면, 나머지 부분만 JPA Query Methods로 전환하세요. 서로 Json 객체 끼리 범위가 겹친다고 해서, 다른 객체에 있는 스토어드 프로시저 코드를 참고하지마세요. 
-3. 'Used Variable'는 현재 구문에서 사용된 변수 목록으로, JPA Query Methods의 매개변수 식별에 사용하세요. 이떄 누락된 매개변수가 없어야 합니다.
-4. 모든 Entity의 이름은 복수형이 아닌 단수형인 파스칼 표기법으로 표현됩니다. (예: Employees -> Employee)
-
-
 생성될 JPA Query Methods는 {count}개입니다.
 
 
-JPA Query Methods 생성시 반드시 숙지해야할 요구사항:
-1. SELECT 구문의 경우, 특정 필드(컬럼)이 아닌 전체 필드를 포함하는 객체 자체를 반환하는 쿼리 메서드로 전환하세요.(예 : Person findById(Long id))
-2. UPDATE, MERGE, DELETE, INSERT 상관없이 모든 JPA Query Methods는 데이터를 조회(Read)하는 데 중점 두고, 생성하세요. 데이터 삭제, 수정 삽입은  JPA Query Methods에서 직접 구현하지 않고, 자바 비즈니스 로직으로 해결할 것입니다. 
-3. 쿼리가 매우 복잡한 경우 @Query 어노테이션을 사용하세요.
-4. 특정 기간 및 시간 내 데이터를 조회할 때는 TRUNC 함수를 사용하지 않고, 시작 날짜와 종료 날짜를 매개변수로 받아 해당 기간 동안의 데이터만을 필터링하는 쿼리를 작성하세요.
-(예 : @Query("SELECT COALESCE(SUM(w.overHours), 0) FROM WorkLog w WHERE w.employeeId = :employeeId AND w.workDate BETWEEN :startDate AND :endDate") Long findOvertimeHoursByEmployeeId(@Param("employeeId") Long employeeId, @Param("startDate") LocalDate startDate, @Param("endDate") LocalDate endDate);)
+[SECTION 1] JPA Query Methods 생성 지침
+===============================================
+1. 변환 범위
+   - 각 JSON 객체는 독립적으로 JPA Query Methods로 변환
+   - 하나의 객체에서 복수의 Query Methods 생성 가능
+   - ...code... 표시된 부분은 제외하고 변환
+
+2. 변환 규칙
+   - 각 JSON 객체는 자신의 Stored Procedure Code만 참조
+   - 다른 객체의 코드는 참고하지 않음
+   - Entity 명명 규칙: 단수형 파스칼 케이스 (예: Employee)
+
+3. 매개변수 처리
+   - 'Used Variable' 목록의 모든 변수는 매개변수로 포함
+   - 누락된 매개변수 없이 완전한 매핑 필요
 
 
-** 중요 ** : Repository Interface의 전체 틀이 아닌, 오로직 JPA Query Method만 'jpaQueryMethod'의 결과에 담아서 반환하세요.
+[SECTION 2] JPA Query Methods 필수 구현 규칙
+===============================================
+1. 반환 타입 규칙
+   - SELECT 구문: 항상 전체 엔티티 객체 반환
+   - 부분 필드 조회 지양
+   - 예시: Person findById(Long id)
+
+2. 읽기 전용 원칙
+   - 모든 쿼리 메서드는 조회(Read) 작업만 수행
+   - CUD(Create, Update, Delete) 작업은 비즈니스 로직으로 처리
+   - 데이터 변경 작업은 서비스 레이어에서 구현
+
+3. 복잡한 쿼리 처리
+   - 복잡한 조건문의 경우 @Query 어노테이션 사용
+   - JPQL 또는 네이티브 쿼리 활용
+
+4. 날짜 기간 처리
+   - TRUNC 함수 사용 금지
+   - 시작일자(startDate)와 종료일자(endDate) 매개변수 사용
+   - BETWEEN 절을 통한 기간 필터링
+   - 예시:
+     @Query("SELECT e FROM Entity e WHERE e.date BETWEEN :startDate AND :endDate")
+     List<Entity> findByDateBetween(@Param("startDate") LocalDate startDate, 
+                                  @Param("endDate") LocalDate endDate);
 
 
-아래는 JPA Query Methods의 기본 구조 입니다:
+[SECTION 3] JPA Query Methods 작성 예시
+===============================================
+출력 형식:
+- 인터페이스나 클래스 선언부 제외
+- @Repository 어노테이션 제외
+- 순수 쿼리 메서드만 'jpaQueryMethod'에 포함
+
+예시 출력:
+❌ 잘못된 형식:
+@Repository
+public interface EmployeeRepository extends JpaRepository<Employee, Long> {
+    Person findByEmployeeId(Long employeeId);
+}
+
+✅ 올바른 형식:
 @Query("적절한 쿼리문, value= 를 쓰지마세요")
 \nType exampleJPAQueryMethod(@Param("Type TableColumn") Type exampleField, ...)
 
 
-아래는 결과 예시로, 부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요:
+[SECTION 4] JSON 출력 형식
+===============================================
+부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요:
 {{
     "analysis": [
         {{

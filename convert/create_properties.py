@@ -5,18 +5,21 @@ from util.exception import AplPropertiesCreationError
 
 
 # 역할: 스프링 부트의 application.properties 파일을 생성하는 함수입니다.
-# 매개변수: 
-#   - lower_case : 소문자 프로젝트 이름
+# 매개변수: 없음
 # 반환값: 없음
-async def start_APLproperties_processing(lower_case):
+async def start_APLproperties_processing():
     
     logging.info("application.properties 생성을 시작합니다.")
 
     try:
         # * properties 파일의 내용과 저장될 경로를 설정합니다.
-        application_properties_content = f"spring.application.name={lower_case}\nserver.port=8082"
-        base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT', 'data')
-        application_properties_directory = os.path.join(base_directory, 'java', f'{lower_case}', 'src', 'main', 'resources')
+        application_properties_content = f"spring.application.name=demo\nserver.port=8082"
+        base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT')
+        if base_directory:
+            application_properties_directory = os.path.join(base_directory, 'java', 'demo', 'src', 'main', 'resources')
+        else:
+            current_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            application_properties_directory = os.path.join(current_dir, 'target', 'java', 'demo', 'src', 'main', 'resources')
         os.makedirs(application_properties_directory, exist_ok=True)  
 
 

@@ -328,13 +328,22 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
 
                 # * 변수 노드를 생성 및 업데이트를 합니다.
                 for variable in variables:
-                    if statement_type in ["PACKAGE_SPEC_MEMBER", "DELCARE", "CREATE_PROCEDURE_BODY"]:
-                        variable_query = f"MERGE (v:Variable {{name: '{variable}', package_name: '{object_name}'}}) SET v.`{var_range}` = 'Used'"
-                        variable_relationship_query = f"MERGE (n:{statement_type} {{startLine: {start_line}, package_name: '{object_name}'}}) MERGE (v:Variable {{name: '{variable}', package_name: '{object_name}'}}) MERGE (n)-[:SCOPE]->(v)"
-                        cypher_query.append(variable_relationship_query)
+                    var_type, var_name = variable.split(':') if ':' in variable else ('', variable)
+                    
+                    if statement_type == "DECLARE":
+                        cypher_query.extend([
+                            f"MERGE (v:Variable {{name: '{var_name}', package_name: '{object_name}', type: '{var_type}'}}) SET v.`{var_range}` = 'Used'",
+                            f"MATCH (n:DECLARE {{startLine: {start_line}, package_name: '{object_name}'}}) MATCH (v:Variable {{name: '{var_name}', package_name: '{object_name}'}}) MERGE (n)-[:SCOPE]->(v)"
+                        ])
+                    elif statement_type in ["PACKAGE_SPEC_MEMBER", "CREATE_PROCEDURE_BODY"]:
+                        cypher_query.extend([
+                            f"MERGE (v:Variable {{name: '{var_name}', package_name: '{object_name}', type: '{var_type}'}}) SET v.`{var_range}` = '프로시저 입력 매개변수'",
+                            f"MATCH (n:{statement_type} {{startLine: {start_line}, package_name: '{object_name}'}}) MATCH (v:Variable {{name: '{var_name}', package_name: '{object_name}'}}) MERGE (n)-[:SCOPE]->(v)"
+                        ])
                     else:
-                        variable_query = f"MATCH (v:Variable {{name: '{variable}', package_name: '{object_name}'}}) WITH v SET v.`{var_range}` = 'Used'"
-                    cypher_query.append(variable_query)
+                        cypher_query.append(
+                            f"MATCH (v:Variable {{name: '{variable}', package_name: '{object_name}'}}) WITH v SET v.`{var_range}` = 'Used'"
+                        )
 
 
                 # * CALL 호출 관계를 생성합니다

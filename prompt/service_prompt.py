@@ -21,16 +21,6 @@ prompt = PromptTemplate.from_template(
 주어진 Stored Procedure Code를 기반으로 간략하고 가독성 좋은 클린 코드 형태인 비즈니스 로직을 생성하는 작업을 맡았습니다.
 
 
-**자바 코드 생성 시 JSON 문자열 처리 가이드라인** : 
-- JSON에서는 특수 문자(예: `\n` 줄바꿈)도 이스케이프 처리가 필요합니다. 예를 들어, 줄바꿈은 `\\n`으로 표현됩니다.
-- JSON 문자열을 생성할 때, 문자열 내의 따옴표는 `\\"`로 이스케이프 처리해야 합니다.
-- JSON 문자열 내에서 백슬래시(`\\`)를 사용하려면 `\\\\`로 이스케이프 처리해야 합니다.
-- JSON 문자열 내에서 작은따옴표(')를 사용할 때는 `\\'`로 이스케이프 처리해야 합니다.
-- 문자열 연결을 위해 '+' 연산자를 사용하지 마세요. 대신 하나의 긴 문자열로 표현하세요.
-- 문자열의 끝을 올바르게 인식하도록 즉, 모든 문자열이 올바르게 열리고 닫히도록 큰 따옴표에 대해서 이스케이프 처리를 하세요.
-- JSON으로 파싱이 잘 되도록 적절한 이스케이프 처리를 하여 오류가 발생하지 않도록 하세요.
-
-
 Stored Procedure Code:
 {code}
 
@@ -55,43 +45,107 @@ jpa_method_list:
 {jpa_method_list}
 
 
-전달된 데이터에 대한 설명:
-- Stored Procedure Code : 자바로 전환해야할 스토어드 프로시저 코드입니다.
-- Service Class Code : 자바로 전환할 때 참고할 템플릿입니다.
-- Used Variable : 현재 변수들에 할당된 값에 대한 정보로, 이전 작업의 결과입니다.
-- Command Class Variable : DTO 객체 역할인 Command Class에 선언된 변수목록입니다.
-- Context Range : 분석하여, 자바로 전환할 스토오드 프로시저 코드의 범위 목록입니다.
-- jpa_method_list : 현재 범위에서 사용된 JPA 쿼리 메서드 목록입니다.
+[SECTION 1] 입력 데이터 설명
+===============================================
+입력 데이터
+   - Stored Procedure Code: 자바로 변환할 프로시저 코드
+   - Service Class Code: 비즈니스 로직이 들어갈 서비스 클래스 템플릿
+   - Used Variable: 현재 변수들의 할당값 정보 (이전 작업 결과)
+   - Command Class Variable: DTO 역할의 Command 클래스 변수 목록
+   - Context Range: 변환 대상 코드의 시작/종료 라인 정보
+   - jpa_method_list: 현재 범위에서 사용 가능한 JPA 쿼리 메서드 목록
 
 
-자바로 전환시 반드시 지켜야하는 규칙사항: 
-- 'Context Range'에서 주어진 범위내 Stored Procedure Code만 자바로 전환하고, 범위를 벗어나지 않도록 주의하세요. (예 : startLine": 212, "endLine": 212이면 해당하는 라인만 자바로 전환하세요.)
-- 'Serivce Class Code'에, //Here is business logic 위치에 들어갈 비즈니스 로직만을 생성하고, 들여쓰기를 적용하여 소스 코드 형태로 주세요.
-- command 클래스 객체는 카멜 표기법을 사용하세요.
-- 변수 선언은 하지말고, 'Used Variable'에 있는 변수에 새로운 값을 할당하도록 하세요.
+[SECTION 2] 상황별 자바 코드 변환 규칙
+===============================================
+1. SQL 구문 변환 규칙
+   A. SELECT 구문
+      - jpa_method_list에서 적절한 조회 메서드 사용
+      - 결과는 엔티티 객체나 컬렉션으로 받음
+      예시:
+      * 단일 조회: Employee employee = employeeRepository.findById(id);
+      * 목록 조회: List<Employee> employees = employeeRepository.findByDepartment(deptCode);
+   
+   B. UPDATE/MERGE 구문
+      - jpa_method_list에서 수정할 엔티티 먼저 조회하는 메서드 사용
+      - 조회한 엔티티의 필드값을 자바 코드(비즈니스 로직)을 이용하여 변경
+      - save() 메서드로 변경사항 저장
+      예시:
+      Employee employee = employeeRepository.findById(id);
+      employee.setStatus(newStatus);
+      employeeRepository.save(employee);
+   
+   C. INSERT 구문
+      - INSERT INTO ... SELECT FROM 구조인 경우:
+        * SELECT 부분만 jpa_method_list의 조회 메서드로 변환
+        * 조회된 데이터로 새 엔티티 생성 후 save() 수행
+        예시:
+        List<SourceEntity> sourceList = sourceRepository.findByCondition(param);
+        for (SourceEntity source : sourceList) {
+            TargetEntity target = new TargetEntity();
+            target.setField(source.getField());
+            targetRepository.save(target);
+        }
 
+      - 순수 INSERT 구문의 경우:
+        * 새 엔티티 객체 생성
+        * save() 메서드로 저장
+        예시:
+        NewEntity entity = new NewEntity();
+        entity.setField(value);
+        repository.save(entity);
 
-'Stored Procedure Code'를 'Serivce Class Code'로 전환할 때, 아래를 참고하여 작업하세요:
-1. 'SELECT', 'DELETE', 'UPDATE', 'MERGE', 'INSERT'와 같은 SQL 키워드가 식별될 때:
-   - 'jpa_method_list'에서 범위에 알맞는 JPA Query Method를 사용하여 CRUD로직을 생성하세요. 
-   - 'UPDATE'와 'MERGE' 같이 수정하는 작업에 대해서는 'save()' 를 필수로 진행하세요.
-   - 만약  상위구문 : '1925~1977', 하위 구문 : '1942~1977' 범위가 있을 때, 상위 구문이 'INSERT INTO SELECT FROM' 영역이고, 'SELECT FROM' 영역이 하위구문이면, 하위 구문 범위만 정확하게 자바로 전환하세요. 즉, 데이터를 찾는 로직만 포함하세요. 'UPDATE'나 'MERGE' 구문 또한 SELECT 구문을 포함하고 있을 경우, 똑같이 진행하세요.
+   D. DELETE 구문
+      - 적절한 삭제 메서드 사용
 
-  
-2. 비즈니스 로직이 식별될 때:
-   - 식별된 비즈니스 로직을 자바로 전환하고, 부가 설명이나 주석 및 다른 정보는 포함하지마세요.
+2. 범위 처리 규칙
+   - Context Range의 각 범위를 독립적으로 처리
+   - 중첩 범위의 예시:
+     상위범위(1925~1977), 하위범위(1942~1977)
+     → 각각 독립적으로 변환하여 별도 코드 생성
+   - 모든 범위({count}개)에 대해 누락 없이 변환
 
+3. 변수 처리 규칙
+   A. Used Variable (값 추적 필요)
+      - 새로운 변수 선언 금지 (기존 변수만 사용)
+      - 변수값 변화 추적:
+        * 초기값 → 중간값 → 최종값 순서로 기록
+        * SQL 실행 결과 저장값 추적
+        * 조건문에 따른 값 변경 추적
+      - 변수 용도 분석:
+        * 쿼리 결과 저장
+        * 임시 데이터 보관
+        * 상태 플래그
+      예시:
+      "resultCount": "0 → 조회결과 건수 저장 → 최종 처리된 레코드 수"
+   
+   B. Command Class Variable (추적 불필요)
+      - 단순 입력 매개변수로만 처리
+      - DTO의 getter 메서드로 값 획득
+      - 카멜 케이스 명명규칙 적용
+      예시:
+      * employeeDto.getEmployeeId()
+      * employeeDto.getDepartmentCode()
 
-** 'analysis' 결과를 생성시 아래 지시사항을 반드시 숙지하세요 ** :
-- 'Context Range' 범위는 {count}개로, 'code'는 총 {count}개의 자바 코드를 가져야 합니다. 모든 범위에 대해서 자바 코드로 전환해야하며, 범위가 중복되거나 겹치더라도, 생략하지 말고, 각각의 범위에 맞는 자바 코드가 생성되어야 합니다.
-- 'Used Variable'의 모든 변수들에 대해서 할당된 값에 대한 상세한 정보를 Stored Procedure Code를 분석하여, 추적 및 업데이트하고, 그 결과를 JSON 응답의 'variables' 부분에 포함시켜야 합니다. (예 : 동적 SQL 구성을 위해 "SELECT FROM users WHERE 1=1"를 할당. 이후 검색 조건에 따라 AND 절 추가 예정)
-- 'Command Class Variable' 변수들의 저장된 값은 Dto 객체에서 얻은 값으로 고정하고, 역할은 분석하여 할당하세요.
+      
+[SECTION 3] 자바 코드 생성시 JSON 문자열 처리 규칙
+===============================================
+1. 특수 문자 이스케이프 처리
+   - 줄바꿈: \\n
+   - 큰따옴표: \\"
+   - 백슬래시: \\\\
+   - 작은따옴표: \\'
 
+2. 문자열 작성 규칙
+   - 문자열 연결 시 '+' 연산자 사용 금지
+   - 하나의 연속된 문자열로 작성
+   - 모든 따옴표 이스케이프 처리 확인
+   - JSON 파싱 오류 방지를 위한 철저한 이스케이프 처리     
+      
 
-예시 : {{startLine : 415, endLine: 478}}, {{startLine : 435, endLine: 478}}인 범위가 있을 경우, 큰 범위가 작은 범위를 포함하고 있는데, 이런 경우에도 각각의 범위에 해당하는 'Stored Procedure Code'만 자바로 전환하고, 그 결과를 JSON 응답의 'code' 부분에 포함시켜야 합니다. 
-
-
-아래는 결과 예시로, 부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요.('analysis' 결과는 반드시 리스트가 아닌 dictionary(사전) 형태여야 합니다.):
+[SECTION 4] JSON 출력 형식
+===============================================
+부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요. ('analysis' 결과는 반드시 리스트가 아닌 dictionary(사전) 형태여야 합니다.):
 {{
    "analysis": {{
       "code": {{

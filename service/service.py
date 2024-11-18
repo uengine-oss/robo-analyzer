@@ -1,6 +1,7 @@
 import asyncio
 import json
 import logging
+import shutil
 import zipfile
 import aiofiles
 import os
@@ -189,55 +190,57 @@ async def transform_fileName(sp_fileName):
 
 # 역할: 스프링 부트 프로젝트 생성을 위한 단계별 변환 과정을 수행하는 비동기 제너레이터 함수
 # 매개변수: 
-#   - fileName : 스프링 부트 프로젝트로 전환될 스토어드 프로시저의 파일 이름.
+#   - file_names : 스프링 부트 프로젝트로 전환될 스토어드 프로시저(패키지)의 파일 이름 목록
 # 반환값: 
 #   - 스트림 : 각 변환 단계의 완료 메시지
-async def generate_spring_boot_project(fileName):
-    
+async def generate_spring_boot_project(file_names):
     try:
-        # * 프로젝트 이름을 각 표기법에 맞게 변환합니다.
-        pascal_file_name, lower_file_name = await transform_fileName(fileName)
+        for file_name, object_name in file_names:
 
-        # * 1 단계 : 엔티티 클래스 생성
-        entity_name_list = await start_entity_processing(lower_file_name) 
-        yield f"Step1 completed\n"
-        
-        # * 2 단계 : 리포지토리 인터페이스 생성
-        jpa_method_list = await start_repository_processing(lower_file_name) 
-        yield f"Step2 completed\n"
-        
-        # * 3 단계 : 서비스 스켈레톤 생성
-        service_skeleton_code, procedure_variable_list, service_class_name, summarzied_service_skeleton = await start_service_skeleton_processing(lower_file_name, entity_name_list)
-        yield f"Step3 completed\n"
-        
-        # * 4 단계 : 서비스 생성
-        await start_service_preprocessing(summarzied_service_skeleton, jpa_method_list, procedure_variable_list)
-        await start_service_postprocessing(lower_file_name, service_skeleton_code, service_class_name)
-        yield f"Step4 completed\n"
-        
-        # * 5 단계 : pom.xml 생성
-        await start_pomxml_processing(lower_file_name)
-        yield f"Step5 completed\n"
-        
-        # * 6 단계 : application.properties 생성
-        await start_APLproperties_processing(lower_file_name)
-        yield f"Step6 completed\n"
+            yield f"Start converting {file_name}...\n"
 
-        # * 7 단계 : StartApplication.java 생성
-        await start_main_processing(lower_file_name, pascal_file_name)
-        yield f"Step7 completed\n"
-        yield "Completed Converting.\n"
+            # * 1 단계 : 엔티티 클래스 생성
+            entity_name_list = await start_entity_processing(object_name) 
+            yield f"{file_name}-Step1 completed\n"
+            
+            # * 2 단계 : 리포지토리 인터페이스 생성
+            jpa_method_list = await start_repository_processing(object_name) 
+            yield f"{file_name}-Step2 completed\n"
+            
+            # * 3 단계 : 서비스 스켈레톤 생성
+            service_skeleton_code, procedure_variable_list, service_class_name, summarzied_service_skeleton = await start_service_skeleton_processing(entity_name_list, object_name)
+            yield f"{file_name}-Step3 completed\n"
+            
+            # * 4 단계 : 서비스 생성
+            await start_service_preprocessing(summarzied_service_skeleton, jpa_method_list, procedure_variable_list, object_name)
+            await start_service_postprocessing(service_skeleton_code, service_class_name, object_name)
+            yield f"{file_name}-Step4 completed\n"
+            
+            # * 5 단계 : pom.xml 생성
+            await start_pomxml_processing()
+            yield f"{file_name}-Step5 completed\n"
+            
+            # * 6 단계 : application.properties 생성
+            await start_APLproperties_processing()
+            yield f"{file_name}-Step6 completed\n"
+
+            # * 7 단계 : StartApplication.java 생성
+            await start_main_processing()
+            yield f"{file_name}-Step7 completed\n"
+            yield f"Completed Converting {file_name}.\n\n"
+
+        yield "All files have been converted successfully.\n"
 
     except (ConvertingError, Neo4jError):
         yield "convert-error"
     except Exception:
         err_msg = "스프링 부트 프로젝트로 전환하는 도중 오류가 발생했습니다."
         logging.exception(err_msg)
-        yield "convert-error" 
+        yield "convert-error"
 
 
 # 역할: 전환된 스프링 기반의 자바 프로젝트를 zip으로 압축하는 함수
-# 매��변수: 
+# 매개변수: 
 #   - source_directory : zip으로 압축할 대상이 있는 파일 경로
 #   - output_zip_path : 압축된 zip 파일이 저장되는 경로
 # 반환값: 없음
@@ -258,3 +261,26 @@ async def process_zip_file(source_directory, output_zip_path):
         err_msg = "스프링부트 프로젝트를 Zip으로 압축하는 도중 문제가 발생했습니다."
         logging.exception(err_msg)
         raise OSError(err_msg)
+    
+
+# 역할: 임시 저장된 모든 파일을 삭제하는 함수
+# 매개변수: 
+#   - paths : 삭제할 디렉토리 경로들이 담긴 딕셔너리
+#       - docker 환경: {'java_dir': 경로, 'zip_dir': 경로}
+#       - 로컬 환경: {'target_dir': 경로, 'zip_dir': 경로}
+async def delete_all_temp_files(paths: dict):
+    try:
+        neo4j = Neo4jConnection()
+        for dir_path in paths.values():
+            if os.path.exists(dir_path):
+                shutil.rmtree(dir_path)
+                os.makedirs(dir_path)
+                logging.info(f"디렉토리 삭제 및 재생성 완료: {dir_path}")
+        
+        delete_query = ["MATCH (n) DETACH DELETE n"] 
+        await neo4j.execute_queries(delete_query)
+        logging.info(f"Neo4J 데이터 초기화 완료")
+        
+    except Exception as e:
+        logging.exception(f"파일 삭제 및 그래프 데이터 삭제 중 오류 발생: {str(e)}")
+        raise OSError("임시 파일 삭제 및 그래프 데이터 삭제 중 오류가 발생했습니다.")

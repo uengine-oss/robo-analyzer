@@ -5,10 +5,9 @@ from util.exception import PomXmlCreationError
 
 
 # 역할: Maven 프로젝트 설정 파일인 pom.xml을 생성하는 함수입니다.
-# 매개변수: 
-#   - lower_file_name : 소문자로 구성된된 프로젝트 이름
+# 매개변수: 없음
 # 반환값: 없음
-async def start_pomxml_processing(lower_file_name):
+async def start_pomxml_processing():
     
     logging.info("pom.xml 생성을 시작합니다.")
     
@@ -25,10 +24,10 @@ async def start_pomxml_processing(lower_file_name):
 		<relativePath/> <!-- lookup parent from repository -->
 	</parent>
 	<groupId>com.example</groupId>
-	<artifactId>{lower_file_name}</artifactId>
+	<artifactId>demo</artifactId>
 	<version>0.0.1-SNAPSHOT</version>
-	<name>{lower_file_name}</name>
-	<description>{lower_file_name} project for Spring Boot</description>
+	<name>demo</name>
+	<description>demo project for Spring Boot</description>
 	<url/>
 	<licenses>
 		<license/>
@@ -97,9 +96,13 @@ async def start_pomxml_processing(lower_file_name):
 """
     
         # * pom.xml 파일을 저장할 디렉토리를 생성합니다.
-        base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT', 'data')
-        pom_xml_directory = os.path.join(base_directory, 'java', f'{lower_file_name}')
-        os.makedirs(pom_xml_directory, exist_ok=True)  
+        base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT')
+        if base_directory:
+            pom_xml_directory = os.path.join(base_directory, 'java', 'demo')
+        else:
+            current_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            pom_xml_directory = os.path.join(current_dir, 'target', 'java', 'demo')
+        os.makedirs(pom_xml_directory, exist_ok=True)
 
 
         # * 생성된 내용을 pom.xml 파일로 쓰기를 수행합니다.

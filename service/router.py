@@ -3,7 +3,7 @@ import os
 import shutil
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
-from service.service import process_zip_file, transform_fileName
+from service.service import delete_all_temp_files, process_zip_file, transform_fileName
 from service.service import generate_and_execute_cypherQuery
 from service.service import generate_two_depth_match
 from service.service import generate_simple_java
@@ -41,6 +41,7 @@ async def understand_data(request: Request):
 #   - node_info : 선택된 테이블 노드의 정보
 # 반환값: 
 #   - 스트림 : 자바 코드
+# TODO FRONT에서 값이 전달이 제대로 안되고 있습니다.
 @router.post("/java/")
 async def convert_java(request: Request):
 
@@ -61,6 +62,7 @@ async def convert_java(request: Request):
 #   - userInput : 채팅(요구사항)
 #   - prevHistory : 이전 히스토리
 # 반환값: 생성된 자바 코드를 스트리밍하는 응답 객체
+# TODO FRONT에서 값이 전달이 안되고 있습니다.
 @router.post("/chat/")
 async def receive_chat(request: Request):
 
@@ -83,7 +85,6 @@ async def receive_chat(request: Request):
 #   - fileInfos : converting할 스토어드 프로시저 파일 정보들
 # 반환값: 
 #   - 스트림 : 각 단계의 완료 메시지
-# TODO 그래프를 순회할텐데 이게 다 연결되어있기 때문에, 어떤식으로 접근을 해야할지 ..
 @router.post("/springBoot/")
 async def covnert_spring_project(request: Request):
 
@@ -104,64 +105,57 @@ async def covnert_spring_project(request: Request):
 
  
 # 역할: 생성된 스프링부트 프로젝트를 Zip 파일로 압축하여, 사용자가 다운로드 받을 수 있게하는 함수
-# 매개변수: 
-#   - fileName : 스토어드 프로시저 파일 이름
+# 매개변수: 없음
 # 반환값: 
 #   - 스프링부트 기반의 자바 프로젝트(Zip)
-# TODO 여러개 파일을 전달할텐데 생성된 프로젝트 폴더 이름을 어떻게 선정?
 @router.post("/downloadJava/")
-async def download_spring_project(request: Request):
-    
+async def download_spring_project():
     try:
-        fileInfo = await request.json()
-        logging.info("Received File Name for Download Spring Boot:", fileInfo)
-
-        project_folder_name = fileInfo['fileName']
-        original_name, _ = os.path.splitext(project_folder_name)
-        _, lower_file_name = await transform_fileName(original_name)
+        parent_dir = os.path.dirname(os.getcwd())
         
-        output_zip_path = os.path.join('data', 'zipfile', f'{original_name}.zip')
-        input_zip_path = os.path.join('data', 'java', f'{lower_file_name}')
-        await process_zip_file(input_zip_path, output_zip_path)
-        return FileResponse(path=output_zip_path, filename=f"{original_name}.zip", media_type='application/octet-stream')
-
+        target_path = os.path.join(parent_dir, 'target')
+        zipfile_dir = os.path.join(parent_dir, 'zipfile')
+        
+        if not os.path.exists(zipfile_dir):
+            os.makedirs(zipfile_dir)
+            
+        output_zip_path = os.path.join(zipfile_dir, 'project.zip')
+        
+        await process_zip_file(target_path, output_zip_path)
+        
+        return FileResponse(
+            path=output_zip_path, 
+            filename="project.zip", 
+            media_type='application/octet-stream'
+        )
     except Exception:
         raise HTTPException(status_code=500, detail="스프링 부트 프로젝트를 Zip 파일로 압축하는데 실패했습니다.")
     
 
-# TODO 여러개 파일을 전달할텐데 생성된 프로젝트 폴더 이름을 어떻게 선정?
-@router.post("/showJavaResult/")
-async def show_java_result(request: Request):
+
+# 역할: 임시 저장된 모든 파일을 삭제하는 함수
+# 매개변수: 없음
+# 반환값: 삭제 결과 메시지
+@router.delete("/deleteAll/")
+async def delete_all_files():
     try:
-
-        target_folder = os.path.join(os.getcwd(), 'target')
-        if not os.path.exists(target_folder):
-            os.makedirs(target_folder)
-            logging.info("Created /target folder")
-        # 요청으로부터 스토어드 프로시저 파일 정보를 JSON 형태로 추출합니다.
-        fileInfo = await request.json()
-        logging.info("Received File Name for Show Java Result: %s", fileInfo)
-
-        # 스토어드 프로시저 파일 정보에서 파일 이름을 추출하고 확장자를 제거합니다.
-        project_folder_name = fileInfo['fileName']
-        original_name, _ = os.path.splitext(project_folder_name)
-        _, lower_file_name = await transform_fileName(original_name)
+        docker_context = os.getenv('DOCKER_COMPOSE_CONTEXT')
         
-        # 자바 프로젝트 파일들이 있는 경로
-        source_path = os.path.join('data', 'java', f'{lower_file_name}')
+        if docker_context:
+            paths = {
+                'target_dir': os.path.join(docker_context, 'target'),
+                'zip_dir': os.path.join(docker_context, 'zipfile')
+            }
+        else:
+            parent_dir = os.path.dirname(os.getcwd())
+            paths = {
+                'target_dir': os.path.join(parent_dir, 'target'),
+                'zip_dir': os.path.join(parent_dir, 'zipfile')
+            }
+
+        await delete_all_temp_files(paths)
+        return {"message": "모든 임시 파일이 삭제되었습니다."}
         
-        # /target 폴더 하위에 추가할 경로
-        target_path = os.path.join('target', f'{lower_file_name}')
-        
-        # 소스 경로가 디렉토리인지 확인
-        if not os.path.isdir(source_path):
-            raise HTTPException(status_code=400, detail=f"{source_path} is not a directory")
-
-        # /target 폴더로 복사
-        shutil.copytree(source_path, target_path, dirs_exist_ok=True)
-
-        return {"message": "Java project added to /target successfully"}
-
     except Exception as e:
-        logging.error("Error showing Java result: %s", e)
-        raise HTTPException(status_code=500, detail="스프링 부트 프로젝트 결과를 표시하는데 실패했습니다.")
+        logging.error(f"파일 삭제 중 오류 발생: {str(e)}")
+        raise HTTPException(status_code=500, detail="임시 파일 삭제 중 오류가 발생했습니다.")

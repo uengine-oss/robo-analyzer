@@ -14,15 +14,18 @@ encoder = tiktoken.get_encoding("cl100k_base")
 #   - node_startLine : 부모 노드의 시작라인
 #   - summarized_java_code: 자식 자바 코드들이 모두 요약 처리된 부모의 자바 코드
 #   - connection : NEO4J 연결 객체
+#   - object_name : 패키지 및 프로시저 이름
 # 반환값 : 
 #   - summarized_java_code : 실제 코드로 대체되어 완성된 부모의 자바 코드
-async def process_big_size_node(node_startLine, summarized_java_code, connection):
+async def process_big_size_node(node_startLine, summarized_java_code, connection, object_name):
     
     try:
         # * 부모 노드의 시작 라인을 기준으로 자식 노드를 찾는 쿼리
         query = [f"""
         MATCH (n)-[r:PARENT_OF]->(m)
         WHERE n.startLine = {node_startLine}
+        AND n.package_name = '{object_name}'
+        AND m.package_name = '{object_name}'
         RETURN m
         """]
         
@@ -56,9 +59,10 @@ async def process_big_size_node(node_startLine, summarized_java_code, connection
 # 매개변수: 
 #   - node_list : 노드 리스트
 #   - connection : Neo4J 연결 객체
+#   - object_name : 패키지 및 프로시저 이름
 # 반환값: 
 #   - all_java_code : 생성된 전체 자바 코드
-async def process_service_class(node_list, connection):
+async def process_service_class(node_list, connection, object_name):
 
     try:
         previous_node_endLine = 0
@@ -87,7 +91,7 @@ async def process_service_class(node_list, connection):
             
             # * 노드의 토큰 크기에 따라 처리 방식 결정
             if token > 1700:
-                java_code = await process_big_size_node(start_node['startLine'], start_node['java_code'], connection)
+                java_code = await process_big_size_node(start_node['startLine'], start_node['java_code'], connection, object_name)
             else:
                 java_code = start_node['java_code']
 
@@ -108,11 +112,11 @@ async def process_service_class(node_list, connection):
 
 # 역할: 각 노드에 Java_code 이름의 속성을 이용하여,  최종적으로  서비스 클래스 파일을 생성하는 시작 함수. 
 # 매개변수: 
-#   - lower_file_name : 소문자로 구성된 프로젝트 이름
 #   - service_skeleton : 서비스 스켈레톤
 #   - service_class_name : 서비스 클래스 이름
+#   - object_name : 패키지 및 프로시저 이름
 # 반환값: 없음
-async def start_service_postprocessing(lower_file_name, service_skeleton, service_class_name):
+async def start_service_postprocessing(service_skeleton, service_class_name, object_name):
     
     connection = Neo4jConnection() 
     logging.info("(후처리) 서비스 생성을 시작합니다.")
@@ -120,11 +124,15 @@ async def start_service_postprocessing(lower_file_name, service_skeleton, servic
     try:
         # * 노드와 관계를 가져오는 쿼리 
         node_query = [
-            """
+            f"""
             MATCH (n)
-            WHERE NOT (n:ROOT OR n:Variable OR n:DECLARE OR n:Table OR n:CREATE_PROCEDURE_BODY)
+            WHERE NOT (n:ROOT OR n:Variable OR n:DECLARE OR n:Table OR n:CREATE_PROCEDURE_BODY 
+                      OR n:PACKAGE_BODY OR n:PACKAGE_SPEC OR n:PACKAGE_SPEC_MEMBER)
+                  OR (n.package_name = '{object_name}')
             OPTIONAL MATCH (n)-[r:NEXT]->(m)
-            WHERE NOT (m:ROOT OR m:Variable OR m:DECLARE OR m:Table OR m:CREATE_PROCEDURE_BODY)
+            WHERE NOT (m:ROOT OR m:Variable OR m:DECLARE OR m:Table OR m:CREATE_PROCEDURE_BODY
+                      OR m:PACKAGE_BODY OR m:PACKAGE_SPEC OR m:PACKAGE_SPEC_MEMBER)
+                  OR (m.package_name = '{object_name}')
             RETURN n, r, m
             ORDER BY n.startLine
             """
@@ -136,7 +144,7 @@ async def start_service_postprocessing(lower_file_name, service_skeleton, servic
         
 
         # * 서비스 클래스 생성을 시작하는 함수를 호출
-        all_java_code = await process_service_class(results[0], connection)
+        all_java_code = await process_service_class(results[0], connection, object_name)
 
 
         # * 결과를 바탕으로 서비스 클래스 생성 (바디 채우기)
@@ -146,8 +154,12 @@ async def start_service_postprocessing(lower_file_name, service_skeleton, servic
 
 
         # * 서비스 클래스 생성을 위한 경로를 설정합니다.
-        base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT', 'data')
-        service_directory = os.path.join(base_directory, 'java', f'{lower_file_name}', 'src', 'main', 'java', 'com', 'example', f'{lower_file_name}','service')
+        base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT')
+        if base_directory:
+            service_directory = os.path.join(base_directory, 'java', 'demo', 'src', 'main', 'java', 'com', 'example', 'demo', 'service')
+        else:
+            current_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            service_directory = os.path.join(current_dir, 'target', 'java', 'demo', 'src', 'main', 'java', 'com', 'example', 'demo', 'service')
         os.makedirs(service_directory, exist_ok=True) 
         service_file_path = os.path.join(service_directory, f"{service_class_name}.java")
 

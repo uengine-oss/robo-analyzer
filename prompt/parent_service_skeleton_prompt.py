@@ -22,24 +22,27 @@ summarized_stored_procedure_code:
 {summarized_code}
 
 
-summarized_stored_procedure_code를 자바 코드로 전환할 때, 다음 지침을 따르세요:
-1. ...code...가 식별되는 시작라인만 자바 코드에 포함하세요.
+[SECTION 1] 코드 변환 규칙
+===============================================
+1. 기본 규칙
+   - summarized_stored_procedure_code에서 ...code...가 식별되는 시작 라인만 자바 코드에 포함
 
 
+2. 예시 형식
+   while (condition) {{
+   722: ...code...
+   
+   723: ...code...
+   
+   ...
+   
+   740: ...code...
+   }}
 
-아래는 생성될 자바 코드의 예시입니다:
-while (condition) {{
-722: ...code...
 
-723: ...code...
-
-...
-
-740: ...code...
-}}
-
-
-아래는 결과 예시로, 부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요:
+[SECTION 2] JSON 출력 형식
+===============================================
+부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요:
 {{
     "code": "Java Code"
 }}

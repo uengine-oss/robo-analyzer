@@ -15,55 +15,74 @@ set_llm_cache(SQLiteCache(database_path=db_path))
 llm = ChatOpenAI(model_name="gpt-4o")
 prompt = PromptTemplate.from_template(
 """
-당신은 클린 아키텍처 원칙을 따르는 스프링부트 기반의 자바 애플리케이션을 개발하는 소프트웨어 엔지니어입니다. 주어진 JSON 형식의 프로시저 선언부 데이터를 기반으로 자바 클래스를 생성하는 작업을 맡았습니다.
+당신은 클린 아키텍처 원칙을 따르는 스프링부트 기반의 자바 애플리케이션을 개발하는 소프트웨어 엔지니어입니다. 주어진 JSON 형식의 입력 매개변수를 기반으로 Command 클래스를 생성하는 작업을 맡았습니다.
 
 
-프로시저 선언부 데이터(JSON)입니다:
-{procedure_json}
+입력 매개변수 데이터(JSON)입니다:
+{input_variable_json}
 
 
-프로시저 선언부 데이터를 Service 클래스로 전환할 때, 다음 지침을 따르세요:
-1. 전달된 JSON 객체 중에서 'type' 필드의 값이 'procedure'인 항목들의 'code' 필드에서 사용된 모든 변수들을 포함한 Command Class의 기본 구조를 작성하세요.
-2. 모든 변수는 적절한 자바 데이터 타입을 사용하고, private 접근 제한자와 카멜 표기법을 적용하세요. (데이터 타입의 경우, 되도록이면 int 대신 long을 사용하세요.)
-3. Command 클래스의 이름은 로직에 알맞게 작성해주세요.
-4. 날짜나 시간을 다루는 필드의 경우 LocalDate를 사용하도록 하세요.
-5. 필요에 따라 추가적인 import문을 선언하세요.
+[SECTION 1] Command 클래스 생성 규칙
+===============================================
+1. 기본 구조
+   - JSON 객체의 데이터를 기반으로 Command 클래스 구조 생성
+   - 클래스명은 {object_name}을 참고하여, '이름Command' 형식으로 작성
+     예시) updateEmployee -> UpdateEmployeeCommand
+
+2. 필드 규칙
+   - 접근제한자: private
+   - 명명규칙: 카멜 케이스
+   - 숫자타입: Long 사용 권장 (int 지양)
+   - 날짜타입: LocalDate 사용
+   - Lombok @Getter @Setter 활용
+
+3. 필수 import
+   - java.time.LocalDate
+   - lombok.Getter
+   - lombok.Setter
+   - 기타 필요한 import
 
 
-아래는 Command의 기본 구조입니다:
-package com.example.{project_name}.command;
 
-import lombok.*;
+[SECTION 2] Command 클래스 예시
+===============================================
+예시:
+import java.time.LocalDate;
+import lombok.Getter;
+import lombok.Setter;
 
-@Data
-public class CommandClassName {{
-    private DataType variable1;
-    private DataType variable2;
-    ...
+@Getter
+@Setter
+public class ExampleCommand {{
+    private Long id;
+    private String name;
+    private LocalDate date;
 }}
 
 
-아래는 결과 예시로, 부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요:
+[SECTION 3] 출력 형식
+===============================================
+부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요:
 {{
     "commandName": "Command Class Name",
     "command": "Command Java Code",
     "command_class_variable": [
-        "Command Class에 선언된 변수들을 여기에 채워넣으세요."
+        "Command Class에 선언된 모든 변수들을 '타입:이름' 형태로 채워넣으세요."
     ]
 }}
 """
 )
 
-# 역할 : 프로시저 노드 정보를 기반으로, 커맨드 클래스를 생성합니다
+# 역할 : 입력 매개변수 정보를 기반으로, 커맨드 클래스를 생성합니다
 # 매개변수: 
-#   - procedure_data : 프로시저 노드 정보
-#   - spFile_Name : 스토어드 프로시저 파일 이름
+#   - input_data : 프로시저 노드 정보
+#   - object_name : 패키지 및 프로시저 이름
 # 반환값 : 
 #   - result : Command 클래스
-def convert_command_code(procedure_data, spFile_Name):
+def convert_command_code(input_data, object_name):
     
     try:
-        procedure_json = json.dumps(procedure_data)
+        input_data_json = json.dumps(input_data)
 
         chain = (
             RunnablePassthrough()
@@ -71,7 +90,7 @@ def convert_command_code(procedure_data, spFile_Name):
             | llm
             | JsonOutputParser()
         )
-        result = chain.invoke({"procedure_json": procedure_json, "project_name": spFile_Name})
+        result = chain.invoke({"input_variable_json": input_data_json, "object_name": object_name})
         return result
     except Exception:
         err_msg = "Command 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다."
