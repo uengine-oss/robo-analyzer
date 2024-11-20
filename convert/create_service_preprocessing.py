@@ -383,7 +383,7 @@ async def start_service_preprocessing(service_skeleton, jpa_method_list, procedu
     
     # * Neo4j 연결 생성
     connection = Neo4jConnection() 
-    logging.info("(전처리) 서비스 생성을 시작합니다\n")
+    logging.info(f"[{object_name}] (전처리) 서비스 생성을 시작합니다\n")
     
     
     try:
@@ -412,7 +412,7 @@ async def start_service_preprocessing(service_skeleton, jpa_method_list, procedu
         # * 쿼리 실행하여, 노드를 (전처리) 서비스 생성 함수로 전달합니다
         results = await connection.execute_queries(node_query)        
         await traverse_node_for_service(results, connection, procedure_variable, service_skeleton, jpa_method_list, object_name)
-        logging.info("(전처리) 서비스 생성 과정, 노드에 자바 속성을 추가 완료\n")
+        logging.info(f"[{object_name}] (전처리) 서비스 생성 과정, 노드에 자바 속성을 추가 완료\n")
 
 
     except (ConvertingError, Neo4jError): 

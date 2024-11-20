@@ -174,7 +174,7 @@ async def create_service_skeleton(input_data, variable_data, entity_name_list, o
 async def start_service_skeleton_processing(entity_name_list, object_name):
     
     connection = Neo4jConnection()  
-    logging.info("서비스 틀 생성을 시작합니다.")
+    logging.info(f"[{object_name}] 서비스 틀 생성을 시작합니다.")
 
     try:
 
@@ -210,7 +210,7 @@ async def start_service_skeleton_processing(entity_name_list, object_name):
 
         # * 변환된 데이터를 사용하여 토큰 계산 및 서비스 스켈레톤 생성을 수행합니다.
         service_skeleton, command_class_variable, service_skeleton_name, summarzied_service_skeleton = await calculate_tokens_and_process(transformed_input_data, transformed_variable_data, entity_name_list, object_name)  
-        logging.info("커맨드 클래스 및 서비스 골격을 생성했습니다.\n") 
+        logging.info(f"[{object_name}] 커맨드 클래스 및 서비스 골격을 생성했습니다.\n") 
         return service_skeleton, command_class_variable, service_skeleton_name, summarzied_service_skeleton
     
     except (ConvertingError, Neo4jError):

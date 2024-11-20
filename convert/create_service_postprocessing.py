@@ -119,7 +119,7 @@ async def process_service_class(node_list, connection, object_name):
 async def start_service_postprocessing(service_skeleton, service_class_name, object_name):
     
     connection = Neo4jConnection() 
-    logging.info("(후처리) 서비스 생성을 시작합니다.")
+    logging.info(f"[{object_name}] (후처리) 서비스 생성을 시작합니다.")
     
     try:
         # * 노드와 관계를 가져오는 쿼리 
@@ -167,7 +167,7 @@ async def start_service_postprocessing(service_skeleton, service_class_name, obj
         # * 서비스 클래스를 파일로 생성합니다.
         async with aiofiles.open(service_file_path, 'w', encoding='utf-8') as file:  
             await file.write(completed_service_code)  
-            logging.info(f"\nSuccess Create Service Java File\n")  
+            logging.info(f"[{object_name}] Success Create Service Java File\n")  
 
     except (Neo4jError, ProcessResultError, TraverseCodeError):
         raise

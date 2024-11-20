@@ -197,7 +197,7 @@ async def generate_spring_boot_project(file_names):
     try:
         for file_name, object_name in file_names:
 
-            yield f"Start converting {file_name}...\n"
+            yield f"Start converting {object_name}\n"
 
             # * 1 단계 : 엔티티 클래스 생성
             entity_name_list = await start_entity_processing(object_name) 
@@ -216,18 +216,18 @@ async def generate_spring_boot_project(file_names):
             await start_service_postprocessing(service_skeleton_code, service_class_name, object_name)
             yield f"{file_name}-Step4 completed\n"
             
-            # * 5 단계 : pom.xml 생성
-            await start_pomxml_processing()
-            yield f"{file_name}-Step5 completed\n"
-            
-            # * 6 단계 : application.properties 생성
-            await start_APLproperties_processing()
-            yield f"{file_name}-Step6 completed\n"
+        # * 5 단계 : pom.xml 생성
+        await start_pomxml_processing()
+        yield f"{file_name}-Step5 completed\n"
+        
+        # * 6 단계 : application.properties 생성
+        await start_APLproperties_processing()
+        yield f"{file_name}-Step6 completed\n"
 
-            # * 7 단계 : StartApplication.java 생성
-            await start_main_processing()
-            yield f"{file_name}-Step7 completed\n"
-            yield f"Completed Converting {file_name}.\n\n"
+        # * 7 단계 : StartApplication.java 생성
+        await start_main_processing()
+        yield f"{file_name}-Step7 completed\n"
+        yield f"Completed Converting {file_name}.\n\n"
 
         yield "All files have been converted successfully.\n"
 
