@@ -65,7 +65,7 @@ async def process_over_size_node(start_line, summarized_code, connection, object
 
 
         # * 노드의 속성으로 Java 코드를 추가하는 쿼리 생성
-        query = f"MATCH (n) WHERE n.startLine = {start_line} AND n.package_name = '{object_name}' SET n.java_code = '{service_code.replace('\n', '\\n').replace("'", "\\'")}'"
+        query = f"MATCH (n) WHERE n.startLine = {start_line} AND n.object_name = '{object_name}' SET n.java_code = '{service_code.replace('\n', '\\n').replace("'", "\\'")}'"
         node_update_query.append(query)     
 
 
@@ -149,7 +149,7 @@ async def handle_convert_result(analysis_result, connection, tracking_variables,
         # * 코드 정보를 추출하고, 자바 속성 추가를 위한 사이퍼쿼리를 생성합니다.
         for key, service_code in code_info.items():
             start_line, end_line = map(int, key.split('~'))
-            query = f"MATCH (n) WHERE n.startLine = {start_line} AND n.package_name = '{object_name}' SET n.java_code = '{service_code.replace('\n', '\\n').replace("'", "\\'")}'"
+            query = f"MATCH (n) WHERE n.startLine = {start_line} AND n.object_name = '{object_name}' SET n.java_code = '{service_code.replace('\n', '\\n').replace("'", "\\'")}'"
             node_update_query.append(query)        
 
 
@@ -158,7 +158,7 @@ async def handle_convert_result(analysis_result, connection, tracking_variables,
             tracking_variables[var_name] = var_info       
             query = f"""
             MATCH (n:Variable) 
-            WHERE n.package_name = '{object_name}' 
+            WHERE n.object_name = '{object_name}' 
             AND n.name = '{var_name}'
             SET n.value_tracking = {json.dumps(var_info)}
             """
@@ -391,11 +391,11 @@ async def start_service_preprocessing(service_skeleton, jpa_method_list, procedu
         node_query = [
             f"""
             MATCH (n)
-            WHERE n.package_name = '{object_name}'
-            AND NOT (n:ROOT OR n:Variable OR n:DECLARE OR n:Table OR n:CREATE_PROCEDURE_BODY OR n:PACKAGE_BODY OR n:PACKAGE_SPEC OR n:PACKAGE_SPEC_MEMBER)
+            WHERE n.object_name = '{object_name}'
+            AND NOT (n:ROOT OR n:Variable OR n:DECLARE OR n:Table OR n:CREATE_PROCEDURE_BODY OR n:PACKAGE_BODY OR n:PACKAGE_SPEC OR n:PROCEDURE_SPEC)
             OPTIONAL MATCH (n)-[r]->(m)
-            WHERE NOT (m:ROOT OR m:Variable OR m:DECLARE OR n:Table OR m:CREATE_PROCEDURE_BODY OR m:PACKAGE_BODY OR m:PACKAGE_SPEC OR m:PACKAGE_SPEC_MEMBER)
-            AND m.package_name = '{object_name}'
+            WHERE NOT (m:ROOT OR m:Variable OR m:DECLARE OR n:Table OR m:CREATE_PROCEDURE_BODY OR m:PACKAGE_BODY OR m:PACKAGE_SPEC OR m:PROCEDURE_SPEC)
+            AND m.object_name = '{object_name}'
             AND NOT type(r) CONTAINS 'CALLS'
             AND NOT type(r) CONTAINS 'WRITES'
             AND NOT type(r) CONTAINS 'FROM'
@@ -404,7 +404,7 @@ async def start_service_preprocessing(service_skeleton, jpa_method_list, procedu
             """,
             f"""
             MATCH (d:DECLARE)-[r:SCOPE]->(v:Variable)
-            WHERE d.package_name = '{object_name}'
+            WHERE d.object_name = '{object_name}'
             RETURN DISTINCT v
             """
         ]

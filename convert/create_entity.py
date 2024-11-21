@@ -103,7 +103,7 @@ async def start_entity_processing(object_name):
     logging.info(f"[{object_name}] 엔티티 생성을 시작합니다.")
     try:
         # * 테이블 노드를 가져오기 위한 사이퍼쿼리 생성 및 실행합니다
-        query = [f"MATCH (n:Table {{package_name: '{object_name}'}}) RETURN n"]
+        query = [f"MATCH (n:Table {{object_name: '{object_name}'}}) RETURN n"]
         table_nodes = await connection.execute_queries(query)
         table_data_list = []
 

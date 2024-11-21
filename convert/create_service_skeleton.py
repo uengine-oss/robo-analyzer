@@ -180,8 +180,8 @@ async def start_service_skeleton_processing(entity_name_list, object_name):
 
         # * Neo4j 데이터베이스에서 프로시저, 패키지 입력 매개변수와 단순 지역 변수 노드를 검색하는 쿼리를 실행합니다.
         query = [
-            f"MATCH (v:Variable {{package_name: '{object_name}'}}) WHERE NOT EXISTS ((v)-[:SCOPE]-(:DECLARE)) RETURN DISTINCT v",
-            f"MATCH (d:DECLARE {{package_name: '{object_name}'}})-[:SCOPE]-(v:Variable {{package_name: '{object_name}'}}) RETURN DISTINCT v"
+            f"MATCH (v:Variable {{object_name: '{object_name}'}}) WHERE NOT EXISTS ((v)-[:SCOPE]-(:DECLARE)) RETURN DISTINCT v",
+            f"MATCH (d:DECLARE {{object_name: '{object_name}'}})-[:SCOPE]-(v:Variable {{object_name: '{object_name}'}}) RETURN DISTINCT v"
         ]  
         procedure_declare_nodes = await connection.execute_queries(query)  
         transformed_variable_data = [] 
@@ -193,7 +193,7 @@ async def start_service_skeleton_processing(entity_name_list, object_name):
             transformed_node = {
                 'type': item['v']['type'],
                 'name': item['v']['name'],
-                'package_name': item['v']['package_name']
+                'object_name': item['v']['object_name']
             }
             transformed_input_data.append(transformed_node)
 
@@ -203,7 +203,7 @@ async def start_service_skeleton_processing(entity_name_list, object_name):
             transformed_node = {
                 'type': item['v']['type'],
                 'name': item['v']['name'],
-                'package_name': item['v']['package_name']
+                'object_name': item['v']['object_name']
             }
             transformed_variable_data.append(transformed_node) 
                 

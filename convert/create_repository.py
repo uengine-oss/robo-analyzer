@@ -262,8 +262,8 @@ async def start_repository_processing(object_name):
 
         # * 테이블 노드와 직접적으로 연결된 노드와 모든 변수 노드들을 가지고오는 사이퍼쿼리를 준비하고 실행합니다.
         queries = [
-            f"MATCH (n:Table {{package_name: '{object_name}'}})--(m {{package_name: '{object_name}'}}) WHERE NOT m:Table AND NOT m:EXECUTE_IMMDDIATE AND NOT m:INSERT RETURN m ORDER BY m.startLine",
-            f"MATCH (v:Variable {{package_name: '{object_name}'}}) RETURN v"
+            f"MATCH (n:Table {{object_name: '{object_name}'}})--(m {{object_name: '{object_name}'}}) WHERE NOT m:Table AND NOT m:EXECUTE_IMMDDIATE AND NOT m:INSERT RETURN m ORDER BY m.startLine",
+            f"MATCH (v:Variable {{object_name: '{object_name}'}}) RETURN v"
         ]
 
         results = await connection.execute_queries(queries)
