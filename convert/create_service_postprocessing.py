@@ -114,9 +114,10 @@ async def process_service_class(node_list, connection, object_name):
 # 매개변수: 
 #   - service_skeleton : 서비스 스켈레톤
 #   - service_class_name : 서비스 클래스 이름
+#   - procedure_name : 프로시저 이름
 #   - object_name : 패키지 및 프로시저 이름
 # 반환값: 없음
-async def start_service_postprocessing(service_skeleton, service_class_name, object_name):
+async def start_service_postprocessing(service_skeleton, service_class_name, procedure_name, object_name):
     
     connection = Neo4jConnection() 
     logging.info(f"[{object_name}] (후처리) 서비스 생성을 시작합니다.")
@@ -126,13 +127,13 @@ async def start_service_postprocessing(service_skeleton, service_class_name, obj
         node_query = [
             f"""
             MATCH (n)
-            WHERE (NOT (n:ROOT OR n:Variable OR n:DECLARE OR n:Table OR n:CREATE_PROCEDURE_BODY 
-                      OR n:PACKAGE_BODY OR n:PACKAGE_SPEC OR n:PROCEDURE_SPEC)
-                  AND n.object_name = '{object_name}')
+            WHERE n.object_name = '{object_name}'
+            AND n.procedure_name = '{procedure_name}'
+            AND (n:FUNCTION OR n:PROCEDURE OR n:CREATE_PROCEDURE_BODY)
+            AND NOT (n:ROOT OR n:Variable OR n:DECLARE OR n:Table OR n:PACKAGE_BODY OR n:PACKAGE_SPEC OR n:PROCEDURE_SPEC)
             OPTIONAL MATCH (n)-[r:NEXT]->(m)
-            WHERE (NOT (m:ROOT OR m:Variable OR m:DECLARE OR m:Table OR m:CREATE_PROCEDURE_BODY
-                      OR m:PACKAGE_BODY OR m:PACKAGE_SPEC OR m:PROCEDURE_SPEC)
-                  AND m.object_name = '{object_name}')
+            WHERE NOT (m:ROOT OR m:Variable OR m:DECLARE OR m:Table OR m:PACKAGE_BODY OR m:PACKAGE_SPEC OR m:PROCEDURE_SPEC OR m:FUNCTION OR m:PROCEDURE OR m:CREATE_PROCEDURE_BODY)
+            AND m.object_name = '{object_name}'
             RETURN n, r, m
             ORDER BY n.startLine
             """
@@ -150,7 +151,7 @@ async def start_service_postprocessing(service_skeleton, service_class_name, obj
         # * 결과를 바탕으로 서비스 클래스 생성 (바디 채우기)
         all_java_code = all_java_code.strip()
         indented_java_code = textwrap.indent(all_java_code, '        ')
-        completed_service_code = service_skeleton.replace("CodePlaceHolder2", indented_java_code)
+        completed_service_code = service_skeleton.replace("CodePlaceHolder", indented_java_code)
 
 
         # * 서비스 클래스 생성을 위한 경로를 설정합니다.

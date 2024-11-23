@@ -13,7 +13,7 @@ from langchain_core.output_parsers import JsonOutputParser
 
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
-llm = ChatAnthropic(model="claude-3-5-sonnet-20240620", max_tokens=8000)
+llm = ChatAnthropic(model="claude-3-5-sonnet-20240620", max_tokens=8000, temperature=0.1)
 
 prompt = PromptTemplate.from_template(
 """
@@ -46,8 +46,13 @@ prompt = PromptTemplate.from_template(
    - 일반 변수 (보통 'v_', 'p_', 'i_', 'o_' 접두사)
    - %ROWTYPE 변수
    - %TYPE 변수
-   - 변수의 type을 식별하세요.
+   
+   주의사항:
+   - 각 범위는 독립적으로 처리되어야 하며, 다른 범위와 중첩되더라도 해당 범위 내에서 직접 사용된 변수만 포함합니다.
+   - 예를 들어, 223~250 라인과 240~241 라인이 중첩된 경우, 각각의 범위에서 실제로 사용된 변수만 독립적으로 식별합니다.
+   - 상수나 열거형 값은 변수로 식별하지 않습니다.
 
+   
 3. 코드 내에서 프로시저, 패키지, 함수 호출을 식별하세요:
    - 외부 패키지의 호출: 'PACKAGE_NAME.PROCEDURE_NAME' 형식으로 저장
    - 현재 패키지 내부 호출: 'PROCEDURE_NAME' 형식으로 저장
@@ -69,7 +74,7 @@ prompt = PromptTemplate.from_template(
             "summary": "summary of the code",
             "tableNames": ["tableName1", "tableName2"],
             "calls": ["procedure1", "function1", "package1"], 
-            "variables": ["type:variable1", "type:variable2"]
+            "variables": ["variable1", "variable2"]
         }}
     ],
     "Tables": {{

@@ -208,14 +208,26 @@ async def generate_spring_boot_project(file_names):
             yield f"{file_name}-Step2 completed\n"
             
             # * 3 단계 : 서비스 스켈레톤 생성
-            service_skeleton_code, procedure_variable_list, service_class_name, summarzied_service_skeleton = await start_service_skeleton_processing(entity_name_list, object_name)
+            service_skeleton_list = await start_service_skeleton_processing(entity_name_list, object_name)
             yield f"{file_name}-Step3 completed\n"
-            
-            # * 4 단계 : 서비스 생성
-            await start_service_preprocessing(summarzied_service_skeleton, jpa_method_list, procedure_variable_list, object_name)
-            await start_service_postprocessing(service_skeleton_code, service_class_name, object_name)
+
+            # * 4 단계 : 각 프로시저별 서비스 생성
+            for skeleton_data in service_skeleton_list:
+                await start_service_preprocessing(
+                    skeleton_data['method_skeleton_code'], 
+                    skeleton_data['command_class_variable'],
+                    skeleton_data['procedure_name'],
+                    jpa_method_list, 
+                    object_name
+                )
+                await start_service_postprocessing(
+                    skeleton_data['method_skeleton_code'],
+                    skeleton_data['service_skeleton'],
+                    skeleton_data['procedure_name'],
+                    object_name
+                )
             yield f"{file_name}-Step4 completed\n"
-            
+
         # * 5 단계 : pom.xml 생성
         await start_pomxml_processing()
         yield f"{file_name}-Step5 completed\n"

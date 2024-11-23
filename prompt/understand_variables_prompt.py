@@ -19,36 +19,49 @@ if api_key is None:
     raise ValueError("OPENAI_API_KEY 환경 변수가 설정되지 않았습니다.")
 
 # llm = ChatOpenAI(api_key=api_key, model_name="gpt-4o")
-llm = ChatAnthropic(model="claude-3-5-sonnet-20240620", max_tokens=8000)
+llm = ChatAnthropic(model="claude-3-5-sonnet-20240620", max_tokens=8000, temperature=0.1)
 
 prompt = PromptTemplate.from_template(
 """
-당신은 SQL 프로시저의 변수 선언부를 분석하는 전문가입니다. 주어진 프로시저 선언부에서 변수명과 데이터 타입을 추출하는 작업을 수행합니다.
+당신은 SQL 프로시저의 변수를 분석하는 전문가입니다. 주어진 코드에서 모든 변수 선언을 찾아 변수명과 데이터 타입을 추출하는 작업을 수행합니다.
 
 
-프로시저 선언부 코드입니다:
+프로시저 코드입니다:
 {declaration_code}
 
 
 [분석 규칙]
 ===============================================
-1. 변수 식별
-   - 프로시저 파라미터로 선언된 모든 변수를 식별
-   - 변수명은 정확히 선언된 형태로 추출 (p_employee_id 등)
-   
-2. 데이터 타입 추출
-   - 각 변수의 데이터 타입을 정확히 식별
-   - 기본값이 있는 경우에도 데이터 타입만 추출
-   - 대소문자 구분하여 추출 (NUMBER, VARCHAR2 등)
+1. 변수 선언 식별
+   - DECLARE 섹션의 변수 선언
+   - 프로시저/함수의 파라미터로 선언된 변수
+   - IN, OUT, IN OUT 파라미터 모두 포함
+   - 커서 변수 포함
+   - 주석이 아닌 실제 선언된 변수만 추출
 
-3. 기본값 처리
-   - 기본값이 있는 경우에도 변수로 인식
-   - 기본값 자체는 결과에 포함하지 않음
+2. 변수 유형
+   - 일반 변수 (v_, p_, i_, o_ 등의 접두사)
+   - %ROWTYPE 변수
+   - %TYPE 변수
+   - 사용자 정의 타입 변수
+   - 커서 변수 (SYS_REFCURSOR 등)
 
-   
+3. 데이터 타입 추출
+   - 기본 데이터 타입 (NUMBER, VARCHAR2, DATE 등)
+   - %ROWTYPE의 경우 "테이블명.ROWTYPE" 형식으로 표시 
+     (예: "TPJ_TMF_SYNC_JOB_STATUS.ROWTYPE")
+   - %TYPE의 경우 "테이블명.컬럼명.TYPE" 형식으로 표시
+   - 사용자 정의 타입
+   - 대소문자 구분하여 추출
+
+4. 특수 처리
+   - 기본값이 있는 경우에도 변수로 인식 (기본값은 무시)
+   - 길이/정밀도 지정이 있는 경우 (예: VARCHAR2(100)) 데이터 타입만 추출
+   - 테이블명.컬럼명%TYPE 형태는 원본 데이터 타입으로 변환
+
 [JSON 출력 형식]
 ===============================================
-다음 JSON 형식으로만 결과를 반환하세요:
+주석이나 부가설명 없이 다음 JSON 형식으로만 결과를 반환하세요:
 {{
     "variables": [
         {{

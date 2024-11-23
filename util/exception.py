@@ -112,3 +112,7 @@ class ExtractCodeError(UnderstandingError, ConvertingError):
 class HandleResultError(UnderstandingError, ConvertingError):
     def __init__(self, message="LLM의 결과를 이용해서 추가적인 처리를 하는 도중 오류가 발생했습니다."):
         super().__init__(message)
+
+class SaveFileError(UnderstandingError, ConvertingError):
+    def __init__(self, message="파일을 읽고 저장하는 도중 오류가 발생했습니다."):
+        super().__init__(message)

@@ -18,30 +18,26 @@ llm = ChatAnthropic(model="claude-3-5-sonnet-20240620", max_tokens=8000, tempera
 prompt = PromptTemplate.from_template(
 """
 당신은 클린 아키텍처 원칙을 따르는 스프링부트 기반의 자바 애플리케이션을 개발하는 소프트웨어 엔지니어입니다. 
-주어진 Stored Procedure Code를 기반으로 간략하고 가독성 좋은 클린 코드 형태인 비즈니스 로직을 생성하는 작업을 맡았습니다.
+주어진 Stored Procedure Code를 기반으로 서비스 클래스의 메서드 바디 부분을 간결하고 가독성 좋은 클린 코드 형태로 구현하는 작업을 맡았습니다.
 
 
+[입력 데이터]
 Stored Procedure Code:
 {code}
 
-
-Service Class Code:
-{service}
-
+Method Signature:
+{method_skeleton}
 
 Used Variable:
 {variable}
 
-
 Command Class Variable:
 {command_variables}
-
 
 Context Range:
 {context_range}
 
-
-jpa_method_list:
+JPA Method List:
 {jpa_method_list}
 
 
@@ -49,15 +45,19 @@ jpa_method_list:
 ===============================================
 입력 데이터
    - Stored Procedure Code: 자바로 변환할 프로시저 코드
-   - Service Class Code: 비즈니스 로직이 들어갈 서비스 클래스 템플릿
+   - Method Template: 구현할 메서드의 시그니처와 기본 구조
    - Used Variable: 현재 변수들의 할당값 정보 (이전 작업 결과)
    - Command Class Variable: DTO 역할의 Command 클래스 변수 목록
    - Context Range: 변환 대상 코드의 시작/종료 라인 정보
    - jpa_method_list: 현재 범위에서 사용 가능한 JPA 쿼리 메서드 목록
 
+주요 작업
+   - Method Template을 참고하여, CodePlaceHolder 위치에 들어갈 코드만 구현
 
+   
 [SECTION 2] 상황별 자바 코드 변환 규칙
 ===============================================
+
 1. 범위 처리 규칙
    - 모든 범위({count}개)에 대해 누락 및 생략 없이 {count}개의 'code'를 반환
    - 이미 상위 블록에서 다뤄진 코드라도 주석 처리나 생략 없이 온전한 코드로 반환
@@ -171,8 +171,8 @@ jpa_method_list:
 {{
    "analysis": {{
       "code": {{
-         "startLine~endLine": "Service Code",
-         "startLine~endLine": "Service Code"
+         "startLine~endLine": "Method Code",
+         "startLine~endLine": "Method Code"
       }},
       "variables": {{
          "name": "initialized value and role",
@@ -186,27 +186,27 @@ jpa_method_list:
 # 역할 : 주어진 프로시저 코드를 기반으로 Service 클래스 코드를 생성합니다.
 # 매개변수: 
 #  - clean_code : 스토어드 프로시저 코드 
-#  - service_skeleton : 서비스 스켈레톤
+#  - method_skeleton : 메서드 스켈레톤
 #  - variable_list : 사용된 변수 목록
 #  - jpa_query_methods : 사용된 JPA 쿼리 메서드
-#  - procedure_variables : command 클래스에 선언된 변수 목록
+#  - command_class_variable : command 클래스에 선언된 변수 목록
 #  - context_range: 분석할 범위
 #  - count : 분석할 범위 개수
 # 반환값 : 
-#  - json_parsed_content : 서비스 클래스를 생성하기 위한 정보
+#  - json_parsed_content : 메서드 바디 부분을 생성하기 위한 정보
 # TODO 토큰 초과시 로직 추가 필요
-def convert_service_code(convert_sp_code, service_skeleton, variable_list, procedure_variables, context_range, count, jpa_method_list):
+def convert_service_code(convert_sp_code, method_skeleton, variable_list, command_class_variable, context_range, count, jpa_method_list):
    
    try:  
       context_range_json = json.dumps(context_range)
-      procedure_variables_json = json.dumps(procedure_variables)
+      command_class_variable = json.dumps(command_class_variable)
 
       chain = (
          RunnablePassthrough()
          | prompt
          | llm
       )
-      result = chain.invoke({"code": convert_sp_code, "service": service_skeleton, "variable": variable_list, "command_variables": procedure_variables_json, "context_range": context_range_json, "count": count, "jpa_method_list": jpa_method_list})
+      result = chain.invoke({"code": convert_sp_code, "method_skeleton": method_skeleton, "variable": variable_list, "command_variables": command_class_variable, "context_range": context_range_json, "count": count, "jpa_method_list": jpa_method_list})
       # TODO 여기서 최대 토큰이 4096이 넘은 경우 처리가 필요
       logging.info(f"토큰 수: {result.usage_metadata}") 
       output_tokens = result.usage_metadata['output_tokens']

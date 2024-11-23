@@ -14,63 +14,67 @@ from util.exception import LLMCallError
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
 llm = ChatAnthropic(model="claude-3-5-sonnet-20240620", max_tokens=8000)
-prompt = PromptTemplate.from_template(
+controller_method_prompt = PromptTemplate.from_template(
 """
-당신은 클린 아키텍처 원칙을 따르는 스프링부트 기반의 자바 애플리케이션을 개발하는 소프트웨어 엔지니어입니다. 주어진 JSON 형식의 변수 데이터를 기반으로 서비스 클래스를 생성하는 작업을 맡았습니다.
+당신은 PL/SQL 프로시저를 스프링부트 컨트롤러 메서드로 변환하는 전문가입니다.
+주어진 JSON 데이터를 기반으로 컨트롤러 메서드를 생성합니다.
 
 
-변수 데이터(JSON)입니다:
-{variable_json}
 
-[SECTION 1] Service 클래스 생성 규칙
+[입력 데이터 구조 설명]
 ===============================================
-1. 대상 선정
-   - JSON 객체의 데이터를 기반으로 Service 클래스의 필드 변수로 선정
-   - 클래스명은 {command_class_name}을 참고하여, '이름Service' 형식으로 작성
-     예시) UpdateEmployeeCommand -> UpdateEmployeeService
-     
-2. 필드 규칙
-   - 접근제한자: private
-   - 명명규칙: 카멜 케이스
-   - 숫자타입: Long 사용 권장
-   - 날짜타입: LocalDate 사용
+입력되는 JSON 데이터는 다음 구조를 가집니다:
+{method_skeleton_data}
 
-3. 코드 구조 유지
-   - CodePlaceHolder1, CodePlaceHolder2은 하드코딩된 값 그대로 위치 유지
-
-4. Import 선언
-   - 기본 제공되는 import문 유지
-   - 추가로 필요한 import문 선언
+- procedure_name: 프로시저/함수 이름
+- local_variables: 로컬 변수 목록
+- return_code: 리턴 노드 코드
+- node_type: 노드 타입 (create_procedure_body, procedure, function)
 
 
-[SECTION 2] Service 클래스 예시 템플릿
+[SECTION 1] 메서드 생성 규칙
 ===============================================
-package com.example.demo.service;
+1. 메서드 명명 규칙
+    - 'procedure_name'을 카멜케이스로 변환하여 메서드명 생성
+    - 예시: UPDATE_EMPLOYEE -> updateEmployee
+    - 첫 글자는 소문자로 시작
 
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RestController;
-import com.example.demo.command.{command_class_name};
-import org.springframework.beans.factory.annotation.Autowired;
-import java.util.List;
-import org.springframework.transaction.annotation.Transactional;
+2. 메서드 생성 규칙
+    - @PostMapping 어노테이션 사용
+    - 반환타입: void
+    - 파라미터: @RequestBody {command_class_name} {commandClassNameDto} (카멜케이스)
+    
+3. 메서드의 필드 규칙
+    - 'local_variables'의 변수 목록을 기반으로 컨트롤러 메서드 내부에 변수를 생성
+    - 접근제한자: private 필수
+    - 명명규칙: 카멜케이스 (첫 글자 소문자)
+    - 데이터 타입 매핑:
+        * NUMBER, NUMERIC -> Long
+        * VARCHAR, VARCHAR2, CHAR -> String
+        * DATE -> LocalDate
+        * TIMESTAMP -> LocalDateTime
+        * ROWTYPE이 포함된 타입 (예: TABLE_NAME.ROWTYPE) -> Object
+        * 복합 데이터 타입이나 사용자 정의 타입 -> Object
+    - 모든 필드에 대해 Lombok @Getter @Setter 사용
+    - ROWTYPE이나 복합 데이터 타입의 경우 @ToDo 어노테이션으로 원본 타입 정보를 주석 처리
+   
+4. 코드 구조
+   - 문자열 "CodePlaceHolder"를 그대로 유지 (변경하지 않음)
+   - 메서드 내부에는 "CodePlaceHolder" 문자열만 존재해야 함
+   - 메서드 내부 구현은 비워둠
 
-@RestController
-@Transactional
-public class ExampleController {{
 
-CodePlaceHolder1
+[SECTION 2] 컨트롤러 메서드 예시 템플릿
+===============================================
+@PostMapping(path="/{procedure_name}")
+public ResponseEntity<String> {procedure_name}(@RequestBody {command_class_name} {command_class_name}Dto) {{
+    private Long id;
+    private String name;
+    @ToDo("Original Type: EMPLOYEE_TABLE.ROWTYPE")
+    private Object employeeRow;
 
-    Type variable1 = 0;
-    Type variable2 = 0;
-
-    @PostMapping(path="/Endpoint")
-    public ResponseEntity<String> methodName(@RequestBody {command_class_name} {command_class_name}Dto) {{
-
-CodePlaceHolder2
-
+CodePlaceHolder
     return ResponseEntity.ok("Operation completed successfully");
-    }}
 }}
 
 
@@ -78,32 +82,134 @@ CodePlaceHolder2
 ===============================================
 부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요:
 {{
-    "serviceName": "Service Class Name",
-    "service": "Service Java Code",
+    "methodName": "updateEmployee",
+    "method": "@PostMapping(\"/updateEmployee\")\npublic ResponseEntity<String> updateEmployee(@RequestBody UpdateEmployeeCommand command) {{\n    CodePlaceHolder\n    return ResponseEntity.ok(\"Operation completed successfully\");\n}}"
 }}
 """
 )
 
-# 역할 : 선언 노드 정보를 기반으로, 서비스 골격 클래스를 생성합니다
+# 역할 : 컨트롤러 메서드 틀 데이터를 기반으로, 메서드 틀을 생성합니다
 # 매개변수: 
-#   - variable_data : 지역 변수 노드 정보
+#   - method_skeleton_data : 메서드 틀 데이터
 #   - command_class_name : command 클래스 이름
+#   - object_name : 패키지 이름
 # 반환값 : 
-#   - result : 서비스 골격 클래스
-def convert_service_skeleton_code(variable_data, command_class_name):
+#   - result : 컨트롤러 메서드 틀 코드
+def convert_method_skeleton_code(method_skeleton_data, command_class_name, object_name):
     
     try:
-        variable_json = json.dumps(variable_data)
+        method_skeleton_data = json.dumps(method_skeleton_data)
 
         chain = (
             RunnablePassthrough()
-            | prompt
+            | controller_method_prompt
             | llm
             | JsonOutputParser()
         )
-        result = chain.invoke({"variable_json": variable_json, "command_class_name": command_class_name})
+        result = chain.invoke({"method_skeleton_data": method_skeleton_data, "command_class_name": command_class_name, "object_name": object_name})
         return result
     except Exception:
-        err_msg = "서비스 골격 클래스 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다."
+        err_msg = "컨트롤러 메서드 틀 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다."
+        logging.error(err_msg, exc_info=False)
+        raise LLMCallError(err_msg)
+    
+
+function_prompt = PromptTemplate.from_template(
+"""
+당신은 PL/SQL 함수를 스프링부트 일반 메서드로 변환하는 전문가입니다.
+주어진 JSON 데이터를 기반으로 일반 메서드를 생성합니다.
+
+[입력 데이터 구조 설명]
+===============================================
+1. 메서드 데이터:
+{method_skeleton_data}
+- procedure_name: 함수 이름
+- local_variables: 로컬 변수 목록
+- return_code: 리턴 노드 코드
+- node_type: 노드 타입 (function)
+
+2. 파라미터 데이터:
+{parameter_data}
+- parameters: 파라미터 목록
+- procedure_name: 함수 이름
+
+
+[SECTION 1] 메서드 생성 규칙
+===============================================
+1. 메서드 명명 규칙
+    - 'procedure_name'을 카멜케이스로 변환하여 메서드명 생성
+    - 예시: GET_EMPLOYEE_COUNT -> getEmployeeCount
+    - 첫 글자는 소문자로 시작
+
+2. 메서드 생성 규칙
+    - 일반 메서드로 생성 (어노테이션 없음)
+    - 반환타입: return_code를 기반으로 결정 (주로 Long, String, Boolean 등)
+    - 파라미터: 'parameter_data'의 'parameters' 정보를 기반으로 생성
+    
+3. 메서드의 필드 규칙
+    - 'local_variables'의 변수 목록을 기반으로 컨트롤러 메서드 내부에 변수를 생성
+    - 접근제한자: private 필수
+    - 명명규칙: 카멜케이스 (첫 글자 소문자)
+    - 데이터 타입 매핑:
+        * NUMBER, NUMERIC -> Long
+        * VARCHAR, VARCHAR2, CHAR -> String
+        * DATE -> LocalDate
+        * TIMESTAMP -> LocalDateTime
+        * ROWTYPE이 포함된 타입 (예: TABLE_NAME.ROWTYPE) -> Object
+        * 복합 데이터 타입이나 사용자 정의 타입 -> Object
+    - 모든 필드에 대해 Lombok @Getter @Setter 사용
+    - ROWTYPE이나 복합 데이터 타입의 경우 @ToDo 어노테이션으로 원본 타입 정보를 주석 처리
+    
+4. 코드 구조
+    - 문자열 "CodePlaceHolder"를 그대로 유지 (변경하지 않음)
+    - 메서드 내부에는 "CodePlaceHolder" 문자열만 존재해야 함
+    - 메서드 내부 구현은 비워둠
+
+
+[SECTION 2] 일반 메서드 예시 템플릿
+===============================================
+public ReturnType {procedure_name}(Type1 param1, Type2 param2) {{
+    private Long id;
+    private String name;
+    @ToDo("Original Type: EMPLOYEE_TABLE.ROWTYPE")
+    private Object employeeRow;
+    
+CodePlaceHolder
+    return result;
+}}
+
+
+[SECTION 3] JSON 출력 형식
+===============================================
+부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요:
+{{
+    "methodName": "getEmployeeCount",
+    "method": "public Long getEmployeeCount(Long employeeId, String departmentCode) {{\nCodePlaceHolder\n    return result;\n}}"
+}}
+"""
+)
+
+# 역할 : 일반 메서드 틀 데이터를 기반으로, 메서드 틀을 생성합니다
+# 매개변수: 
+#   - method_skeleton_data : 메서드 틀 데이터
+#   - parameter_data : 파라미터 데이터
+#   - object_name : 패키지 이름
+# 반환값 : 
+#   - result : 일반 메서드 틀 코드
+def convert_function_code(method_skeleton_data, parameter_data, object_name):
+    
+    try:
+        method_skeleton_data = json.dumps(method_skeleton_data)
+        parameter_data = json.dumps(parameter_data)
+        chain = (
+            RunnablePassthrough()
+            | function_prompt
+            | llm
+            | JsonOutputParser()
+        )
+        result = chain.invoke({"method_skeleton_data": method_skeleton_data, "parameter_data": parameter_data, "object_name": object_name})
+        return result
+    except Exception:
+        err_msg = "일반 메서드 틀 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다."
         logging.error(err_msg, exc_info=False)
         raise LLMCallError(err_msg)

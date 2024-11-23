@@ -87,8 +87,8 @@ async def process_over_size_node(start_line, summarized_code, connection, object
 #   - used_variables : 사용된 변수 리스트
 #   - context_range : 컨텍스트 범위
 #   - connection : Neo4j 연결 객체
-#   - procedure_variables: command 클래스에 선언된 변수 목록 
-#   - service_skeleton: 서비스 스켈레톤
+#   - command_class_variable: command 클래스에 선언된 변수 목록 
+#   - method_skeleton: 메서드 스켈레톤
 #   - used_jpa_method_dict: 사용된 Jpa 쿼리 메서드 사전
 #   - tracking_variables : 변수 정보 추적을 위한 사전
 #   - object_name : 패키지 및 프로시저 이름
@@ -99,7 +99,7 @@ async def process_over_size_node(start_line, summarized_code, connection, object
 #   - context_range : 초기화된 컨텍스트 범위
 #   - used_jpa_method_dict : 초기화된 Jpa 쿼리 메서드 사전
 #   - tracking_variables : 초기화된 변수 정보 추적을 위한 사전
-async def process_convert_result(convert_sp_code, current_tokens, used_variables, context_range, connection, procedure_variables, service_skeleton, used_jpa_method_dict, tracking_variables, object_name):
+async def process_convert_result(convert_sp_code, current_tokens, used_variables, context_range, connection, command_class_variable, method_skeleton, used_jpa_method_dict, tracking_variables, object_name):
 
     try:
         # * 노드 업데이트 쿼리를 저장할 리스트 및 범위 개수
@@ -107,7 +107,7 @@ async def process_convert_result(convert_sp_code, current_tokens, used_variables
 
 
         # * 전달된 정보를 llm에게 전달하여 결과를 받고, 결과를 처리하는 함수를 호출합니다.
-        analysis_result = convert_service_code(convert_sp_code, service_skeleton, used_variables, procedure_variables, context_range, range_count, used_jpa_method_dict)
+        analysis_result = convert_service_code(convert_sp_code, method_skeleton, used_variables, command_class_variable, context_range, range_count, used_jpa_method_dict)
         tracking_variables = await handle_convert_result(analysis_result, connection, tracking_variables, object_name)
 
 
@@ -202,12 +202,12 @@ async def extract_used_jpa_methods(used_jpa_method_dict, jpa_method_list, start_
 # 매개변수: 
 #   - node_data_list : 노드와 관계에 대한 정보가 담긴 리스트
 #   - connection : Neo4J 연결 객체
-#   - service_skeleton : 서비스 클래스의 기본 구조.
+#   - method_skeleton : 메서드 기본 구조 틀
 #   - jpa_method_list : 사용된 JPA 메서드 목록.
-#   - procedure_variable : 프로시저 선언부에서 사용된 변수 정보.
+#   - command_class_variable : 커맨드 클래스에 선언된 변수 목록
 #   - object_name : 패키지 및 프로시저 이름
 # 반환값: 없음 
-async def traverse_node_for_service(node_list, connection, procedure_variables, service_skeleton, jpa_method_list, object_name):
+async def traverse_node_for_service(node_list, connection, command_class_variable, method_skeleton, jpa_method_list, object_name):
 
     used_variables =  []                  # 사용된 변수 정보를 저장하는 리스트
     context_range = []                    # 분석할 컨텍스트 범위를 저장하는 리스트
@@ -253,7 +253,7 @@ async def traverse_node_for_service(node_list, connection, procedure_variables, 
             elif is_big_parent_traverse_1deth:
                 print(f"큰 부모 노드({start_node['startLine']})의 1단계 깊이 자식들 순회 완료")
                 big_parent_info["nextLine"] = end_node['startLine']
-                (convert_sp_code, current_tokens, used_variables, context_range, used_jpa_method_dict, tracking_variables) = await process_convert_result(convert_sp_code, current_tokens, used_variables, context_range, connection, procedure_variables, service_skeleton, used_jpa_method_dict, tracking_variables, object_name)
+                (convert_sp_code, current_tokens, used_variables, context_range, used_jpa_method_dict, tracking_variables) = await process_convert_result(convert_sp_code, current_tokens, used_variables, context_range, connection, command_class_variable, method_skeleton, used_jpa_method_dict, tracking_variables, object_name)
                 continue
 
 
@@ -298,7 +298,7 @@ async def traverse_node_for_service(node_list, connection, procedure_variables, 
             # * 총 토큰 수 검사를 진행합니다.
             if is_token_limit_exceeded:
                 print(f"토큰 및 결과 범위 초과로 converting 진행합니다.")
-                (convert_sp_code, current_tokens, used_variables, context_range, used_jpa_method_dict, tracking_variables) = await process_convert_result(convert_sp_code, current_tokens, used_variables, context_range, connection, procedure_variables, service_skeleton, used_jpa_method_dict, tracking_variables, object_name)
+                (convert_sp_code, current_tokens, used_variables, context_range, used_jpa_method_dict, tracking_variables) = await process_convert_result(convert_sp_code, current_tokens, used_variables, context_range, connection, command_class_variable, method_skeleton, used_jpa_method_dict, tracking_variables, object_name)
             print(f"토큰 합계 : {current_tokens + node_tokens}, 결과 개수 : {len(context_range)}")
             current_tokens += node_tokens
 
@@ -353,7 +353,7 @@ async def traverse_node_for_service(node_list, connection, procedure_variables, 
                 used_jpa_method_dict = await extract_used_jpa_methods(used_jpa_method_dict, jpa_method_list, start_node['startLine'], start_node['endLine'])
             elif another_big_parent_startLine == start_node['startLine'] and context_range and convert_sp_code: 
                 print(f"부모 노드안에 또 다른 부모 노드의 순회 끝 converting 진행 -> 흐름이 섞이지 않게")
-                (convert_sp_code, current_tokens, used_variables, context_range, used_jpa_method_dict, tracking_variables) = await process_convert_result(convert_sp_code, current_tokens, used_variables, context_range, connection, procedure_variables, service_skeleton, used_jpa_method_dict, tracking_variables, object_name)
+                (convert_sp_code, current_tokens, used_variables, context_range, used_jpa_method_dict, tracking_variables) = await process_convert_result(convert_sp_code, current_tokens, used_variables, context_range, connection, command_class_variable, method_skeleton, used_jpa_method_dict, tracking_variables, object_name)
             else:
                 print("아무것도 처리되지 않습니다.")
         
@@ -361,7 +361,7 @@ async def traverse_node_for_service(node_list, connection, procedure_variables, 
         # * 마지막 그룹에 대한 처리를 합니다.
         if context_range and convert_sp_code:
             print("순회가 끝났지만 남은 context_range와 convert_sp_code가 있어 converting을 진행합니다.")
-            (convert_sp_code, current_tokens, used_variables, context_range, used_jpa_method_dict, tracking_variables) = await process_convert_result(convert_sp_code, current_tokens, used_variables, context_range, connection, procedure_variables, service_skeleton, used_jpa_method_dict, tracking_variables, object_name)
+            (convert_sp_code, current_tokens, used_variables, context_range, used_jpa_method_dict, tracking_variables) = await process_convert_result(convert_sp_code, current_tokens, used_variables, context_range, connection, command_class_variable, method_skeleton, used_jpa_method_dict, tracking_variables, object_name)
     
     except (ConvertingError, Neo4jError): 
         raise
@@ -374,12 +374,12 @@ async def traverse_node_for_service(node_list, connection, procedure_variables, 
 
 # 역할: 각 노드에 Java_code라는 이름으로 자바 코드 속성을 추가하기 위해 순회하는 과정입니다. 
 # 매개변수: 
-#   - service_skeleton : 서비스 스켈레톤
+#   - method_skeleton : 메서드 스켈레톤
 #   - jpa_method_list : 사용된 JPA 쿼리 메서드 목록
-#   - procedure_variable : Command 클래스에 선언된 변수 목록
+#   - command_class_variable : Command 클래스에 선언된 변수 목록
 #   - object_name : 패키지 및 프로시저 이름
 # 반환값: 없음 
-async def start_service_preprocessing(service_skeleton, jpa_method_list, procedure_variable, object_name):
+async def start_service_preprocessing(method_skeleton, command_class_variable, procedure_name, jpa_method_list, object_name):
     
     # * Neo4j 연결 생성
     connection = Neo4jConnection() 
@@ -392,9 +392,11 @@ async def start_service_preprocessing(service_skeleton, jpa_method_list, procedu
             f"""
             MATCH (n)
             WHERE n.object_name = '{object_name}'
-            AND NOT (n:ROOT OR n:Variable OR n:DECLARE OR n:Table OR n:CREATE_PROCEDURE_BODY OR n:PACKAGE_BODY OR n:PACKAGE_SPEC OR n:PROCEDURE_SPEC)
+            AND n.procedure_name = '{procedure_name}'
+            AND (n:FUNCTION OR n:PROCEDURE OR n:CREATE_PROCEDURE_BODY)
+            AND NOT (n:ROOT OR n:Variable OR n:DECLARE OR n:Table OR n:PACKAGE_BODY OR n:PACKAGE_SPEC OR n:PROCEDURE_SPEC)
             OPTIONAL MATCH (n)-[r]->(m)
-            WHERE NOT (m:ROOT OR m:Variable OR m:DECLARE OR n:Table OR m:CREATE_PROCEDURE_BODY OR m:PACKAGE_BODY OR m:PACKAGE_SPEC OR m:PROCEDURE_SPEC)
+            WHERE NOT (m:ROOT OR m:Variable OR m:DECLARE OR m:Table OR m:PACKAGE_BODY OR m:PACKAGE_SPEC OR m:PROCEDURE_SPEC OR m:FUNCTION OR m:PROCEDURE OR m:CREATE_PROCEDURE_BODY)
             AND m.object_name = '{object_name}'
             AND NOT type(r) CONTAINS 'CALLS'
             AND NOT type(r) CONTAINS 'WRITES'
@@ -403,15 +405,17 @@ async def start_service_preprocessing(service_skeleton, jpa_method_list, procedu
             ORDER BY n.startLine
             """,
             f"""
-            MATCH (d:DECLARE)-[r:SCOPE]->(v:Variable)
-            WHERE d.object_name = '{object_name}'
-            RETURN DISTINCT v
+            MATCH (p)-[:PARENT_OF]->(d:DECLARE)-[r:SCOPE]->(v:Variable)
+            WHERE p.object_name = '{object_name}'
+            AND p.procedure_name = '{procedure_name}'
+            AND (p:PROCEDURE OR p:CREATE_PROCEDURE_BODY OR p:FUNCTION)
+            RETURN v
             """
         ]
         
         # * 쿼리 실행하여, 노드를 (전처리) 서비스 생성 함수로 전달합니다
         results = await connection.execute_queries(node_query)        
-        await traverse_node_for_service(results, connection, procedure_variable, service_skeleton, jpa_method_list, object_name)
+        await traverse_node_for_service(results, connection, command_class_variable, method_skeleton, jpa_method_list, object_name)
         logging.info(f"[{object_name}] (전처리) 서비스 생성 과정, 노드에 자바 속성을 추가 완료\n")
 
 
