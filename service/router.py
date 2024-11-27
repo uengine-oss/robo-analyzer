@@ -13,11 +13,11 @@ from service.service import generate_spring_boot_project
 router = APIRouter()
 
 
-# 역할: 전달된 파일 이름으로, 분석할 파일을 찾아서 사이퍼 쿼리를 생성 및 실행
+# 역할: 전달받은 파일들을 분석하여 Neo4j 사이퍼 쿼리를 생성하고 실행합니다
 # 매개변수:
-#   request: 전달된 파일이름
+#   - request: 분석할 파일 정보가 담긴 요청 객체 (fileInfos: [{fileName, objectName}, ...])
 # 반환값: 
-#   - 스트림 : 그래프를 그리기 위한 데이터 모음
+#   - StreamingResponse: Neo4j 그래프 데이터 스트림
 @router.post("/cypherQuery/")
 async def understand_data(request: Request):    
     try:
@@ -36,11 +36,11 @@ async def understand_data(request: Request):
 
 
 
-# 역할: 선택된 테이블과 2단계 깊이 기준의 노드들을 가져와서 자바 코드로 변환한 뒤, 스트림하는 함수
+# 역할: 선택된 테이블 노드를 중심으로 2단계 깊이까지의 연관 노드들을 조회하여 자바 코드로 변환합니다
 # 매개변수: 
-#   - node_info : 선택된 테이블 노드의 정보
+#   - request: 선택된 테이블 노드 정보가 담긴 요청 객체
 # 반환값: 
-#   - 스트림 : 자바 코드
+#   - StreamingResponse: 생성된 자바 코드 스트림
 # TODO FRONT에서 값이 전달이 제대로 안되고 있습니다.
 @router.post("/java/")
 async def convert_simple_java(request: Request):
@@ -57,11 +57,11 @@ async def convert_simple_java(request: Request):
     
 
 
-# 역할: 채팅(요구사항)과 이전 히스토리를 기반으로 자바 코드를 다시 생성하여, 스트리밍하는 함수
+# 역할: 사용자의 요구사항과 이전 대화 내역을 기반으로 자바 코드를 생성합니다
 # 매개변수: 
-#   - userInput : 채팅(요구사항)
-#   - prevHistory : 이전 히스토리
-# 반환값: 생성된 자바 코드를 스트리밍하는 응답 객체
+#   - request: 채팅 정보가 담긴 요청 객체 (userInput: 사용자 입력, prevHistory: 이전 대화 내역)
+# 반환값: 
+#   - StreamingResponse: 생성된 자바 코드 스트림
 # TODO FRONT에서 값이 전달이 안되고 있습니다.
 @router.post("/chat/")
 async def receive_chat(request: Request):
@@ -80,11 +80,11 @@ async def receive_chat(request: Request):
 
 
 
-# 역할: 스토어드 프로시저를 스프링부트 기반의 자바 프로젝트로 전환하여, 각 단계의 완료를 스트리밍하는 함수
+# 역할: 스토어드 프로시저를 스프링 부트 프로젝트로 변환합니다
 # 매개변수: 
-#   - fileInfos : converting할 스토어드 프로시저 파일 정보들
+#   - request: 변환할 파일 정보가 담긴 요청 객체 (fileInfos: [{fileName, objectName}, ...])
 # 반환값: 
-#   - 스트림 : 각 단계의 완료 메시지
+#   - StreamingResponse: 변환 진행 상태 메시지 스트림
 @router.post("/springBoot/")
 async def covnert_spring_project(request: Request):
 
@@ -104,10 +104,10 @@ async def covnert_spring_project(request: Request):
 
 
  
-# 역할: 생성된 스프링부트 프로젝트를 Zip 파일로 압축하여, 사용자가 다운로드 받을 수 있게하는 함수
+# 역할: 생성된 스프링 부트 프로젝트를 ZIP 파일로 압축하여 다운로드를 제공합니다
 # 매개변수: 없음
 # 반환값: 
-#   - 스프링부트 기반의 자바 프로젝트(Zip)
+#   - FileResponse: 압축된 프로젝트 파일
 @router.post("/downloadJava/")
 async def download_spring_project():
     try:
@@ -133,9 +133,10 @@ async def download_spring_project():
     
 
 
-# 역할: 임시 저장된 모든 파일을 삭제하는 함수
+# 역할: 생성된 모든 임시 파일과 디렉토리를 정리합니다
 # 매개변수: 없음
-# 반환값: 삭제 결과 메시지
+# 반환값: 
+#   - dict: 삭제 완료 메시지가 포함된 딕셔너리
 @router.delete("/deleteAll/")
 async def delete_all_data():
     try:

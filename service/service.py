@@ -13,17 +13,20 @@ from convert.create_entity import start_entity_processing
 from convert.create_service_preprocessing import start_service_preprocessing
 from convert.create_service_postprocessing import create_service_class_file, start_service_postprocessing 
 from convert.create_service_skeleton import start_service_skeleton_processing
+from prompt.understand_ddl import understand_ddl
 from understand.neo4j_connection import Neo4jConnection
 from understand.analysis import analysis
 from prompt.java2deths_prompt import convert_2deths_java
-from util.exception import AddLineNumError, ConvertingError, Java2dethsError, LLMCallError, Neo4jError
+from util.exception import AddLineNumError, ConvertingError, Java2dethsError, LLMCallError, Neo4jError, ProcessResultError
 
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PLSQL_DIR = os.path.join(BASE_DIR, "src")
 ANALYSIS_DIR = os.path.join(BASE_DIR, "analysis")
+DDL_DIR = os.path.join(BASE_DIR, "ddl")
 os.makedirs(PLSQL_DIR, exist_ok=True)
 os.makedirs(ANALYSIS_DIR, exist_ok=True)
+os.makedirs(DDL_DIR, exist_ok=True)
 
 
 # 역할: PL/SQL 코드의 각 라인에 번호를 추가하여 코드 추적과 디버깅을 용이하게 합니다.
@@ -50,16 +53,27 @@ def add_line_numbers(plsql):
 #   - file_names : 분석할 파일 이름과 객체 이름 튜플의 리스트
 # 반환값: 
 #   - 스트림 : 그래프 데이터 (노드, 관계, 분석 진행률 등)
+# TODO 어떤 파일을 understanding 중인지 표시가 필요, ddl 처리 또한 표시 필요 
 async def generate_and_execute_cypherQuery(file_names):
     connection = Neo4jConnection()
     receive_queue = asyncio.Queue()
     send_queue = asyncio.Queue()
 
     try:
+        # * 각 패키지 및 프로시저에 대한 understanding 시작
         for file_name, object_name in file_names:
             plsql_file_path = os.path.join(PLSQL_DIR, file_name)
             base_name = os.path.splitext(file_name)[0]
             antlr_file_path = os.path.join(ANALYSIS_DIR, f"{base_name}.json")
+            ddl_file_name = file_name.replace('TPX_', 'TPJ_')
+            ddl_file_path = os.path.join(DDL_DIR, ddl_file_name)
+            
+            # * DDL 파일 존재 확인 및 처리
+            if os.path.exists(ddl_file_path):
+                ddl_start = {"type": "DDL", "MESSAGE" : "START DDL PROCESSING", "file": ddl_file_name}
+                yield json.dumps(ddl_start).encode('utf-8') + b"send_stream"
+                logging.info(f"DDL 파일 처리 시작: {ddl_file_name}")
+                ddl_results = await process_ddl_and_table_nodes(ddl_file_path, connection)  # DDL 파일 처리
 
             # * 스토어드 프로시저 파일과, ANTLR 구문 분석 파일 읽기 작업을 병렬로 처리
             async with aiofiles.open(antlr_file_path, 'r', encoding='utf-8') as antlr_file, aiofiles.open(plsql_file_path, 'r', encoding='utf-8') as plsql_file:
@@ -103,7 +117,7 @@ async def generate_and_execute_cypherQuery(file_names):
                     yield encoded_stream_data
 
             # * understanding 과정을 비동기 태스크로 실행하고, 데이터 스트림 생성하여 전달
-            analysis_task = asyncio.create_task(analysis(antlr_data, plsql_content, receive_queue, send_queue, last_line, object_name))
+            analysis_task = asyncio.create_task(analysis(antlr_data, plsql_content, receive_queue, send_queue, last_line, object_name, ddl_results))
             async for stream_data_chunk in process_analysis_code():
                 yield stream_data_chunk
             await analysis_task
@@ -114,6 +128,62 @@ async def generate_and_execute_cypherQuery(file_names):
         error_msg = "사이퍼쿼리를 생성 및 실행하고 스트림으로 반환하는 과정에서 오류가 발생했습니다"
         logging.exception(error_msg)
         yield json.dumps({"error": error_msg}).encode('utf-8') + b"send_stream"
+    finally:
+        await connection.close()
+
+
+# 역할: DDL 파일을 읽어서 테이블 구조를 분석하고 Neo4j 그래프 데이터베이스에 저장합니다
+# 매개변수:
+#   - ddl_file_path: DDL 파일의 경로
+#   - connection: Neo4j 데이터베이스 연결 객체
+# 반환값:
+#   - ddl_result: 분석된 테이블 구조 정보 (테이블명, 컬럼, 키 정보 등)
+async def process_ddl_and_table_nodes(ddl_file_path, connection: Neo4jConnection):
+    
+    try:
+        async with aiofiles.open(ddl_file_path, 'r', encoding='utf-8') as ddl_file:
+            ddl_content = await ddl_file.read()
+            ddl_result = understand_ddl(ddl_content)
+            cypher_queries = []
+            
+            for table in ddl_result['analysis']:
+                # * 테이블의 기본 정보 추출 (이름, 컬럼, 키 정보)
+                table_info = table['table']
+                columns = table['columns']
+                keys = table['keys']
+                
+                # * 컬럼 정보를 Neo4j 속성으로 변환 (컬럼명: 데이터타입:설명)
+                column_props = {
+                    col['name'].lower(): f"{col['type']}:{col['comment']}".replace("'", "\\'") 
+                    for col in columns
+                }
+                
+                # * 테이블의 메타 정보를 Neo4j 노드 속성으로 구성
+                props = {
+                    'name': table_info['name'].lower(),
+                    'description': table_info['comment'].replace("'", "\\'"),
+                    'primary_keys': ','.join(key.lower() for key in keys['primary']),
+                    'foreign_keys': ','.join(fk['column'].lower() for fk in keys['foreign']),
+                    'reference_tables': ','.join(
+                        f"{fk['references']['table']}.{fk['references']['column']}"
+                        for fk in keys['foreign']
+                    ),
+                    **column_props
+                }
+                
+                # * Neo4j 테이블 노드 생성 쿼리 구성
+                props_str = ', '.join(f"`{k}`: '{v}'" for k, v in props.items())
+                query = f"CREATE (t:Table {{{props_str}}})"
+                cypher_queries.append(query)
+            
+            # * 생성된 모든 테이블 노드 쿼리를 실행
+            await connection.execute_queries(cypher_queries)
+            return ddl_result
+            
+    except Exception:
+        err_msg = f"DDL 파일 처리 중 오류가 발생했습니다"
+        logging.error(err_msg, exc_info=False)
+        raise ProcessResultError(err_msg)
     finally:
         await connection.close()
 

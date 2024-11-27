@@ -100,6 +100,7 @@ prompt = PromptTemplate.from_template(
 def understand_code(sp_code, context_ranges, context_range_count):
     try:
         ranges_json = json.dumps(context_ranges)
+        ddl_table = json.dumps(ddl_table, indent=2, ensure_ascii=False)
 
         chain = (
             RunnablePassthrough()
@@ -115,6 +116,6 @@ def understand_code(sp_code, context_ranges, context_range_count):
         return json_parsed_content
     
     except Exception:
-        err_msg = "Understanding 과정에서 LLM 호출하는 도중 오류가 발생했습니다."
+        err_msg = "Understanding 과정에서 분석 관련 LLM 호출하는 도중 오류가 발생했습니다."
         logging.error(err_msg, exc_info=False)
         raise LLMCallError(err_msg)

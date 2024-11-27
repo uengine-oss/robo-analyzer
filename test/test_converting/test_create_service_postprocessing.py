@@ -57,6 +57,7 @@ class TestPostServiceGeneration(unittest.IsolatedAsyncioTestCase):
 
             # * Service 후처리 테스트 시작
             for object_name in object_names:
+                    
                     # * 결과 파일에서 해당 객체의 데이터를 가져옵니다
                     service_skeleton_list = test_data.get('service_skeleton_list', {}).get(object_name, [])
                     service_skeleton = test_data.get('service_skeleton', {}).get(object_name, '')
