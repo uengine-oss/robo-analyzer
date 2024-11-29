@@ -11,15 +11,15 @@ from langchain.schema.runnable import RunnablePassthrough
 from util.exception import LLMCallError
 import openai
 
+# TODO 외래키 처리가 필요 할 수 도 있음 (추후에 검토)
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
-
 api_key = os.getenv("OPENAI_API_KEY")
 if api_key is None:
     raise ValueError("OPENAI_API_KEY 환경 변수가 설정되지 않았습니다.")
 
 # llm = ChatOpenAI(api_key=api_key, model_name="gpt-4o")
-llm = ChatAnthropic(model="claude-3-5-sonnet-20241022", max_tokens=8000)
+llm = ChatAnthropic(model="claude-3-5-sonnet-20241022", max_tokens=8000, temperature=0.1)
 
 prompt = PromptTemplate.from_template(
 """
@@ -50,13 +50,13 @@ prompt = PromptTemplate.from_template(
    예시) B_PLCY_MONTH -> bPlcyMonth
 
 4. 기본키(Primary Key) 선정 규칙
-   - 다음 우선순위로 기본키를 선정:
-     1) 'id', 'ID', '_id', '_ID'로 끝나는 필드
-     2) 'key', 'KEY', '_key', '_KEY'로 끝나는 필드
-     3) 'no', 'NO', '_no', '_NO'로 끝나는 필드
-     4) 테이블명 + 'id', 'ID' 패턴의 필드
-   - 위 규칙으로 찾지 못한 경우, 'id'라는 새로운 필드를 생성하여 기본키로 지정
-   - @Id와 @GeneratedValue 어노테이션을 기본키에 적용   
+   - 모든 엔티티는 새로운 Long 타입의 'id' 필드를 기본키로 사용
+     * @Id와 @GeneratedValue(strategy = GenerationType.IDENTITY) 어노테이션 적용
+   
+   - 테이블 메타 데이터에 기본키 정보가 있을 경우:
+     * 테이블 메타데이터의 기본키 필드들은 일반 필드로 변환
+     * @Column(unique = true) 어노테이션 적용
+     * 복합키였던 경우 각 필드에 @Column(unique = true) 적용
 
 5. 데이터 타입 매핑
    - 정수: long (기본 데이터 타입 사용)
@@ -74,8 +74,8 @@ prompt = PromptTemplate.from_template(
 package com.example.demo.entity;
 
 import jakarta.persistence.*;
-import lombok.Data;
-import java.time.LocalDate
+import lombok.*;
+import java.time.*;
 
 @Entity
 @Table(name = "TableName")
@@ -83,9 +83,15 @@ import java.time.LocalDate
 public class EntityName {{
     @Id
     @GeneratedValue(strategy = GenerationType.AUTO)
-    private long primary_key_name;
-    private DataType fieldName1;
-    private DataType fieldName2;
+    private long id;
+    
+    @Column(unique = true)
+    private String originalPrimaryKey;
+
+    @Column(nullable = false)
+    private String requiredField;
+    
+    private String optionalField;
     ...
 }}
 
@@ -115,7 +121,7 @@ public class EntityName {{
 def convert_entity_code(table_data):
     
     try:
-        table_json_data = json.dumps(table_data)
+        table_json_data = json.dumps(table_data, ensure_ascii=False, indent=2)
 
         chain = (
             RunnablePassthrough()
@@ -127,5 +133,5 @@ def convert_entity_code(table_data):
         return result
     except Exception:
         err_msg = "엔티티 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다."
-        logging.error(err_msg, exc_info=False)  # exc_info=False로 스택트레이스 제외
+        logging.error(err_msg, exc_info=False)
         raise LLMCallError(err_msg)

@@ -13,7 +13,7 @@ from util.exception import LLMCallError
 
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
-llm = ChatAnthropic(model="claude-3-5-sonnet-20241022", max_tokens=8000, temperature=0.1)
+llm = ChatAnthropic(model="claude-3-5-sonnet-20241022", max_tokens=8000, temperature=0.0)
 controller_method_prompt = PromptTemplate.from_template(
 """
 당신은 PL/SQL 프로시저를 스프링부트 컨트롤러 메서드로 변환하는 전문가입니다.
@@ -26,8 +26,8 @@ controller_method_prompt = PromptTemplate.from_template(
 {method_skeleton_data}
 
 - procedure_name: 프로시저/함수 이름
-- local_variables: 로컬 변수 목록
-- return_code: 리턴 노드 코드
+- local_variables: 로컬 변수 목록으로 메서드 내부에 필드로 생성될 정보 (각 변수는 name과 type 속성을 가짐)
+- declaration: 선언부 코드 (리턴타입, 입력 매개변수가 선언된 부분)
 - node_type: 노드 타입 (create_procedure_body, procedure, function)
 
 
@@ -42,20 +42,22 @@ controller_method_prompt = PromptTemplate.from_template(
 2. 메서드 생성 규칙
     - @PostMapping 어노테이션 사용
     - 반환타입: void
-    - 파라미터: @RequestBody {command_class_name} {command_class_name}Dto (카멜케이스)
+    - 파라미터: @RequestBody {{command_class_name}} {{command_class_name}}Dto (카멜케이스)
     
 3. 메서드의 필드 규칙
-    - 오직 'local_variables' 목록에 있는 변수만 메서드 내부 변수로 생성
+    - 오직 'local_variables' 목록에 있는 변수만 메서드 내부 필드로 생성
     - 명명규칙: 카멜케이스 (첫 글자 소문자)
     - 데이터 타입 매핑:
         * NUMBER, NUMERIC -> Long
         * VARCHAR, VARCHAR2, CHAR -> String
         * DATE -> LocalDate
         * TIMESTAMP -> LocalDateTime
-        * ROWTYPE이 포함된 타입 (예: TABLE_NAME.ROWTYPE) -> Object
-        * 복합 데이터 타입이나 사용자 정의 타입 -> Object
-    - 'local_variables' 목록에 있는 변수 중 ROWTYPE이나 복합 데이터 타입인 경우에만 @ToDo 어노테이션으로 원본 타입 정보를 주석 처리
-    - 'local_variables'에 없는 변수는 절대 생성하지 않음
+        * ROWTYPE이 포함된 타입 (예: TABLE_NAME.ROWTYPE) -> TABLE_NAME
+        * 테이블 이름의 경우 테이블명을 타입으로 사용하세요 (엔티티 클래스를 타입으로 설정)
+    - 'local_variables'에서 변수의 타입 정보가 식별되지 않을 경우에만 Object로 선언하세요.
+    - 'local_variables'에 없는 변수는 절대로 생성하지 않음
+    - 'local_variables' 배열이 비어있다면 메서드의 필드는 생성하지않음
+    - 'declaration'에 있는 변수는 command 클래스의 필드로 절대로 생성하지 않음
 
 4. 코드 구조
    - 문자열 "CodePlaceHolder"는 그대로 유지하고, 변경하지 마세요.
@@ -68,8 +70,10 @@ controller_method_prompt = PromptTemplate.from_template(
 public ResponseEntity<String> methodName(@RequestBody {command_class_name} {command_class_name}Dto) {{
     Long id;
     String name;
-    @ToDo("Original Type: EMPLOYEE_TABLE.ROWTYPE")
-    Object employeeRow;
+    LocalDate date;
+    Employee employee;
+    @ToDo("Original Type: EMPLOYEE_TABLE%TYPE")
+    Object employeeId;
 
     CodePlaceHolder
     return ResponseEntity.ok("message");
@@ -100,7 +104,7 @@ public ResponseEntity<String> methodName(@RequestBody {command_class_name} {comm
 def convert_controller_method_code(method_skeleton_data, command_class_name):
     
     try:
-        method_skeleton_data = json.dumps(method_skeleton_data)
+        method_skeleton_data = json.dumps(method_skeleton_data, ensure_ascii=False, indent=2)
 
         chain = (
             RunnablePassthrough()
@@ -125,14 +129,14 @@ function_prompt = PromptTemplate.from_template(
 ===============================================
 1. 메서드 데이터:
 {method_skeleton_data}
-- procedure_name: 함수 이름
-- local_variables: 로컬 변수 목록
-- return_code: 리턴 노드 코드
-- node_type: 노드 타입 (function)
+- procedure_name: 프로시저/함수 이름
+- local_variables: 로컬 변수 목록 (각 변수는 name과 type 속성을 가짐)
+- declaration: 선언부 코드 (리턴타입, 입력 매개변수 등이 선언된 부분)
+- node_type: 노드 타입 (create_procedure_body, procedure, function)
 
 2. 파라미터 데이터:
 {parameter_data}
-- parameters: 파라미터 목록
+- parameters: 파라미터 목록 (각 파라미터는 name과 type 속성을 가짐)
 - procedure_name: 함수 이름
 
 
@@ -156,12 +160,23 @@ function_prompt = PromptTemplate.from_template(
         * VARCHAR, VARCHAR2, CHAR -> String
         * DATE -> LocalDate
         * TIMESTAMP -> LocalDateTime
-        * ROWTYPE이 포함된 타입 (예: TABLE_NAME.ROWTYPE) -> Object
-        * 복합 데이터 타입이나 사용자 정의 타입 -> Object
-    - 'local_variables' 목록에 있는 변수 중 ROWTYPE이나 복합 데이터 타입인 경우에만 @ToDo 어노테이션으로 원본 타입 정보를 주석 처리
-    - 'local_variables'에 없는 변수는 절대 생성하지 않음
-    
-4. 코드 구조
+        * ROWTYPE이 포함된 타입 (예: TABLE_NAME.ROWTYPE) -> TABLE_NAME
+        * 테이블 이름의 경우 테이블명을 타입으로 사용하세요 (엔티티 클래스를 타입으로 설정)
+    - 'local_variables'에서 변수의 타입 정보가 식별되지 않을 경우에만 Object로 선언하세요.
+    - 'local_variables'에 없는 변수는 절대로 생성하지 않음
+    - 'local_variables' 배열이 비어있다면 메서드의 필드는 생성하지않음
+    - 'declaration'에 있는 변수는 command 클래스의 필드로 절대로 생성하지 않음
+
+4. 메서드의 파라미터 규칙
+    - 'parameter_data'의 'parameters' 목록에 있는 파라미터만 메서드 파라미터로 생성
+    - 명명규칙: 카멜케이스 (첫 글자 소문자)
+    - 데이터 타입 매핑:
+        * NUMBER, NUMERIC -> Long
+        * VARCHAR, VARCHAR2, CHAR -> String
+        * DATE -> LocalDate
+        * TIMESTAMP -> LocalDateTime
+
+5. 코드 구조
     - 문자열 "CodePlaceHolder"는 그대로 유지하고, 변경하지 마세요.
     - 메서드 내부 구현 없이, "CodePlaceHolder" 문자열만 존재해야 함
     - return 문 또한 별도로 추가 예정으로, return을 추가하지말고, 템플릿 구조를 지키세요.
@@ -171,8 +186,11 @@ function_prompt = PromptTemplate.from_template(
 public ReturnType methodName(Type1 param1, Type2 param2) {{
     Long id;
     String name;
-    @ToDo("Original Type: EMPLOYEE_TABLE.ROWTYPE")
-    Object employeeRow;
+    LocalDate date;
+    Employee employee;
+    @ToDo("Original Type: EMPLOYEE_TABLE%TYPE")
+    Object employeeId;
+
     
     CodePlaceHolder
 }}
@@ -196,11 +214,11 @@ public ReturnType methodName(Type1 param1, Type2 param2) {{
 #   - parameter_data : 함수/프로시저의 파라미터 정보
 # 반환값: 
 #   - result : LLM이 생성한 메서드 기본 구조 정보
-def convert_function_code(method_skeleton_data,parameter_data):
+def convert_function_code(method_skeleton_data, parameter_data):
     
     try:
-        method_skeleton_data = json.dumps(method_skeleton_data)
-        parameter_data = json.dumps(parameter_data)
+        method_skeleton_data = json.dumps(method_skeleton_data, ensure_ascii=False, indent=2)
+        parameter_data = json.dumps(parameter_data, ensure_ascii=False, indent=2)
         chain = (
             RunnablePassthrough()
             | function_prompt

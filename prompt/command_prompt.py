@@ -4,6 +4,7 @@ import os
 from langchain.globals import set_llm_cache
 from langchain_community.cache import SQLiteCache
 from langchain_openai import ChatOpenAI
+from langchain_anthropic import ChatAnthropic
 from langchain_core.output_parsers import JsonOutputParser
 from langchain.prompts import PromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
@@ -12,7 +13,7 @@ from util.exception import LLMCallError
 
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
-llm = ChatOpenAI(model_name="gpt-4o")
+llm = ChatAnthropic(model="claude-3-5-sonnet-20241022", max_tokens=8000, temperature=0.1)
 prompt = PromptTemplate.from_template(
 """
 당신은 PL/SQL 프로시저를 스프링부트 애플리케이션으로 마이그레이션하는 전문가입니다.
@@ -45,11 +46,10 @@ prompt = PromptTemplate.from_template(
      * VARCHAR, VARCHAR2, CHAR -> String
      * DATE -> LocalDate
      * TIMESTAMP -> LocalDateTime
-     * ROWTYPE이 포함된 타입 (예: TABLE_NAME.ROWTYPE) -> Object
-     * 복합 데이터 타입이나 사용자 정의 타입 -> Object
-   - ROWTYPE이나 복합 데이터 타입의 경우 @ToDo 어노테이션으로 원본 타입 정보를 주석 처리
-   - 'parameters' 목록에 있는 변수 중 ROWTYPE이나 복합 데이터 타입인 경우에만 @ToDo 어노테이션으로 원본 타입 정보를 주석 처리
-   - 'parameters'에 없는 변수는 절대 생성하지 않음
+     * 테이블 이름의 경우 테이블명을 타입으로 사용하세요 (엔티티 클래스를 타입으로 설정)
+     * ROWTYPE이 포함된 타입 (예: EMPLOYEE.ROWTYPE) -> Employee
+    - 'parameters'에서 변수의 타입 정보가 식별되지 않을 경우에만 Object로 선언하세요.
+    - 'parameters'에 없는 변수는 절대 생성하지 않음
 
 3. import 추가 규칙
    - 필요한 import문은 다음과 같습니다.
@@ -57,8 +57,9 @@ prompt = PromptTemplate.from_template(
      * java.time.LocalDateTime (타임스탬프 사용시)
      * lombok.Getter
      * lombok.Setter
-   - 추가적인 import문은 필요에 따라 작성하세요.
-
+   - 필드의 타입이 테이블 명(엔티티 클래스)를 타입으로 할 경우
+     * com.example.demo.entity.EntityName (엔티티 클래스 사용시)
+   - 추가적인 import문은 반드시 필요에 따라 작성하세요.
 
 
 [SECTION 2] Command 클래스 예시
@@ -68,16 +69,22 @@ package com.example.demo.command;
 import java.time.LocalDate;
 import lombok.Getter;
 import lombok.Setter;
+import com.example.demo.entity.EntityName;
 
 @Getter
+
 @Setter
+
 public class ExampleCommand {{
+
     private Long id;
     private String name;
     private LocalDate date;
-    @ToDo("Original Type: EMPLOYEE_TABLE.ROWTYPE")
-    private Object employeeRow;
+    private Employee employee;
+    @ToDo("Original Type: EMPLOYEE_TABLE%TYPE")
+    private Object employeeId;
 }}
+
 
 
 [SECTION 3] 출력 형식
@@ -103,7 +110,7 @@ public class ExampleCommand {{
 def convert_command_code(command_class_data):
     
     try:
-        command_class_data = json.dumps(command_class_data)
+        command_class_data = json.dumps(command_class_data, ensure_ascii=False, indent=2)
 
         chain = (
             RunnablePassthrough()

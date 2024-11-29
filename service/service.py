@@ -150,16 +150,23 @@ async def process_ddl_and_table_nodes(ddl_file_path, connection: Neo4jConnection
             cypher_queries = []
             
             for table in ddl_result['analysis']:
+
                 # * 테이블의 기본 정보 추출 (이름, 컬럼, 키 정보)
                 table_info = table['table']
                 columns = table['columns']
                 keys = table['keys']
                 
+
                 # * 컬럼 정보를 Neo4j 속성으로 변환 (컬럼명: 데이터타입:설명)
                 column_props = {
-                    col['name']: f"{col['type']}:{col['comment']}".replace("'", "\\'") 
+                    col['name']: {
+                        'type': col['type'],
+                        'comment': col['comment'].replace("'", "\\'"),
+                        'nullable': col['nullable']
+                    }
                     for col in columns
                 }
+
                 
                 # * 테이블의 메타 정보를 Neo4j 노드 속성으로 구성
                 props = {
@@ -171,10 +178,11 @@ async def process_ddl_and_table_nodes(ddl_file_path, connection: Neo4jConnection
                         f"{fk['references']['table']}.{fk['references']['column']}"
                         for fk in keys['foreign']
                     ),
-                    'object_name': object_name, 
-                    **column_props
+                    'object_name': object_name,
+                    'columns': json.dumps(column_props)  # column_props를 JSON 문자열로 변환
                 }
-                
+                            
+                                
                 # * Neo4j 테이블 노드 생성 쿼리 구성
                 props_str = ', '.join(f"`{k}`: '{v}'" for k, v in props.items())
                 query = f"CREATE (t:Table {{{props_str}}})"
@@ -283,17 +291,17 @@ async def generate_spring_boot_project(file_names):
             yield f"{file_name}-Step1 completed\n"
             
             # * 2 단계 : 리포지토리 인터페이스 생성
-            jpa_method_list = await start_repository_processing(object_name) 
+            jpa_method_list, global_variables = await start_repository_processing(object_name) 
             yield f"{file_name}-Step2 completed\n"
             
             # * 3 단계 : 서비스 스켈레톤 생성
-            service_creation_info, service_skeleton, service_class_name = await start_service_skeleton_processing(entity_name_list, object_name)
+            service_creation_info, service_skeleton, service_class_name = await start_service_skeleton_processing(entity_name_list, object_name, global_variables)
             yield f"{file_name}-Step3 completed\n"
 
             # * 4 단계 : 각 프로시저별 서비스 생성
             for service_data in service_creation_info:
                 await start_service_preprocessing(
-                    service_data['method_skeleton_code'], 
+                    service_data['service_method_skeleton'],
                     service_data['command_class_variable'],
                     service_data['procedure_name'],
                     jpa_method_list, 

@@ -1,5 +1,6 @@
 import os
 import logging
+import textwrap
 import aiofiles
 import tiktoken
 from prompt.service_skeleton_prompt import convert_controller_method_code, convert_function_code
@@ -23,6 +24,17 @@ def convert_to_pascal_case(snake_str: str) -> str:
     return ''.join(word.capitalize() for word in snake_str.split('_'))
 
 
+# 역할: 스네이크 케이스 형식의 문자열을 카멜 케이스로 변환합니다.
+#      예시) employee_payroll -> employeePayroll
+# 매개변수: 
+#   - snake_str: 변환할 스네이크 케이스 문자열
+# 반환값: 
+#   - 카멜 케이스로 변환된 문자열
+def convert_to_camel_case(snake_str: str) -> str:
+    words = snake_str.split('_')
+    return words[0].lower() + ''.join(word.capitalize() for word in words[1:])
+
+
 # 역할: 스프링부트 서비스 클래스의 기본 골격을 생성합니다.
 #      서비스 클래스에는 필요한 리포지토리 의존성과 기본 어노테이션이 포함됩니다.
 # 매개변수: 
@@ -30,15 +42,25 @@ def convert_to_pascal_case(snake_str: str) -> str:
 #                       (예: employee_management)
 #   - required_entities: 서비스에서 사용할 엔티티 클래스명 목록
 #                       (예: ['Employee', 'Department'])
+#   - global_variables: 전역 변수 목록
 # 반환값: 
 #   - template: 생성된 서비스 클래스 코드 문자열
 #   - service_class_name: 생성된 서비스 클래스명 (예: EmployeeManagementService)
-async def create_service_skeleton(object_name: str, entity_name_list: list) -> str:
+async def create_service_skeleton(object_name: str, entity_name_list: list, global_variables: list) -> str:
     try:
         # * 1. 파스칼 케이스로 변환하여 서비스 클래스명 생성 
         service_class_name = convert_to_pascal_case(object_name) + "Service"
         
-        # * 2. 서비스 클래스 템플릿 생성
+        # * 2. 글로벌 변수를 클래스 필드로 변환
+        global_fields = []
+        for var in global_variables:
+            # TODO 이거 타입 자바로 변환하는 프롬포트 필요 
+            var_type = var['type'] if var['type'] != 'Unknown' else 'String'
+            var_name = convert_to_camel_case(var['name'])
+            field = f"    private {var_type} {var_name};"
+            global_fields.append(field)
+
+        # * 3. 서비스 클래스 템플릿 생성
         service_class_template = f"""package com.example.testjava.service;
 
 {chr(10).join(f'import com.example.testjava.entity.{entity};' for entity in entity_name_list)}
@@ -47,14 +69,16 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.beans.factory.annotation.Autowired;
-import java.time.LocalDate;
-import java.util.List;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
+import java.time.*;
+import java.util.*;
 
 @RestController
 @Transactional
 public class {service_class_name} {{
+
+{chr(10).join(global_fields)}
 
 {chr(10).join(f'    @Autowired\n    private {entity}Repository {entity[0].lower()}{entity[1:]}Repository;' for entity in entity_name_list)}
 CodePlaceHolder
@@ -156,11 +180,12 @@ async def save_java_file(class_name: str, source_code: str) -> None:
 #                       (예: ['Employee', 'Department'])
 #   - service_base_name: 서비스 클래스명의 기반이 될 객체 이름
 #                       (예: employee_management)
+#   - global_variables: 전역 변수 목록
 # 반환값: 
 #   - service_components: 생성된 서비스 구성요소 목록 (커맨드 클래스, 메서드 등)
 #   - service_template: 서비스 클래스의 기본 템플릿 코드
 #   - service_class_name: 생성된 서비스 클래스명
-async def start_service_skeleton_processing(entity_name_list, object_name):
+async def start_service_skeleton_processing(entity_name_list, object_name, global_variables):
 
     connection = Neo4jConnection()  
     procedure_groups = {}
@@ -168,25 +193,26 @@ async def start_service_skeleton_processing(entity_name_list, object_name):
     logging.info(f"[{object_name}] 서비스 틀 생성을 시작합니다.")
 
     try:
-
-        # TODO 프로시저 스펙에 있는 전역변수는 서비스 클래스의 필드로 되어야함
         query = [
             f"""
-            MATCH (v:Variable)-[:SCOPE]-(p)
+            MATCH (p)
             WHERE (p:PROCEDURE OR p:CREATE_PROCEDURE_BODY OR p:FUNCTION)
-            AND v.object_name = '{object_name}'
             AND p.object_name = '{object_name}'
             OPTIONAL MATCH (p)-[:PARENT_OF]->(d:DECLARE)
             WHERE d.object_name = '{object_name}'
-            OPTIONAL MATCH (p)-[:PARENT_OF]->(r:RETURN)
-            WHERE r.object_name = '{object_name}'
-            WITH v, p, d, r, CASE 
+            OPTIONAL MATCH (d)-[:SCOPE]-(dv:Variable)
+            WHERE dv.object_name = '{object_name}'
+            OPTIONAL MATCH (p)-[:PARENT_OF]->(s:SPEC)
+            WHERE s.object_name = '{object_name}'
+            OPTIONAL MATCH (s)-[:SCOPE]-(sv:Variable)
+            WHERE sv.object_name = '{object_name}'
+            WITH p, d, dv, s, sv, CASE 
                 WHEN p:FUNCTION THEN 'FUNCTION'
                 WHEN p:PROCEDURE THEN 'PROCEDURE'
                 WHEN p:CREATE_PROCEDURE_BODY THEN 'CREATE_PROCEDURE_BODY'
             END as node_type
-            RETURN v, p, d, r, node_type
-            """
+            RETURN p, d, dv, s, sv, node_type
+            """        
         ]
 
         nodes = await connection.execute_queries(query)  
@@ -199,22 +225,32 @@ async def start_service_skeleton_processing(entity_name_list, object_name):
             if proc_name not in procedure_groups:
                 procedure_groups[proc_name] = {
                     'parameters': [], 
-                    'declaration': item['p'].get('declaration', ''),  
-                    'local_variables': item['d'].get('node_code', '') if item['d'] else '', 
-                    'return_code': item['r'].get('node_code', '') if item['r'] else '', 
+                    'local_variables': [],
+                    'declaration': item['s'].get('node_code', '') if item['s'] else '',
                     'node_type': item['node_type']
                 }
             
-            # * 프로시저 입력 매개변수 정보 추가
-            variable = {
-                'type': item['v']['type'],
-                'name': item['v']['name']
-            }
-            procedure_groups[proc_name]['parameters'].append(variable)
+            # * SPEC과 연결된 변수는 파라미터로 추가
+            if item['sv']:
+                parameter = {
+                    'type': item['sv']['type'],
+                    'name': item['sv']['name']
+                }
+                if parameter not in procedure_groups[proc_name]['parameters']:
+                    procedure_groups[proc_name]['parameters'].append(parameter)
+
+            # * DECLARE와 연결된 변수는 로컬 변수로 추가
+            if item['dv']:
+                local_var = {
+                    'type': item['dv']['type'],
+                    'name': item['dv']['name']
+                }
+                if local_var not in procedure_groups[proc_name]['local_variables']:
+                    procedure_groups[proc_name]['local_variables'].append(local_var)
 
 
         # * 서비스 클래스의 틀을 생성합니다.
-        service_skeleton, service_class_name = await create_service_skeleton(object_name, entity_name_list)
+        service_skeleton, service_class_name = await create_service_skeleton(object_name, entity_name_list, global_variables)
 
 
         # * 커맨드 클래스 및 메서드 틀 생성을 위한 데이터를 구성합니다.
@@ -225,7 +261,7 @@ async def start_service_skeleton_processing(entity_name_list, object_name):
             method_skeleton_data = {
                 'procedure_name': proc_name,
                 'local_variables': proc_data['local_variables'],
-                'return_code': proc_data['return_code'],
+                'declaration': proc_data['declaration'],
                 'node_type': proc_data['node_type']
             }
 
@@ -242,11 +278,16 @@ async def start_service_skeleton_processing(entity_name_list, object_name):
                 proc_data['node_type']
             )
 
+            # * 서비스 틀과 메서드틀을 병합합니다.
+            method_skeleton_code = textwrap.indent(method_skeleton_code, '    ')
+            service_method_skeleton = service_skeleton.replace("CodePlaceHolder", method_skeleton_code)
+
             # * 결과를 딕셔너리로 구성하여 리스트에 추가
             service_creation_info.append({
                 'command_class_variable': command_class_variable,
                 'method_skeleton_name': method_skeleton_name,
                 'method_skeleton_code': method_skeleton_code,
+                'service_method_skeleton': service_method_skeleton,
                 'procedure_name': proc_name
             })
             logging.info(f"[{object_name}] {proc_name}의 메서드 틀 생성 완료\n")

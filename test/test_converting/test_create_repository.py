@@ -55,12 +55,15 @@ class TestRepositoryGeneration(unittest.IsolatedAsyncioTestCase):
             
             # * Repository Interface 생성 테스트 시작
             jpa_results = {} 
+            global_variables = {}
             for object_name in object_names:
-                methods = await start_repository_processing(object_name)
+                methods, global_variable_nodes = await start_repository_processing(object_name)
                 jpa_results[object_name] = methods
+                global_variables[object_name] = global_variable_nodes
             
             # * 결과를 결과 파일에 저장합니다.
             test_data["jpa_method_list"] = jpa_results
+            test_data["global_variables"] = global_variables
             with open(result_file_path, 'w', encoding='utf-8') as f:
                 json.dump(test_data, f, ensure_ascii=False, indent=2)
 

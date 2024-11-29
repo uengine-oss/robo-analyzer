@@ -228,8 +228,8 @@ JPA Method List:
 def convert_service_code(convert_sp_code, method_skeleton, variable_list, command_class_variable, context_range, count, jpa_method_list):
    
    try:  
-      context_range_json = json.dumps(context_range)
-      command_class_variable = json.dumps(command_class_variable)
+      context_range_json = json.dumps(context_range, indent=2)
+      command_class_variable = json.dumps(command_class_variable, ensure_ascii=False, indent=2)
 
       chain = (
          RunnablePassthrough()

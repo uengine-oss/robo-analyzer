@@ -34,6 +34,7 @@ DDL 내용입니다:
    - 컬럼명
    - 데이터 타입
    - 컬럼 코멘트
+   - null 허용 여부
 
 3. 키 정보 추출
    - Primary Key 컬럼
@@ -53,7 +54,8 @@ DDL 내용입니다:
                 {{
                     "name": "컬럼명",
                     "type": "데이터타입",
-                    "comment": "컬럼 설명"
+                    "comment": "컬럼 설명",
+                    "nullable": "true/false"
                 }}
             ],
             "keys": {{

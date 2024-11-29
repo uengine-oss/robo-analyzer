@@ -26,10 +26,15 @@ Stored Procedure Code:
 
 
 Used Variable:
-{variable_node}
+{used_variable_nodes}
+
+
+Global Variable:
+{global_variable_nodes}
 
 
 생성될 JPA Query Methods는 {count}개입니다.
+'Global Variable'들은 애플리케이션 전반에서 전역적으로 사용되는 변수들로 필요한 경우 활용하세요.
 
 
 [SECTION 1] JPA Query Methods 생성 지침
@@ -89,6 +94,7 @@ Used Variable:
 - 인터페이스나 클래스 선언부 제외
 - @Repository 어노테이션 제외
 - 순수 쿼리 메서드만 'jpaQueryMethod'에 포함
+- 'method' 필드는 반드시 @Query 어노테이션과 메소드 시그니처를 개행문자(\n)로 구분하여 포함해야 합니다
 
 예시 출력:
 @Query("적절한 쿼리문, value= 를 쓰지마세요")
@@ -117,14 +123,16 @@ Used Variable:
 #      각 SQL 문은 읽기 전용 쿼리로 변환되며, 데이터 변경 작업은 서비스 레이어로 위임됩니다.
 # 매개변수: 
 #   - repository_nodes : 테이블과 직접 연결된 PL/SQL 노드 정보
-#   - variable_nodes_context : SQL에서 사용된 변수들의 정보
+#   - used_variable_nodes : SQL에서 사용된 변수들의 정보
 #   - convert_data_count : 하나의 SQL 문에서 생성될 JPA Query Method의 수
 # 반환값: 
 #   - result : LLM이 생성한 Repository 메서드 정보
-def convert_repository_code(repository_nodes, variable_nodes_context, data_count):
+def convert_repository_code(repository_nodes, used_variable_nodes, data_count, global_variable_nodes):
     
     try: 
-        repository_nodes = json.dumps(repository_nodes)
+        repository_nodes = json.dumps(repository_nodes, ensure_ascii=False, indent=2)
+        used_variable_nodes = json.dumps(used_variable_nodes, ensure_ascii=False, indent=2)
+        global_variable_nodes = json.dumps(global_variable_nodes, ensure_ascii=False, indent=2)
 
         chain = (
             RunnablePassthrough()
@@ -132,7 +140,7 @@ def convert_repository_code(repository_nodes, variable_nodes_context, data_count
             | llm
             | JsonOutputParser()
         )
-        result = chain.invoke({"repository_nodes": repository_nodes, "variable_node": variable_nodes_context, "count": data_count})
+        result = chain.invoke({"repository_nodes": repository_nodes, "used_variable_nodes": used_variable_nodes, "count": data_count, "global_variable_nodes": global_variable_nodes})
         return result
     
     except Exception:

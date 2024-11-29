@@ -61,9 +61,10 @@ class TestSkeletonGeneration(unittest.IsolatedAsyncioTestCase):
 
                 # * 결과 파일에서 해당 객체의 데이터를 가져옵니다
                 entity_name_list = test_data.get('entity_name_list', {}).get(object_name, [])
-
+                global_variables = test_data.get('global_variables', {}).get(object_name, [])
+                
                 # * Service Skeleton 생성
-                service_skeleton_list, service_skeleton, service_class_name = await start_service_skeleton_processing(entity_name_list, object_name)
+                service_skeleton_list, service_skeleton, service_class_name = await start_service_skeleton_processing(entity_name_list, object_name, global_variables)
                 
                 # * 객체별 결과 저장
                 skeleton_results[object_name] = {

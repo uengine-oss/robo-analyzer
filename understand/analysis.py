@@ -247,7 +247,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
     context_range = []                # LLM이 분석할 스토어드 프로시저의 범위
     cypher_query = []                 # 사이퍼 쿼리를 담을 리스트
     node_statementType = set()        # 노드의 타입을 저장할 세트
-    current_procedure = {}            # 프로시저 정보를 저장할 딕셔너리
+    procedure_name = None             # 프로시저 정보를 저장할 딕셔너리
     extract_code = ""                 # 범위 만큼 추출된 스토어드 프로시저
     focused_code = ""                 # 전체적인 스토어드 프로시저 코드
     sp_token_count = 0                # 토큰 수
@@ -378,7 +378,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
 
                 # * 변수 노드에 사용된 라인을 나타내는 속성을 추가합니다.
                 for var_name in variables:
-                    cypher_query.append(f"MATCH (v:Variable {{name: '{var_name}', object_name: '{object_name}'}}) WHERE v.from_startLine <= {start_line} AND v.from_endLine >= {end_line} WITH v SET v.`{var_range}` = 'Used'")
+                    cypher_query.append(f"MATCH (v:Variable {{name: '{var_name}', object_name: '{object_name}', procedure_name: '{procedure_name}'}}) WITH v SET v.`{var_range}` = 'Used'")
 
 
                 # * CALL 호출 관계를 생성합니다
@@ -417,16 +417,10 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
     #   - statement_type (str): 선언부의 타입
     def process_declaration_part(declaration_code, node_startLine, statement_type):
         try:
-            # * 현재 프로시저 노드의 시작 및 끝 라인 및 선언부를 저장합니다
-            scope_start_line = current_procedure.get('startLine', 0)
-            scope_end_line = current_procedure.get('endLine', 0) 
-            procedure_type = current_procedure.get('type', 'unknown') 
-
             # * 매개변수의 역할을 결정합니다
             role = ('패키지 전역 변수' if statement_type == 'PACKAGE_VARIABLE' else
                     '변수 선언및 초기화' if statement_type == 'DECLARE' else
-                    '함수 매개변수' if procedure_type == 'FUNCTION' else
-                    '입력 매개변수' if procedure_type in ['PROCEDURE', 'CREATE_PROCEDURE_BODY'] else
+                    '함수 및 프로시저 입력 매개변수' if statement_type == 'SPEC' else
                     '알 수 없는 매개변수')
             
 
@@ -440,23 +434,23 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
                 
                 if statement_type == 'DECLARE':
                     cypher_query.extend([
-                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', from_startLine: {scope_start_line}, from_endLine: {scope_end_line}, role: '{role}'}}) ",
-                        f"MATCH (p:{statement_type} {{startLine: {node_startLine}, object_name: '{object_name}', from_startLine: {scope_start_line}, from_endLine: {scope_end_line}}}) "
-                        f"MATCH (v:Variable {{name: '{var_name}', object_name: '{object_name}', from_startLine: {scope_start_line}, from_endLine: {scope_end_line}}})"
+                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', procedure_name: '{procedure_name}', role: '{role}', scope: 'Local'}}) ",
+                        f"MATCH (p:{statement_type} {{startLine: {node_startLine}, object_name: '{object_name}', procedure_name: '{procedure_name}'}}) "
+                        f"MATCH (v:Variable {{name: '{var_name}', object_name: '{object_name}', procedure_name: '{procedure_name}'}})"
                         f"MERGE (p)-[:SCOPE]->(v)"
                     ])
                 elif statement_type == 'PACKAGE_VARIABLE':
                     cypher_query.extend([
-                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', role: '{role}', scope: 'Global'}}) ",
-                        f"MATCH (p:{statement_type} {{startLine: {node_startLine}, object_name: '{object_name}'}}) "
-                        f"MATCH (v:Variable {{name: '{var_name}', object_name: '{object_name}', scope: 'Global'}})"
+                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', role: '{role}', scope: 'Global', procedure_name: '{procedure_name}'}}) ",
+                        f"MATCH (p:{statement_type} {{startLine: {node_startLine}, object_name: '{object_name}', procedure_name: '{procedure_name}'}}) "
+                        f"MATCH (v:Variable {{name: '{var_name}', object_name: '{object_name}', scope: 'Global', procedure_name: '{procedure_name}'}})"
                         f"MERGE (p)-[:SCOPE]->(v)"
                     ])
                 else:
                     cypher_query.extend([
-                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', parameter_type: '{var_parameter_type}', from_startLine: {scope_start_line}, from_endLine: {scope_end_line}, role: '{role}'}}) ",
-                        f"MATCH (p:{statement_type} {{startLine: {node_startLine}, object_name: '{object_name}'}}) "
-                        f"MATCH (v:Variable {{name: '{var_name}', object_name: '{object_name}', from_startLine: {scope_start_line}, from_endLine: {scope_end_line}}})"
+                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', parameter_type: '{var_parameter_type}', procedure_name: '{procedure_name}', role: '{role}', scope: 'Local'}}) ",
+                        f"MATCH (p:{statement_type} {{startLine: {node_startLine}, object_name: '{object_name}', procedure_name: '{procedure_name}'}}) "
+                        f"MATCH (v:Variable {{name: '{var_name}', object_name: '{object_name}', procedure_name: '{procedure_name}'}})"
                         f"MERGE (p)-[:SCOPE]->(v)"
                     ])
 
@@ -508,7 +502,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
     #   - parent_startLine (int, optional): 부모 노드의 시작 라인 번호
     #   - parent_statementType (str, optional): 부모 노드의 타입
     async def traverse(node, schedule_stack, parent_startLine=None, parent_statementType=None):
-        nonlocal focused_code, sp_token_count, extract_code, current_procedure
+        nonlocal focused_code, sp_token_count, extract_code, procedure_name
 
         # * 분석에 필요한 필요한 정보를 준비하거나 할당합니다
         start_line, end_line, statement_type = node['startLine'], node['endLine'], node['type']
@@ -528,7 +522,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
 
         # * 프로시저 노드의 경우, 프로시저 정보를 저장합니다
         if statement_type in ["PROCEDURE", "CREATE_PROCEDURE_BODY", "FUNCTION"]:
-            current_procedure = {"startLine": start_line, "endLine": end_line, "type": statement_type}
+            procedure_name = extract_procedure_name(node_code)
 
 
         # * focused_code에서 분석할 범위를 기준으로 잘라냅니다.
@@ -552,20 +546,16 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
         # * 노드의 타입에 따라서 사이퍼쿼리를 생성 및 해당 노드의 범위를 분석할 범위를 저장합니다
         if not children and statement_type not in ["DECLARE", "PROCEDURE_SPEC", "SPEC", "PACKAGE_VARIABLE"]:
             context_range.append({"startLine": start_line, "endLine": end_line})
-            cypher_query.append(f"MERGE (n:{statement_type} {{startLine: {start_line}, object_name: '{object_name}'}}) SET n.endLine = {end_line}, n.name = '{statement_type}[{start_line}]', n.node_code = '{node_code.replace("'", "\\'")}', n.token = {node_size}, n.object_name = '{object_name}'")
+            cypher_query.append(f"MERGE (n:{statement_type} {{startLine: {start_line}, object_name: '{object_name}'}}) SET n.endLine = {end_line}, n.name = '{statement_type}[{start_line}]', n.node_code = '{node_code.replace("'", "\\'")}', n.token = {node_size}, n.object_name = '{object_name}', n.procedure_name = '{procedure_name}'")
         else:
             if statement_type == "ROOT":
                 cypher_query.append(f"MERGE (n:{statement_type} {{startLine: {start_line}, object_name: '{object_name}'}}) SET n.endLine = {end_line}, n.name = '{object_name}', n.summary = '최상위 시작노드'")
-            elif statement_type in ["PROCEDURE", "FUNCTION", "CREATE_PROCEDURE_BODY"]:
-                cypher_query.append(f"MERGE (n:{statement_type} {{startLine: {start_line}, object_name: '{object_name}'}}) SET n.endLine = {end_line}, n.name = '{statement_type}[{start_line}]', n.procedure_name = '{extract_procedure_name(node_code)}', n.summarized_code = '{summarized_code.replace('\n', '\\n').replace("'", "\\'")}', n.node_code = '{node_code.replace('\n', '\\n').replace("'", "\\'")}', n.token = {node_size}, n.object_name = '{object_name}'")
-            elif statement_type == "DECLARE":
-                cypher_query.append(f"MERGE (n:{statement_type} {{startLine: {start_line}, object_name: '{object_name}'}}) SET n.endLine = {end_line}, n.name = '{statement_type}[{start_line}]', n.node_code = '{node_code.replace('\n', '\\n').replace("'", "\\'")}', n.token = {node_size}, n.object_name = '{object_name}', n.from_startLine = {current_procedure['startLine']}, n.from_endLine = {current_procedure['endLine']}")
             else:
-                cypher_query.append(f"MERGE (n:{statement_type} {{startLine: {start_line}, object_name: '{object_name}'}}) SET n.endLine = {end_line}, n.name = '{statement_type}[{start_line}]', n.summarized_code = '{summarized_code.replace('\n', '\\n').replace("'", "\\'")}', n.node_code = '{node_code.replace('\n', '\\n').replace("'", "\\'")}', n.token = {node_size}, n.object_name = '{object_name}'")
+                cypher_query.append(f"MERGE (n:{statement_type} {{startLine: {start_line}, object_name: '{object_name}'}}) SET n.endLine = {end_line}, n.name = '{statement_type}[{start_line}]', n.summarized_code = '{summarized_code.replace('\n', '\\n').replace("'", "\\'")}', n.node_code = '{node_code.replace('\n', '\\n').replace("'", "\\'")}', n.token = {node_size}, n.object_name = '{object_name}', n.procedure_name = '{procedure_name}'")
 
 
         # * 현재 노드가 프로시저 선언부인 경우, 변수 노드를 생성합니다
-        if (current_procedure and statement_type in ["SPEC", "DECLARE"]) or statement_type == "PACKAGE_VARIABLE":
+        if (procedure_name and statement_type in ["SPEC", "DECLARE"]) or statement_type == "PACKAGE_VARIABLE":
             process_declaration_part(node_code, start_line, statement_type)
 
 

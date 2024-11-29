@@ -10,7 +10,7 @@ from langchain_openai import ChatOpenAI
 from util.exception  import LLMCallError
 from langchain_core.output_parsers import JsonOutputParser
 
-
+# TODO 일단 기본키 외래키 같은것들도 정보에 추가해야하고, 프롬포트로 수정 필요(기본키 외래키가 식별될 경우에만 추가하도록)
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
 llm = ChatAnthropic(model="claude-3-5-sonnet-20241022", max_tokens=8000, temperature=0.0)

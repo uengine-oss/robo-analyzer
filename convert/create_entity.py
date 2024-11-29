@@ -128,16 +128,30 @@ async def start_entity_processing(object_name):
         # * 테이블 노드를 가져오기 위한 사이퍼쿼리 생성 및 실행합니다
         query = [f"MATCH (n:Table {{object_name: '{object_name}'}}) RETURN n"]
         table_nodes = await connection.execute_queries(query)
+
+        # * 테이블 데이터에서 필요한 필드만 추출합니다
+        METADATA_FIELDS = {'name', 'object_name', 'id', 'primary_keys', 'foreign_keys', 'description', 'reference_tables'}
         table_data_list = []
 
 
         # * 테이블 데이터의 구조를 사용하기 쉽게 구조를 변경합니다
         for item in table_nodes[0]:
-            transformed_table_info = {
-                'name': item['n']['name'],
-                'fields': [(key, value) for key, value in item['n'].items() if key not in ['name', 'object_name']],
-            }
-            table_data_list.append(transformed_table_info)
+            node_data = item['n']
+            table_info = {'name': node_data['name']}
+            
+            # * 일반 필드 추출
+            fields = [(key, value) for key, value in node_data.items() 
+                     if key not in METADATA_FIELDS and value]
+            if fields:
+                table_info['fields'] = fields
+            
+            # * 메타데이터 추가 (값이 있는 경우만)
+            # TODO 일단 외래키 처리는 하지 않음 (추후에 검토)
+            for meta_key in ['primary_keys']:
+                if node_data.get(meta_key):
+                    table_info[meta_key] = node_data[meta_key]
+            
+            table_data_list.append(table_info)
         
 
         # * 엔티티 클래스 생성을 시작합니다.
