@@ -161,7 +161,6 @@ async def process_ddl_and_table_nodes(ddl_file_path, connection: Neo4jConnection
                 column_props = {
                     col['name']: {
                         'type': col['type'],
-                        'comment': col['comment'].replace("'", "\\'"),
                         'nullable': col['nullable']
                     }
                     for col in columns
@@ -171,7 +170,6 @@ async def process_ddl_and_table_nodes(ddl_file_path, connection: Neo4jConnection
                 # * 테이블의 메타 정보를 Neo4j 노드 속성으로 구성
                 props = {
                     'name': table_info['name'],
-                    'description': table_info['comment'].replace("'", "\\'"),
                     'primary_keys': ','.join(key for key in keys['primary']),
                     'foreign_keys': ','.join(fk['column'] for fk in keys['foreign']),
                     'reference_tables': ','.join(

@@ -251,7 +251,6 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
     extract_code = ""                 # 범위 만큼 추출된 스토어드 프로시저
     focused_code = ""                 # 전체적인 스토어드 프로시저 코드
     sp_token_count = 0                # 토큰 수
-    LLM_count = 0                     # LLM 호출 횟수
 
     logging.info(f"\n[{object_name}] 사이퍼 쿼리 생성 시작\n")
 
@@ -265,13 +264,12 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
     # 반환값: 
     #   - list: 생성된 사이퍼 쿼리 목록
     async def process_analysis_results():
-        nonlocal sp_token_count, LLM_count, context_range, focused_code, extract_code
+        nonlocal sp_token_count, context_range, focused_code, extract_code
 
         try:
             # * context range의 수를 측정하고, 정렬을 진행합니다.
             context_range_count = len(context_range)
             context_range = sorted(context_range, key=lambda x: x['startLine'])
-            LLM_count += 1
             cypher_queries = []
 
 
@@ -386,7 +384,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
                     for name in called_nodes:
                         if '.' in name:  # 다른 패키지 호출인 경우
                             package_name, proc_name = name.split('.')
-                            call_relation_query = f"MATCH (c:{statement_type} {{startLine: {start_line}, object_name: '{object_name}'}}) WITH c MERGE (p:PROCEDURE:FUNCTION {{object_name: '{package_name}', procedure_name: '{proc_name}', name: '{name}'}}) MERGE (c)-[:CALLS]->(p)"
+                            call_relation_query = f"MATCH (c:{statement_type} {{startLine: {start_line}, object_name: '{object_name}'}}) WITH c MERGE (p:PROCEDURE {{object_name: '{package_name}', procedure_name: '{proc_name}'}}) MERGE (c)-[:CALLS]->(p)"
                         else:            # 자신 패키지 내부 호출인 경우
                             call_relation_query = f"MATCH (c:{statement_type} {{startLine: {start_line}, object_name: '{object_name}'}}) WITH c MATCH (p) WHERE (p:PROCEDURE OR p:FUNCTION) AND p.object_name = '{object_name}' AND p.procedure_name = '{name}' MERGE (c)-[:CALLS]->(p)"
                         cypher_query.append(call_relation_query)
@@ -546,12 +544,14 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
         # * 노드의 타입에 따라서 사이퍼쿼리를 생성 및 해당 노드의 범위를 분석할 범위를 저장합니다
         if not children and statement_type not in ["DECLARE", "PROCEDURE_SPEC", "SPEC", "PACKAGE_VARIABLE"]:
             context_range.append({"startLine": start_line, "endLine": end_line})
-            cypher_query.append(f"MERGE (n:{statement_type} {{startLine: {start_line}, object_name: '{object_name}'}}) SET n.endLine = {end_line}, n.name = '{statement_type}[{start_line}]', n.node_code = '{node_code.replace("'", "\\'")}', n.token = {node_size}, n.object_name = '{object_name}', n.procedure_name = '{procedure_name}'")
+            cypher_query.append(f"MERGE (n:{statement_type} {{startLine: {start_line}, object_name: '{object_name}'}}) SET n.endLine = {end_line}, n.name = '{statement_type}[{start_line}]', n.node_code = '{node_code.replace("'", "\\'")}', n.token = {node_size}, n.procedure_name = '{procedure_name}'")
         else:
             if statement_type == "ROOT":
                 cypher_query.append(f"MERGE (n:{statement_type} {{startLine: {start_line}, object_name: '{object_name}'}}) SET n.endLine = {end_line}, n.name = '{object_name}', n.summary = '최상위 시작노드'")
+            elif statement_type == "PROCEDURE":
+                cypher_query.append(f"MERGE (n:{statement_type} {{procedure_name: '{procedure_name}', object_name: '{object_name}'}}) SET n.startLine = {start_line}, n.endLine = {end_line}, n.name = '{statement_type}[{start_line}]', n.summarized_code = '{summarized_code.replace('\n', '\\n').replace("'", "\\'")}', n.node_code = '{node_code.replace('\n', '\\n').replace("'", "\\'")}', n.token = {node_size}")
             else:
-                cypher_query.append(f"MERGE (n:{statement_type} {{startLine: {start_line}, object_name: '{object_name}'}}) SET n.endLine = {end_line}, n.name = '{statement_type}[{start_line}]', n.summarized_code = '{summarized_code.replace('\n', '\\n').replace("'", "\\'")}', n.node_code = '{node_code.replace('\n', '\\n').replace("'", "\\'")}', n.token = {node_size}, n.object_name = '{object_name}', n.procedure_name = '{procedure_name}'")
+                cypher_query.append(f"MERGE (n:{statement_type} {{startLine: {start_line}, object_name: '{object_name}'}}) SET n.endLine = {end_line}, n.name = '{statement_type}[{start_line}]', n.summarized_code = '{summarized_code.replace('\n', '\\n').replace("'", "\\'")}', n.node_code = '{node_code.replace('\n', '\\n').replace("'", "\\'")}', n.token = {node_size}, n.procedure_name = '{procedure_name}'")
 
 
         # * 현재 노드가 프로시저 선언부인 경우, 변수 노드를 생성합니다
@@ -580,7 +580,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
             await traverse(child, schedule_stack, start_line, statement_type)
             
             # * 현재 노드와 이전의 같은 레벨의 노드간의 NEXT 관계를 위한 사이퍼쿼리를 생성합니다.
-            if prev_id:
+            if prev_id and prev_statement not in ["FUNCTION", "PROCEDURE", "PACKAGE_VARIABLE", "PROCEDURE_SPEC"]:
                 cypher_query.append(f"""
                     MATCH (prev:{prev_statement} {{startLine: {prev_id}, object_name: '{object_name}'}})
                     WITH prev
@@ -594,7 +594,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
         if children:
             if statement_type in ["PROCEDURE", "FUNCTION", "CREATE_PROCEDURE_BODY"] and context_range and focused_code:
                 extract_code, line_number = extract_code_within_range(focused_code, context_range)
-                logging.info(f"[{object_name}] 프로시저 끝 분석 시작\n")
+                logging.info(f"[{procedure_name}] 프로시저 끝 분석 시작\n")
                 await signal_for_process_analysis(last_line)
             elif statement_type not in ["CREATE_PROCEDURE_BODY", "ROOT", "PACKAGE_SPEC", "PACKAGE_BODY", "PROCEDURE", "PROCEDURE_SPEC", "FUNCTION", "DECLARE", "BODY", "TRY"]:
                 context_range.append({"startLine": start_line, "endLine": end_line})
@@ -615,7 +615,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
 
 
         # * 뷴석이 끝났다는 의미를 가진 이벤트를 송신합니다.
-        logging.info(f"[{object_name}] 전체 분석 완료 (총 LLM 호출 횟수: {LLM_count})")
+        logging.info(f"[{object_name}] 전체 분석 완료")
         await send_queue.put({"type": "end_analysis"})
 
     except UnderstandingError as e:
