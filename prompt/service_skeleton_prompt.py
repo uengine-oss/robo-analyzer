@@ -52,12 +52,8 @@ controller_method_prompt = PromptTemplate.from_template(
         * VARCHAR, VARCHAR2, CHAR -> String
         * DATE -> LocalDate
         * TIMESTAMP -> LocalDateTime
-        * ROWTYPE이 포함된 타입 (예: TABLE_NAME.ROWTYPE) -> TABLE_NAME
         * 테이블 이름의 경우 테이블명을 타입으로 사용하세요 (엔티티 클래스를 타입으로 설정)
-    - 'local_variables'에서 변수의 타입 정보가 식별되지 않을 경우에만 Object로 선언하세요.
-    - 'local_variables'에 없는 변수는 절대로 생성하지 않음
     - 'local_variables' 배열이 비어있다면 메서드의 필드는 생성하지않음
-    - 'declaration'에 있는 변수는 command 클래스의 필드로 절대로 생성하지 않음
 
 4. 코드 구조
    - 문자열 "CodePlaceHolder"는 그대로 유지하고, 변경하지 마세요.
@@ -71,9 +67,8 @@ public ResponseEntity<String> methodName(@RequestBody {command_class_name} {comm
     Long id;
     String name;
     LocalDate date;
+    LocalDateTime time;
     Employee employee;
-    @ToDo("Original Type: EMPLOYEE_TABLE%TYPE")
-    Object employeeId;
 
     CodePlaceHolder
     return ResponseEntity.ok("message");
@@ -160,12 +155,8 @@ function_prompt = PromptTemplate.from_template(
         * VARCHAR, VARCHAR2, CHAR -> String
         * DATE -> LocalDate
         * TIMESTAMP -> LocalDateTime
-        * ROWTYPE이 포함된 타입 (예: TABLE_NAME.ROWTYPE) -> TABLE_NAME
         * 테이블 이름의 경우 테이블명을 타입으로 사용하세요 (엔티티 클래스를 타입으로 설정)
-    - 'local_variables'에서 변수의 타입 정보가 식별되지 않을 경우에만 Object로 선언하세요.
-    - 'local_variables'에 없는 변수는 절대로 생성하지 않음
     - 'local_variables' 배열이 비어있다면 메서드의 필드는 생성하지않음
-    - 'declaration'에 있는 변수는 command 클래스의 필드로 절대로 생성하지 않음
 
 4. 메서드의 파라미터 규칙
     - 'parameter_data'의 'parameters' 목록에 있는 파라미터만 메서드 파라미터로 생성
@@ -187,10 +178,8 @@ public ReturnType methodName(Type1 param1, Type2 param2) {{
     Long id;
     String name;
     LocalDate date;
+    LocalDateTime time;
     Employee employee;
-    @ToDo("Original Type: EMPLOYEE_TABLE%TYPE")
-    Object employeeId;
-
     
     CodePlaceHolder
 }}

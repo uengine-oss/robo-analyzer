@@ -70,7 +70,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.data.rest.core.annotation.RepositoryRestResource;
 import com.example.demo.entity.{entity_pascal_name};
-import java.time.LocalDate;
+import java.time.*;
 
 @RepositoryRestResource(collectionResourceRel = "{entity_camel_name}s", path = "{entity_camel_name}s")
 public interface {entity_pascal_name}Repository extends JpaRepository<{entity_pascal_name}, Long> {{

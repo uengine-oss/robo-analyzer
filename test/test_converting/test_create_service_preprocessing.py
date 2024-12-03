@@ -38,6 +38,7 @@ class TestPreServiceGeneration(unittest.IsolatedAsyncioTestCase):
         
         # * 테스트할 객체 이름들을 설정
         object_names = [
+            "TPX_PROJECT",
             "TPX_TMF_SYNC_JOB_STATUS",
             # "TPX_ALARM",
             # "TPX_ALARM_CONTENT",

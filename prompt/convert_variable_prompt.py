@@ -37,7 +37,7 @@ prompt = PromptTemplate.from_template(
    - BLOB -> byte[]
 
 2. 테이블 타입 매핑:
-   - 테이블 이름이 타입으로 전달된 경우 -> 해당 테이블명을 그대로 타입으로 사용
+   - 테이블 이름이 타입으로 전달된 경우 -> 해당 테이블 명을 그대로 타입으로 사용
    예시) 
    - EMPLOYEE -> Employee
    - TB_USER -> User
@@ -49,7 +49,6 @@ prompt = PromptTemplate.from_template(
    - NESTED TABLE -> List<타입>
 
 4. 특수 규칙:
-   - Object 타입은 명확하지 않은 경우에만 사용
    - 모든 변수는 카멜케이스로 변환되어야 합니다.
    - 테이블명을 타입으로 사용할 때는 파스칼케이스로 변환하세요.
 

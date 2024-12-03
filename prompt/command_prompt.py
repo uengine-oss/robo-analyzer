@@ -28,6 +28,10 @@ prompt = PromptTemplate.from_template(
 - parameters: 프로시저의 입력 파라미터 목록
 - procedure_name: 프로시저 이름
 
+{dir_name}
+
+- dir_name: 클래스가 저장될 디렉토리 이름(import문에 사용)
+
 
 [SECTION 1] Command 클래스 생성 규칙
 ===============================================
@@ -46,33 +50,29 @@ prompt = PromptTemplate.from_template(
      * VARCHAR, VARCHAR2, CHAR -> String
      * DATE -> LocalDate
      * TIMESTAMP -> LocalDateTime
-     * 테이블 이름의 경우 테이블명을 타입으로 사용하세요 (엔티티 클래스를 타입으로 설정)
-     * ROWTYPE이 포함된 타입 (예: EMPLOYEE.ROWTYPE) -> Employee
-    - 'parameters'에서 변수의 타입 정보가 식별되지 않을 경우에만 Object로 선언하세요.
+     * 테이블 이름의 경우 테이블 명을 타입으로 사용하세요. (엔티티 클래스를 타입으로 설정)
     - 'parameters'에 없는 변수는 절대 생성하지 않음
 
 3. import 추가 규칙
+   - Command 클래스 예시에 있는 import문들은 반드시 추가하세요.
    - 필요한 import문은 다음과 같습니다.
-     * java.time.LocalDate (날짜 타입 사용시)
-     * java.time.LocalDateTime (타임스탬프 사용시)
+     * java.time.*  
      * lombok.Getter
      * lombok.Setter
-   - 필드의 타입이 테이블 명(엔티티 클래스)를 타입으로 할 경우
-     * com.example.demo.entity.EntityName (엔티티 클래스 사용시)
+     * com.example.demo.entity.EntityName
    - 추가적인 import문은 반드시 필요에 따라 작성하세요.
 
 
 [SECTION 2] Command 클래스 예시
 ===============================================
 예시:
-package com.example.demo.command;
-import java.time.LocalDate;
+package com.example.demo.command.{dir_name};
+import java.time.*;
 import lombok.Getter;
 import lombok.Setter;
-import com.example.demo.entity.EntityName;
+import com.example.demo.entity.*;
 
 @Getter
-
 @Setter
 
 public class ExampleCommand {{
@@ -80,9 +80,8 @@ public class ExampleCommand {{
     private Long id;
     private String name;
     private LocalDate date;
+    private LocalDateTime time;
     private Employee employee;
-    @ToDo("Original Type: EMPLOYEE_TABLE%TYPE")
-    private Object employeeId;
 }}
 
 
@@ -105,9 +104,10 @@ public class ExampleCommand {{
 #      Getter/Setter가 포함된 완성된 Command 클래스를 생성합니다.
 # 매개변수: 
 #   - command_class_data : Command 클래스 생성에 필요한 데이터
+#   - dir_name : 클래스가 저장될 디렉토리 이름
 # 반환값: 
 #   - result : LLM이 생성한 Command 클래스 정보
-def convert_command_code(command_class_data):
+def convert_command_code(command_class_data, dir_name):
     
     try:
         command_class_data = json.dumps(command_class_data, ensure_ascii=False, indent=2)
@@ -118,7 +118,7 @@ def convert_command_code(command_class_data):
             | llm
             | JsonOutputParser()
         )
-        result = chain.invoke({"command_class_data": command_class_data})
+        result = chain.invoke({"command_class_data": command_class_data, "dir_name": dir_name})
         return result
     except Exception:
         err_msg = "Command 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다."

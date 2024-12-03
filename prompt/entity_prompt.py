@@ -59,9 +59,10 @@ prompt = PromptTemplate.from_template(
      * 복합키였던 경우 각 필드에 @Column(unique = true) 적용
 
 5. 데이터 타입 매핑
-   - 정수: long (기본 데이터 타입 사용)
-   - 실수: double (기본 데이터 타입 사용)
-   - 날짜/시간: LocalDate
+   - 정수: Long 
+   - 실수: Double
+   - 날짜: LocalDate
+   - 시간: LocalDateTime
    - 문자/문자열: String (char 사용 금지)
 
 6. Import 선언
@@ -83,7 +84,7 @@ import java.time.*;
 public class EntityName {{
     @Id
     @GeneratedValue(strategy = GenerationType.AUTO)
-    private long id;
+    private Long id;
     
     @Column(unique = true)
     private String originalPrimaryKey;

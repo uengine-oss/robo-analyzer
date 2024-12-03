@@ -126,12 +126,10 @@ async def traverse_node_for_merging_service(node_list, connection, object_name):
             # TODO 엄청 큰 TRY 노드 처리 필요(프롬포트 수정)
             if token > 1700:
                 java_code = await process_big_size_node(start_node['startLine'], java_code, connection, object_name)
-            else:
-                java_code = java_code
 
 
             # * 변수 값 할당 및 Java 코드 추가
-            all_java_code += java_code + "\n\n"
+            all_java_code += java_code + "\n"
             previous_node_endLine = start_node['endLine']
 
         return all_java_code
