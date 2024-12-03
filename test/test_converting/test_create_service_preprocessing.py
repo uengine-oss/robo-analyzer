@@ -65,7 +65,7 @@ class TestPreServiceGeneration(unittest.IsolatedAsyncioTestCase):
                 # * 각 스켈레톤 데이터에 대해 전처리 수행
                 for skeleton_data in service_skeleton_list:
                     await start_service_preprocessing(
-                        skeleton_data['method_skeleton_code'],
+                        skeleton_data['service_method_skeleton'],
                         skeleton_data['command_class_variable'],
                         skeleton_data['procedure_name'],
                         jpa_method_list,

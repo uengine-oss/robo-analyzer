@@ -5,7 +5,7 @@ from util.exception import Neo4jError
 
 class Neo4jConnection:
 
-    database_name = "test"
+    database_name = "note"
 
     # 역할 : Neo4j 데이터베이스와의 연결을 초기화합니다. 환경변수를 통해 연결 정보를 설정하며, 설정되지 않은 경우 기본값을 사용합니다.
     # 매개변수:

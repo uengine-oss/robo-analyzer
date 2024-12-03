@@ -19,6 +19,7 @@ SERVICE_PATH = 'java/demo/src/main/java/com/example/demo/service'
 #   - object_name : 현재 처리 중인 패키지/프로시저의 식별자
 # 반환값: 
 #   - summarized_java_code : 모든 자식 노드의 실제 코드로 대체된 완성된 Java 코드
+# TODO 프로시저 별 처리 필요 및 엄청 큰 TRY 노드 처리 필요(프롬포트 수정)
 async def process_big_size_node(node_startLine, summarized_java_code, connection, object_name):
     
     try:
@@ -72,34 +73,61 @@ async def traverse_node_for_merging_service(node_list, connection, object_name):
     try:
         previous_node_endLine = 0
         all_java_code = ""
+        try_catch_code = ""
 
 
         # * service class를 생성하기 위한 노드의 순회 시작
         for node in node_list:
+            
+            # * 노드 기본 정보 추출
             start_node = node['n']
             relationship = node['r'][1] if node['r'] else "NEXT"
             end_node = node['m']
+            start_node_type = node['nType'] 
+
+            # * 노드 속성 추출
             token = start_node['token']
-            node_name = start_node['name']
+            java_code = start_node['java_code']
+
+            # * 노드 타입 체크
+            is_duplicate = previous_node_endLine > start_node['startLine'] and previous_node_endLine
+            is_unnecessary = "EXECUTE_IMMEDIATE" in start_node_type
+            is_try_node = "TRY" in start_node_type
+            is_exception_node = "EXCEPTION" in start_node_type
+            
+            # * 노드 정보 출력
             print("-" * 40+"\n") 
             print(f"시작 노드 : [ 시작 라인 : {start_node['startLine']}, 이름 : ({start_node['name']}), 끝라인: {start_node['endLine']}, 토큰 : {start_node['token']}")
             print(f"관계: {relationship}")
             if end_node: print(f"종료 노드 : [ 시작 라인 : {end_node['startLine']}, 이름 : ({end_node['name']}), 끝라인: {end_node['endLine']}, 토큰 : {end_node['token']}")
-            is_duplicate = previous_node_endLine > start_node['startLine'] and previous_node_endLine
-            is_unnecessary = any(skip_type in node_name for skip_type in ["EXECUTE_IMMDDIATE", "EXCEPTION"])
-        
+
 
             # * 중복(이미 처리된 자식노드) 또는 불필요한 노드 건너뛰기
             if is_duplicate or is_unnecessary:
                 print("현재 노드에 대한 처리가 필요하지 않습니다.") 
                 continue
+            
 
+            # * TRY 노드 처리
+            if is_try_node:
+                try_catch_code += java_code
+                continue
+
+
+            # * EXCEPTION 노드 처리
+            if is_exception_node:
+                indented_code = textwrap.indent(try_catch_code, '    ')
+                java_code = java_code.replace("CodePlaceHolder", indented_code)
+                all_java_code += java_code + "\n\n"
+                try_catch_code = ""
+                continue
             
             # * 노드의 토큰 크기에 따라 처리 방식 결정
+            # TODO 엄청 큰 TRY 노드 처리 필요(프롬포트 수정)
             if token > 1700:
-                java_code = await process_big_size_node(start_node['startLine'], start_node['java_code'], connection, object_name)
+                java_code = await process_big_size_node(start_node['startLine'], java_code, connection, object_name)
             else:
-                java_code = start_node['java_code']
+                java_code = java_code
 
 
             # * 변수 값 할당 및 Java 코드 추가
@@ -127,7 +155,6 @@ async def traverse_node_for_merging_service(node_list, connection, object_name):
 async def create_service_class_file(service_skeleton, service_class_name, merge_method_code):
     try:
         # * 병합된 메서드 코드를 들여쓰기 처리
-        merge_method_code = textwrap.indent(merge_method_code, '    ')
         service_skeleton = service_skeleton.replace("CodePlaceHolder", merge_method_code)
 
         # * 서비스 클래스 생성을 위한 경로를 설정합니다.
@@ -176,12 +203,12 @@ async def start_service_postprocessing(method_skeleton_code, procedure_name, obj
             AND (p:FUNCTION OR p:PROCEDURE OR p:CREATE_PROCEDURE_BODY)
             MATCH (p)-[:PARENT_OF]->(n)
             WHERE NOT (n:ROOT OR n:Variable OR n:DECLARE OR n:Table 
-                  OR n:PACKAGE_BODY OR n:PACKAGE_SPEC OR n:PROCEDURE_SPEC)
+                  OR n:PACKAGE_BODY OR n:PACKAGE_SPEC OR n:PROCEDURE_SPEC OR n:SPEC)
             OPTIONAL MATCH (n)-[r:NEXT]->(m)
             WHERE m.object_name = '{object_name}'
             AND NOT (m:ROOT OR m:Variable OR m:DECLARE OR m:Table 
-                OR m:PACKAGE_BODY OR m:PACKAGE_SPEC OR m:PROCEDURE_SPEC)
-            RETURN n, r, m
+                OR m:PACKAGE_BODY OR m:PACKAGE_SPEC OR m:PROCEDURE_SPEC OR m:SPEC)
+            RETURN n, labels(n) as nType, r, m, labels(m) as mType
             ORDER BY n.startLine
             """
         ]
@@ -195,15 +222,13 @@ async def start_service_postprocessing(method_skeleton_code, procedure_name, obj
         all_java_code = await traverse_node_for_merging_service(results[0], connection, object_name)
 
 
-        # * 첫 줄과 나머지 줄을 분리하고, 나머지 줄을 들여쓰기 처리
-        lines = all_java_code.strip().split('\n', 1)  
-        first_line = lines[0].strip()  
-        rest_lines = textwrap.indent(lines[1], '    ') if len(lines) > 1 else ''
-        final_java_code = f"{first_line}\n{rest_lines}"
+        # * 메서드의 들여쓰기 조정
+        method_skeleton_code = method_skeleton_code.replace("        CodePlaceHolder", "CodePlaceHolder")
+        all_java_code = textwrap.indent(all_java_code.strip(), '        ')
         
 
         # * 최종 병합된 메서드 코드를 생성
-        completed_service_code = method_skeleton_code.replace("CodePlaceHolder", final_java_code)
+        completed_service_code = method_skeleton_code.replace("CodePlaceHolder", all_java_code)
         merge_method_code = f"{merge_method_code}\n\n{completed_service_code}"
 
         logging.info(f"[{object_name}] {procedure_name} 프로시저의 메서드 코드 병합이 완료되었습니다.\n")

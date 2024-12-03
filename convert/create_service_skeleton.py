@@ -3,6 +3,7 @@ import logging
 import textwrap
 import aiofiles
 import tiktoken
+from prompt.convert_variable_prompt import convert_variables
 from prompt.service_skeleton_prompt import convert_controller_method_code, convert_function_code
 from prompt.command_prompt import convert_command_code
 from understand.neo4j_connection import Neo4jConnection
@@ -24,17 +25,6 @@ def convert_to_pascal_case(snake_str: str) -> str:
     return ''.join(word.capitalize() for word in snake_str.split('_'))
 
 
-# 역할: 스네이크 케이스 형식의 문자열을 카멜 케이스로 변환합니다.
-#      예시) employee_payroll -> employeePayroll
-# 매개변수: 
-#   - snake_str: 변환할 스네이크 케이스 문자열
-# 반환값: 
-#   - 카멜 케이스로 변환된 문자열
-def convert_to_camel_case(snake_str: str) -> str:
-    words = snake_str.split('_')
-    return words[0].lower() + ''.join(word.capitalize() for word in words[1:])
-
-
 # 역할: 스프링부트 서비스 클래스의 기본 골격을 생성합니다.
 #      서비스 클래스에는 필요한 리포지토리 의존성과 기본 어노테이션이 포함됩니다.
 # 매개변수: 
@@ -48,23 +38,23 @@ def convert_to_camel_case(snake_str: str) -> str:
 #   - service_class_name: 생성된 서비스 클래스명 (예: EmployeeManagementService)
 async def create_service_skeleton(object_name: str, entity_name_list: list, global_variables: list) -> str:
     try:
-        # * 1. 파스칼 케이스로 변환하여 서비스 클래스명 생성 
+        # * 1. 서비스 클래스명 생성 및 전역 변수를 클래스 필드로 전환 
         service_class_name = convert_to_pascal_case(object_name) + "Service"
-        
+        converted_vars = convert_variables(global_variables)
+
+
         # * 2. 글로벌 변수를 클래스 필드로 변환
         global_fields = []
-        for var in global_variables:
-            # TODO 이거 타입 자바로 변환하는 프롬포트 필요 
-            var_type = var['type'] if var['type'] != 'Unknown' else 'String'
-            var_name = convert_to_camel_case(var['name'])
-            field = f"    private {var_type} {var_name};"
+        for var in converted_vars["variables"]:
+            field = f"    private {var['javaType']} {var['javaName']};"
             global_fields.append(field)
 
-        # * 3. 서비스 클래스 템플릿 생성
-        service_class_template = f"""package com.example.testjava.service;
 
-{chr(10).join(f'import com.example.testjava.entity.{entity};' for entity in entity_name_list)}
-{chr(10).join(f'import com.example.testjava.repository.{entity}Repository;' for entity in entity_name_list)}
+        # * 3. 서비스 클래스 템플릿 생성
+        service_class_template = f"""package com.example.demo.service;
+
+{chr(10).join(f'import com.example.demo.entity.{entity};' for entity in entity_name_list)}
+{chr(10).join(f'import com.example.demo.repository.{entity}Repository;' for entity in entity_name_list)}
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
@@ -81,11 +71,14 @@ public class {service_class_name} {{
 {chr(10).join(global_fields)}
 
 {chr(10).join(f'    @Autowired\n    private {entity}Repository {entity[0].lower()}{entity[1:]}Repository;' for entity in entity_name_list)}
+
 CodePlaceHolder
 }}"""
 
         return service_class_template, service_class_name
-
+    
+    except (LLMCallError):
+        raise
     except Exception:
         err_msg = "서비스 클래스 골격을 생성하는 도중 문제가 발생했습니다."
         logging.error(err_msg, exc_info=False)
@@ -152,11 +145,11 @@ async def save_java_file(class_name: str, source_code: str) -> None:
         base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT')
         if base_directory:
             # * Docker 환경인 경우의 경로
-            java_directory = os.path.join(base_directory, JAVA_PATH, 'command')
+            java_directory = os.path.join(base_directory, 'target', JAVA_PATH, 'command')
         else:
             # * 로컬 환경인 경우의 경로
             parent_workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            java_directory = os.path.join(parent_workspace_dir, JAVA_PATH, 'command')
+            java_directory = os.path.join(parent_workspace_dir, 'target', JAVA_PATH, 'command')
         
         # * 2. 저장 디렉토리가 없으면 생성
         os.makedirs(java_directory, exist_ok=True)

@@ -388,7 +388,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
                             package_name, proc_name = name.split('.')
                             call_relation_query = f"MATCH (c:{statement_type} {{startLine: {start_line}, object_name: '{object_name}'}}) WITH c MERGE (p:PROCEDURE:FUNCTION {{object_name: '{package_name}', procedure_name: '{proc_name}', name: '{name}'}}) MERGE (c)-[:CALLS]->(p)"
                         else:            # 자신 패키지 내부 호출인 경우
-                            call_relation_query = f"MATCH (c:{statement_type} {{startLine: {start_line}, object_name: '{object_name}'}}) WITH c MATCH (p {{object_name: '{object_name}', procedure_name: '{name}'}}) MERGE (c)-[:CALLS]->(p)"
+                            call_relation_query = f"MATCH (c:{statement_type} {{startLine: {start_line}, object_name: '{object_name}'}}) WITH c MATCH (p) WHERE (p:PROCEDURE OR p:FUNCTION) AND p.object_name = '{object_name}' AND p.procedure_name = '{name}' MERGE (c)-[:CALLS]->(p)"
                         cypher_query.append(call_relation_query)
                     
 
