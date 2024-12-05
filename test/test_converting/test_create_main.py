@@ -33,7 +33,7 @@ for logger_name in noisy_loggers:
 
 # 스프링부트 기반의 자바 메인 클래스를 생성하는 테스트
 class TestMainGeneration(unittest.IsolatedAsyncioTestCase):
-    async def test_create_Main(self):
+    async def test_create_main(self):
 
         try:
             # * Main 클래스 생성 테스트 시작

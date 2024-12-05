@@ -33,7 +33,7 @@ for logger_name in noisy_loggers:
     logging.getLogger(logger_name).setLevel(logging.CRITICAL)
 
 
-# 스프링부트 기반의 자바 서비스 틀을 생성하는 테스트
+# 스프링부트 기반의 컨트롤러 틀을 생성하는 테스트
 class TestControllerSkeletonGeneration(unittest.IsolatedAsyncioTestCase):
     async def test_create_controller_skeleton(self):
         
@@ -78,9 +78,9 @@ class TestControllerSkeletonGeneration(unittest.IsolatedAsyncioTestCase):
             with open(result_file_path, 'w', encoding='utf-8') as f:
                 json.dump(test_data, f, ensure_ascii=False, indent=2)
 
-            self.assertTrue(True, "Service Skeleton 프로세스가 성공적으로 완료되었습니다.")
+            self.assertTrue(True, "Controller Skeleton 프로세스가 성공적으로 완료되었습니다.")
         except Exception:
-            self.fail(f"Service Skeleton 생성 테스트 중 예외 발생")
+            self.fail(f"Controller Skeleton 생성 테스트 중 예외 발생")
 
 if __name__ == '__main__':
     unittest.main()

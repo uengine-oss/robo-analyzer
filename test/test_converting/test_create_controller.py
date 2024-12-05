@@ -34,9 +34,9 @@ for logger_name in noisy_loggers:
     logging.getLogger(logger_name).setLevel(logging.CRITICAL)
 
 
-# 스프링부트 기반의 자바 서비스 틀을 생성하는 테스트
-class TestSkeletonGeneration(unittest.IsolatedAsyncioTestCase):
-    async def test_create_Skeleton(self):
+# 스프링부트 기반의 자바 컨트롤러를 생성하는 테스트
+class TestControllerGeneration(unittest.IsolatedAsyncioTestCase):
+    async def test_create_controller(self):
         
         # * 테스트할 객체 이름들을 설정
         object_names = [
@@ -58,14 +58,15 @@ class TestSkeletonGeneration(unittest.IsolatedAsyncioTestCase):
             else:
                 test_data = {}              
 
-            # * Controller Skeleton 생성 테스트 시작
+            # * Controller 생성 테스트 시작
             controller_results = {}
             for object_name in object_names:
                 service_creation_info = test_data.get('service_skeleton_list', {}).get(object_name, [])
                 controller_skeleton = test_data.get("controller_skeleton", {}).get(object_name, "")
                 controller_class_name = test_data.get("controller_class_name", {}).get(object_name, "")
                 merge_controller_method_code = ""
-
+                
+                # * 각 스켈레톤 데이터에 대해 컨트롤러 메서드 생성 수행
                 for service_data in service_creation_info:
                     merge_controller_method_code = await start_controller_processing(
                         service_data['method_signature'],
@@ -77,7 +78,9 @@ class TestSkeletonGeneration(unittest.IsolatedAsyncioTestCase):
                         object_name
                     )
 
-                    await create_controller_class_file(controller_skeleton, controller_class_name, merge_controller_method_code)
+                # * 컨트롤러 클래스 파일 생성   
+                await create_controller_class_file(controller_skeleton, controller_class_name, merge_controller_method_code)
+
 
             # * 결과를 결과 파일에 저장합니다.
             test_data.update({
@@ -88,9 +91,9 @@ class TestSkeletonGeneration(unittest.IsolatedAsyncioTestCase):
             with open(result_file_path, 'w', encoding='utf-8') as f:
                 json.dump(test_data, f, ensure_ascii=False, indent=2)
 
-            self.assertTrue(True, "Service Skeleton 프로세스가 성공적으로 완료되었습니다.")
+            self.assertTrue(True, "컨트롤러 생성 테스트가 성공적으로 완료되었습니다.")
         except Exception:
-            self.fail(f"Service Skeleton 생성 테스트 중 예외 발생")
+            self.fail(f"컨트롤러 생성 테스트 중 예외 발생")
 
 if __name__ == '__main__':
     unittest.main()

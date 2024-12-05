@@ -22,12 +22,12 @@ CONTROLLER_PATH = 'java/demo/src/main/java/com/example/demo/controller'
 async def create_controller_method(method_signature, procedure_name, command_class_variable, command_class_name, controller_skeleton):
 
     try:
-        # * 메서드 틀 생성에 필요한 정보를 받습니다.
+        # * 컨트롤러 메서드 틀 생성에 필요한 정보를 받습니다.
         analysis_method = convert_controller_method_code(method_signature, procedure_name, command_class_variable, command_class_name, controller_skeleton)  
         method_skeleton_code = analysis_method['method']
         return method_skeleton_code
 
-    except (LLMCallError, HandleResultError):
+    except (LLMCallError):
         raise
     except Exception:
         err_msg = "컨트롤러 메서드를 생성하는 과정에서 결과 처리 준비 처리를 하는 도중 문제가 발생했습니다."
@@ -35,20 +35,19 @@ async def create_controller_method(method_signature, procedure_name, command_cla
         raise ProcessResultError(err_msg)
 
 
-# 역할: 생성된 서비스 코드를 지정된 경로에 Java 파일로 저장하는 함수입니다.
+# 역할: 생성된 컨트롤러 코드를 지정된 경로에 Java 파일로 저장하는 함수입니다.
 #      Docker 환경 여부에 따라 적절한 저장 경로를 선택하고,
-#      파일 시스템에 비동기적으로 쓰기를 수행합니다.
 # 매개변수:
-#   - service_skeleton : 전체 서비스 클래스의 기본 구조 템플릿
-#   - service_class_name : 생성할 서비스 클래스의 이름
-#   - merge_method_code : 서비스 클래스에 추가될 메서드 코드
+#   - controller_skeleton : 전체 컨트롤러 클래스의 기본 구조 템플릿
+#   - controller_class_name : 생성할 컨트롤러 클래스의 이름
+#   - merge_controller_method_code : 컨트롤러 클래스에 추가될 메서드 코드
 # 반환값: 없음
 async def create_controller_class_file(controller_skeleton, controller_class_name, merge_controller_method_code):
     try:
-        # * 병합된 메서드 코드를 들여쓰기 처리
+        # * 병합된 컨트롤러 메서드 코드를 들여쓰기 처리
         controller_code = controller_skeleton.replace("CodePlaceHolder", merge_controller_method_code)
 
-        # * 서비스 클래스 생성을 위한 경로를 설정합니다.
+        # * 컨트롤러 클래스 생성을 위한 경로를 설정합니다.
         base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT')
         if base_directory:
             service_directory = os.path.join(base_directory, CONTROLLER_PATH)
@@ -58,6 +57,7 @@ async def create_controller_class_file(controller_skeleton, controller_class_nam
         os.makedirs(service_directory, exist_ok=True) 
         service_file_path = os.path.join(service_directory, f"{controller_class_name}.java")
 
+        # * 컨트롤러 클래스 파일을 생성합니다.
         async with aiofiles.open(service_file_path, 'w', encoding='utf-8') as file:  
             await file.write(controller_code)  
             logging.info(f"Success Create Service Java File\n")  
@@ -85,7 +85,7 @@ async def start_controller_processing(method_signature, procedure_name, command_
     logging.info(f"[{object_name}] {procedure_name} 프로시저의 컨트롤러 생성을 시작합니다.")
 
     try:
-        # * 각 프로시저별 커맨드 클래스, 메서드 틀 생성을 진행합니다.
+        # * 컨트롤러 메서드 생성을 시작합니다.
         controller_method_code = await create_controller_method(
             method_signature, 
             procedure_name, 
@@ -99,7 +99,7 @@ async def start_controller_processing(method_signature, procedure_name, command_
 
         return merge_controller_method_code
 
-    except (ConvertingError, Neo4jError, SaveFileError):
+    except (ConvertingError, SaveFileError):
         raise
     except Exception:
         err_msg = "컨트롤러 메서드를 생성하기 위해 데이터를 준비하는 도중 문제가 발생했습니다."

@@ -34,11 +34,8 @@ def convert_to_camel_case(snake_str: str) -> str:
 
 
 # 역할: 컨트롤러 클래스의 기본 구조를 생성하는 함수입니다.
-#      스프링 부트 컨트롤러 클래스의 기본 틀을 생성하며,
-#      필요한 임포트문과 의존성 주입을 포함합니다.
 # 매개변수: 
-#   - object_name: 컨트롤러 클래스 생성의 기준이 되는 객체 이름
-#                 (예: employee, user_profile)
+#   - object_name: plsql 패키지 이름
 # 반환값: 
 #   - controller_class_template: 생성된 컨트롤러 클래스 템플릿
 #   - controller_class_name: 생성된 컨트롤러 클래스 이름
@@ -80,11 +77,9 @@ CodePlaceHolder
         raise ExtractCodeError(err_msg)
 
 
-# 역할: 컨트롤러 클래스 생성 프로세스를 시작하고 관리하는 함수입니다.
-#      컨트롤러 클래스의 기본 구조 생성을 조율하고 실행합니다.
+# 역할: 컨트롤러 클래스 기본 구조를 생성 프로세스를 시작하고 관리하는 함수입니다.
 # 매개변수:
-#   - object_name: 컨트롤러 생성의 대상이 되는 객체 이름
-#                 (예: employee, user_profile)
+#   - object_name: plsql 패키지 이름
 # 반환값:
 #   - controller_skeleton: 생성된 컨트롤러 클래스의 기본 구조
 #   - controller_class_name: 생성된 컨트롤러 클래스 이름
@@ -98,7 +93,7 @@ async def start_controller_skeleton_processing(object_name):
         logging.info(f"[{object_name}] 컨트롤러 틀 생성 완료\n")
         return controller_skeleton, controller_class_name
 
-    except (ConvertingError, Neo4jError, SaveFileError):
+    except (ConvertingError):
         raise
     except Exception:
         err_msg = "컨트롤러 골격 클래스를 생성하기 위해 데이터를 준비하는 도중 문제가 발생했습니다."

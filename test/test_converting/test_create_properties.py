@@ -33,7 +33,7 @@ for logger_name in noisy_loggers:
 
 # 스프링부트 기반의 자바 application.properties를 생성하는 테스트
 class TestAplPropertiesGeneration(unittest.IsolatedAsyncioTestCase):
-    async def test_create_AplProperties(self):
+    async def test_create_aplProperties(self):
 
         try:
             # * application.properties 생성 테스트 시작

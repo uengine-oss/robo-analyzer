@@ -33,8 +33,8 @@ for logger_name in noisy_loggers:
 
 
 # 스프링부트 기반의 자바 서비스 틀을 생성하는 테스트
-class TestSkeletonGeneration(unittest.IsolatedAsyncioTestCase):
-    async def test_create_Skeleton(self):
+class TestServiceSkeletonGeneration(unittest.IsolatedAsyncioTestCase):
+    async def test_create_service_skeleton(self):
         
         # * 테스트할 객체 이름들을 설정
         object_names = [
