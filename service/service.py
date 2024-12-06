@@ -5,6 +5,8 @@ import shutil
 import zipfile
 import aiofiles
 import os
+from convert.create_controller import create_controller_class_file, start_controller_processing
+from convert.create_controller_skeleton import start_controller_skeleton_processing
 from convert.create_main import start_main_processing
 from convert.create_pomxml import start_pomxml_processing
 from convert.create_properties import start_APLproperties_processing
@@ -281,6 +283,7 @@ async def generate_spring_boot_project(file_names):
     try:
         for file_name, object_name in file_names:
             merge_method_code = ""
+            merge_controller_method_code = ""
 
             yield f"Start converting {object_name}\n"
 
@@ -292,8 +295,9 @@ async def generate_spring_boot_project(file_names):
             jpa_method_list, global_variables = await start_repository_processing(object_name) 
             yield f"{file_name}-Step2 completed\n"
             
-            # * 3 단계 : 서비스 스켈레톤 생성
+            # * 3 단계 : 서비스, 컨트롤러 스켈레톤 생성
             service_creation_info, service_skeleton, service_class_name = await start_service_skeleton_processing(entity_name_list, object_name, global_variables)
+            controller_skeleton, controller_class_name = await start_controller_skeleton_processing(object_name)
             yield f"{file_name}-Step3 completed\n"
 
             # * 4 단계 : 각 프로시저별 서비스 생성
@@ -311,7 +315,18 @@ async def generate_spring_boot_project(file_names):
                     object_name,
                     merge_method_code
                 )
+                merge_controller_method_code = await start_controller_processing(
+                    service_data['method_signature'],
+                    service_data['procedure_name'],
+                    service_data['command_class_variable'],
+                    service_data['command_class_name'],
+                    service_data['node_type'],
+                    merge_controller_method_code,
+                    controller_skeleton,
+                    object_name,
+                )
             await create_service_class_file(service_skeleton, service_class_name, merge_method_code)            
+            await create_controller_class_file(controller_skeleton, controller_class_name, merge_controller_method_code)            
             yield f"{file_name}-Step4 completed\n"
 
         # * 5 단계 : pom.xml 생성

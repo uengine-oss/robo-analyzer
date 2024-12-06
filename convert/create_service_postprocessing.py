@@ -118,7 +118,7 @@ async def traverse_node_for_merging_service(node_list, connection, object_name):
             if is_exception_node:
                 indented_code = textwrap.indent(try_catch_code, '    ')
                 java_code = java_code.replace("CodePlaceHolder", indented_code)
-                all_java_code += java_code + "\n\n"
+                all_java_code += java_code + "\n"
                 try_catch_code = ""
                 continue
             
@@ -126,12 +126,10 @@ async def traverse_node_for_merging_service(node_list, connection, object_name):
             # TODO 엄청 큰 TRY 노드 처리 필요(프롬포트 수정)
             if token > 1700:
                 java_code = await process_big_size_node(start_node['startLine'], java_code, connection, object_name)
-            else:
-                java_code = java_code
 
 
             # * 변수 값 할당 및 Java 코드 추가
-            all_java_code += java_code + "\n\n"
+            all_java_code += java_code + "\n"
             previous_node_endLine = start_node['endLine']
 
         return all_java_code
@@ -229,7 +227,7 @@ async def start_service_postprocessing(method_skeleton_code, procedure_name, obj
 
         # * 최종 병합된 메서드 코드를 생성
         completed_service_code = method_skeleton_code.replace("CodePlaceHolder", all_java_code)
-        merge_method_code = f"{merge_method_code}\n\n{completed_service_code}"
+        merge_method_code = f"{merge_method_code}\n{completed_service_code}"
 
         logging.info(f"[{object_name}] {procedure_name} 프로시저의 메서드 코드 병합이 완료되었습니다.\n")
         return merge_method_code

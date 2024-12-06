@@ -37,7 +37,7 @@ prompt = PromptTemplate.from_template(
    - BLOB -> byte[]
 
 2. 테이블 타입 매핑:
-   - 테이블 이름이 타입으로 전달된 경우 -> 해당 테이블명을 그대로 타입으로 사용
+   - 테이블 이름이 타입으로 전달된 경우 -> 해당 테이블 명을 그대로 타입으로 사용
    예시) 
    - EMPLOYEE -> Employee
    - TB_USER -> User
@@ -47,12 +47,26 @@ prompt = PromptTemplate.from_template(
    - TABLE OF -> List<타입>
    - VARRAY -> List<타입>
    - NESTED TABLE -> List<타입>
+   
+4. 변수 값 식별
+   - 'value' 에 있는 값을 변수의 초기 값으로 선정
+   - 'value' 가 null 또는 0인 경우 타입별 기본값 적용:
+     * Long -> 0
+     * Double -> 0.0
+     * String -> ""
+     * LocalDate -> LocalDate.now()
+     * LocalDateTime -> LocalDateTime.now()
+     * Boolean -> false
+     * byte[] -> new byte[0]
+     * List<?> -> new ArrayList<>()
+     * 엔티티 클래스 -> new EntityClass()
+   - 테이블 명, 엔티티 클래스가 타입으로 선정된 경우 new EntityClass() 형태로 표현
 
-4. 특수 규칙:
-   - Object 타입은 명확하지 않은 경우에만 사용
+5. 특수 규칙:
    - 모든 변수는 카멜케이스로 변환되어야 합니다.
    - 테이블명을 타입으로 사용할 때는 파스칼케이스로 변환하세요.
 
+   
 [출력 형식]
 ===============================================
 부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요:
@@ -61,6 +75,7 @@ prompt = PromptTemplate.from_template(
         {{
             "javaName": "employeeId",
             "javaType": "Long",
+            "value": "할당값 또는 new Object() 또는 '', 0",
         }}
     ]
 }}

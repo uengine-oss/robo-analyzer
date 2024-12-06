@@ -3,7 +3,7 @@ import os
 import logging
 import aiofiles
 import tiktoken
-from prompt.entity_prompt import convert_entity_code
+from prompt.convert_entity_prompt import convert_entity_code
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import EntityCreationError, LLMCallError, Neo4jError, TokenCountError
 

@@ -33,7 +33,7 @@ for logger_name in noisy_loggers:
 
 # 스프링부트 기반의 자바 pom.xml를 생성하는 테스트
 class TestPomGeneration(unittest.IsolatedAsyncioTestCase):
-    async def test_create_PomXml(self):
+    async def test_create_pomxml(self):
 
         try:
             # * pom.xml 생성 테스트 시작

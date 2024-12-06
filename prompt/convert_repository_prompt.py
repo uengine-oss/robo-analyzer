@@ -47,6 +47,7 @@ Global Variable:
 2. 변환 규칙
    - 각 JSON 객체는 자신의 Stored Procedure Code만 참조
    - 다른 객체의 코드는 참고하지 않음
+   - 각 JPA Query Methods의 이름은 중복 되어선 안됨
    - Entity 명명 규칙: 단수형 파스칼 케이스 (예: Employee)
 
 3. 매개변수 처리
@@ -59,6 +60,7 @@ Global Variable:
 ===============================================
 1. 반환 타입 규칙
    - SELECT 구문: 항상 전체 엔티티 객체 반환
+   - 엔티티 이름은 전달된 테이블명을 파스칼케이스로 전환하여 사용하세요.
    - 부분 필드 조회 지양
    - 예시: Person findById(Long id)
 

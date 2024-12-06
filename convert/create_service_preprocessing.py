@@ -1,7 +1,7 @@
 import json
 import logging
-from prompt.service_prompt import convert_service_code
-from prompt.summarized_service_skeleton_prompt import convert_summarized_code
+from prompt.convert_service_prompt import convert_service_code
+from prompt.convert_summarized_service_skeleton_prompt import convert_summarized_code
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError, HandleResultError, LLMCallError, Neo4jError, ProcessResultError, ServiceCreationError, TraverseCodeError, VariableNodeError
 
@@ -406,7 +406,8 @@ async def start_service_preprocessing(service_skeleton, command_class_variable, 
             WHERE m.object_name = '{object_name}'
             AND NOT (m:ROOT OR m:Variable OR m:DECLARE OR m:Table 
                 OR m:PACKAGE_BODY OR m:PACKAGE_SPEC OR m:PROCEDURE_SPEC OR m:SPEC)
-            AND NOT type(r) CONTAINS 'CALLS'
+            AND NOT type(r) CONTAINS 'EXT_CALL'
+            AND NOT type(r) CONTAINS 'INT_CALL'
             AND NOT type(r) CONTAINS 'WRITES'
             AND NOT type(r) CONTAINS 'FROM'
             RETURN n, r, m

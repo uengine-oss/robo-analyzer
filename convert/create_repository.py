@@ -4,7 +4,7 @@ import os
 import logging
 import aiofiles
 import tiktoken
-from prompt.repository_prompt import convert_repository_code
+from prompt.convert_repository_prompt import convert_repository_code
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError, LLMCallError, Neo4jError, ProcessResultError, RepositoryCreationError, TokenCountError, TraverseCodeError, VariableNodeError
 
@@ -70,7 +70,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 import org.springframework.data.rest.core.annotation.RepositoryRestResource;
 import com.example.demo.entity.{entity_pascal_name};
-import java.time.LocalDate;
+import java.time.*;
 
 @RepositoryRestResource(collectionResourceRel = "{entity_camel_name}s", path = "{entity_camel_name}s")
 public interface {entity_pascal_name}Repository extends JpaRepository<{entity_pascal_name}, Long> {{
@@ -263,7 +263,8 @@ async def start_repository_processing(object_name):
             'name': var['v']['name'],
             'type': var['v'].get('type', 'Unknown'),
             'role': var['v'].get('role', ''),
-            'scope': var['v'].get('scope', 'Global')
+            'scope': var['v'].get('scope', 'Global'),
+            'value': var['v'].get('value', '')
         } for var in global_variables]
 
 

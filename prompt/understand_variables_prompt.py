@@ -54,8 +54,14 @@ prompt = PromptTemplate.from_template(
    - %TYPE의 경우 DDL 정보를 참조하여 실제 컬럼 타입으로 변환
    - 사용자 정의 타입은 원본 그대로 사용
    - 대소문자 구분하여 추출
+   
+4. 변수 값 추출
+   - DECLARE 섹션의 변수 선언과 초기값
+   - 프로시저/함수의 파라미터와 기본값
+   - 만약 초기 값이 식별되지 않을 경우 'None'으로 표현
+   - %ROWTYPE 변수의 경우 참조하고 있는 테이블 이름을 값으로 추출 (예: Employee%ROWTYPE -> Employee)
 
-4. 특수 처리
+5. 특수 처리
    - 기본값이 있는 경우에도 변수로 인식 (기본값은 무시)
    - 길이/정밀도 지정이 있는 경우 (예: VARCHAR2(100)) 데이터 타입만 추출
 
@@ -67,6 +73,7 @@ prompt = PromptTemplate.from_template(
         {{
             "name": "변수명",
             "type": "데이터타입",
+            "value": "할당값 또는 null, 0",
             "parameter_type": "IN/OUT/IN_OUT/LOCAL"
         }}
     ]

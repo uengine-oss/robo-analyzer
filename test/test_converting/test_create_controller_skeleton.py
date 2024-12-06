@@ -5,7 +5,8 @@ import os
 import logging
 import unittest
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-from convert.create_service_preprocessing import start_service_preprocessing
+from convert.create_controller_skeleton import start_controller_skeleton_processing
+from convert.create_service_skeleton import start_service_skeleton_processing
 
 
 # * 로그 레벨 설정
@@ -32,9 +33,9 @@ for logger_name in noisy_loggers:
     logging.getLogger(logger_name).setLevel(logging.CRITICAL)
 
 
-# 스프링부트 기반의 자바 서비스(전처리) 생성하는 테스트
-class TestPreServiceGeneration(unittest.IsolatedAsyncioTestCase):
-    async def test_create_preService(self):
+# 스프링부트 기반의 컨트롤러 틀을 생성하는 테스트
+class TestControllerSkeletonGeneration(unittest.IsolatedAsyncioTestCase):
+    async def test_create_controller_skeleton(self):
         
         # * 테스트할 객체 이름들을 설정
         object_names = [
@@ -56,26 +57,30 @@ class TestPreServiceGeneration(unittest.IsolatedAsyncioTestCase):
             else:
                 test_data = {}              
 
-            # * Service 전처리 테스트 시작
+            # * Controller Skeleton 생성 테스트 시작
+            controller_results = {}
             for object_name in object_names:
+                controller_skeleton, controller_class_name = await start_controller_skeleton_processing(object_name)
 
-                # * 결과 파일에서 해당 객체의 데이터를 가져옵니다
-                service_skeleton_list = test_data.get('service_skeleton_list', {}).get(object_name, [])
-                jpa_method_list = test_data.get('jpa_method_list', {}).get(object_name, [])
+                # * 객체별 결과 저장
+                controller_results[object_name] = {
+                    "controller_skeleton": controller_skeleton,
+                    "controller_class_name": controller_class_name
+                }
 
-                # * 각 스켈레톤 데이터에 대해 전처리 수행
-                for skeleton_data in service_skeleton_list:
-                    await start_service_preprocessing(
-                        skeleton_data['service_method_skeleton'],
-                        skeleton_data['command_class_variable'],
-                        skeleton_data['procedure_name'],
-                        jpa_method_list,
-                        object_name
-                    )
             
-            self.assertTrue(True, "전처리 Service 프로세스가 성공적으로 완료되었습니다.")
+            # * 결과를 결과 파일에 저장합니다.
+            test_data.update({
+                "controller_skeleton": {name: results["controller_skeleton"] for name, results in controller_results.items()},
+                "controller_class_name": {name: results["controller_class_name"] for name, results in controller_results.items()}
+            })
+            
+            with open(result_file_path, 'w', encoding='utf-8') as f:
+                json.dump(test_data, f, ensure_ascii=False, indent=2)
+
+            self.assertTrue(True, "Controller Skeleton 프로세스가 성공적으로 완료되었습니다.")
         except Exception:
-            self.fail(f"Service 전처리 테스트 중 예외 발생")
+            self.fail(f"Controller Skeleton 생성 테스트 중 예외 발생")
 
 if __name__ == '__main__':
     unittest.main()
