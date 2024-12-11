@@ -597,7 +597,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
             await traverse(child, schedule_stack, start_line, statement_type)
             
             # * 현재 노드와 이전의 같은 레벨의 노드간의 NEXT 관계를 위한 사이퍼쿼리를 생성합니다.
-            if prev_id and prev_statement not in ["FUNCTION", "PROCEDURE", "PACKAGE_VARIABLE", "PROCEDURE_SPEC"]:
+            if prev_id and prev_statement not in ["FUNCTION", "PROCEDURE", "PACKAGE_VARIABLE", "PROCEDURE_SPEC", "FUNCTION_SPEC"]:
                 cypher_query.append(f"""
                     MATCH (prev:{prev_statement} {{startLine: {prev_id}, object_name: '{object_name}'}})
                     WITH prev

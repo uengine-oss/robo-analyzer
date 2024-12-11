@@ -3,7 +3,7 @@ import os
 import shutil
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
-from service.service import delete_all_temp_data, process_project_zipping
+from service.service import delete_all_temp_data, get_comparison_result, process_project_zipping
 from service.service import generate_and_execute_cypherQuery
 from service.service import generate_two_depth_match
 from service.service import generate_simple_java_code
@@ -160,3 +160,23 @@ async def delete_all_data():
     except Exception as e:
         logging.error(f"파일 삭제 중 오류 발생: {str(e)}")
         raise HTTPException(status_code=500, detail="임시 파일 삭제 중 오류가 발생했습니다.")
+
+
+# # 역할: 비교 결과를 반환하는 엔드포인트
+# # 매개변수: 
+# #   - request: 비교할 파일 정보가 담긴 요청 객체 (fileNames: string[])
+# # 반환값: 비교 결과 데이터
+# @router.post("/compare/")
+# async def get_compare_result(request: Request):
+#     try:
+#         file_data = await request.json()
+#         logging.info("Received Files for Compare: %s", file_data)
+        
+#         file_names = file_data.get('fileNames', [])
+#         if not file_names:
+#             raise HTTPException(status_code=400, detail="파일 정보가 없습니다.")
+            
+#         result = await get_comparison_result(file_names)
+#         return result
+#     except Exception:
+#         raise HTTPException(status_code=500, detail="비교 결과를 가져오는데 실패했습니다.")

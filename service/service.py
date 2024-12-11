@@ -5,6 +5,7 @@ import shutil
 import zipfile
 import aiofiles
 import os
+from compare.create_junit_test import create_junit_test
 from convert.create_controller import create_controller_class_file, start_controller_processing
 from convert.create_controller_skeleton import start_controller_skeleton_processing
 from convert.create_main import start_main_processing
@@ -15,17 +16,19 @@ from convert.create_entity import start_entity_processing
 from convert.create_service_preprocessing import start_service_preprocessing
 from convert.create_service_postprocessing import create_service_class_file, start_service_postprocessing 
 from convert.create_service_skeleton import start_service_skeleton_processing
+from prompt.create_given_data_prompt import generate_given_parameters
 from prompt.understand_ddl import understand_ddl
 from understand.neo4j_connection import Neo4jConnection
 from understand.analysis import analysis
 from prompt.java2deths_prompt import convert_2deths_java
-from util.exception import AddLineNumError, ConvertingError, Java2dethsError, LLMCallError, Neo4jError, ProcessResultError
+from util.exception import AddLineNumError, CompareResultError, ConvertingError, Java2dethsError, LLMCallError, Neo4jError, ProcessResultError
 
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 PLSQL_DIR = os.path.join(BASE_DIR, "src")
 ANALYSIS_DIR = os.path.join(BASE_DIR, "analysis")
 DDL_DIR = os.path.join(BASE_DIR, "ddl")
+TARGET_DIR = os.path.join(BASE_DIR, 'target', 'java', 'demo', 'src', 'main', 'java', 'com', 'example', 'demo', 'command')
 os.makedirs(PLSQL_DIR, exist_ok=True)
 os.makedirs(ANALYSIS_DIR, exist_ok=True)
 os.makedirs(DDL_DIR, exist_ok=True)
@@ -115,7 +118,7 @@ async def generate_and_execute_cypherQuery(file_names):
 
 
                     # * 그래프 객체, 다음 분석될 라인 번호, 분석 진행 상태를 묶어서 스트림 형태로 전달할 수 있게 처리합니다
-                    stream_data = {"graph": graph_result, "line_number": next_analysis_line, "analysis_progress": analysis_progress, "current_file": file_name}
+                    stream_data = {"graph": graph_result, "line_number": next_analysis_line, "analysis_progress": analysis_progress, "current_file": object_name}
                     encoded_stream_data = json.dumps(stream_data).encode('utf-8') + b"send_stream"
                     await send_queue.put({'type': 'process_completed'})
                     logging.info(f"Send Response for {file_name}")
@@ -331,11 +334,16 @@ async def generate_spring_boot_project(file_names):
         
         # * 6 단계 : application.properties 생성
         await start_APLproperties_processing()
-        yield f"{file_name}-Step6 completed\n"
+        yield f"Step6 completed\n"
 
         # * 7 단계 : StartApplication.java 생성
         await start_main_processing()
-        yield f"{file_name}-Step7 completed\n"
+        yield f"Step7 completed\n"
+        yield f"Completed Converting {file_name}.\n\n"
+
+        # * 8 단계 : test 코드 생성
+        await start_main_processing()
+        yield f"Step7 completed\n"
         yield f"Completed Converting {file_name}.\n\n"
 
         yield "All files have been converted successfully.\n"
@@ -395,3 +403,55 @@ async def delete_all_temp_data(delete_paths: dict):
     except Exception as e:
         logging.exception(f"파일 삭제 및 그래프 데이터 삭제 중 오류 발생: {str(e)}")
         raise OSError("임시 파일 삭제 및 그래프 데이터 삭제 중 오류가 발생했습니다.")
+    
+
+async def process_comparison_result(main_file_name: str):
+    try:
+        object_name = os.path.splitext(main_file_name)[0]
+        parameters = None
+        procedure_name = None
+        file_content = None
+        input_parameters = None
+        neo4j = Neo4jConnection()
+        
+        # * CREATE_PROCEDURE_BODY 노드를 찾는 사이퍼 쿼리
+        query = f"""
+        MATCH (n:CREATE_PROCEDURE_BODY)-[:parent_of]->(s:SPEC)
+        WHERE n.object_name = '{object_name}'
+        RETURN s
+        """
+        
+        # * 프로시저 노드의 스펙을 조회
+        result = await neo4j.execute_queries(query)
+        if result:
+            parameters = result[0]['spec']['node_code']
+            procedure_name = result[0]['spec']['procedure_name']
+        
+        # * 커맨드 클래스가 있다면 파일 읽기
+        target_file_path = os.path.join(TARGET_DIR, object_name)
+        if os.path.exists(target_file_path):
+            with open(target_file_path, 'r', encoding='utf-8') as file:
+                file_content = file.read()
+
+
+        # * Given을 위한 입력 매개변수 생성
+        if file_content and parameters:
+            input_parameters = generate_given_parameters(file_content, parameters)
+
+
+        # * Junit 테스트 코드 작성 
+        await create_junit_test(parameters, file_content, object_name, procedure_name)
+
+
+        # TODO docker-compose.yml
+        # TODO ddl데이터 추가(CREATE, INSERT 등등..)
+        await generate_docker_compose_yml(object_name)
+
+
+
+    except Exception:
+        err_msg = "결과 검증 및 비교하는 도중 오류가 발생했습니다."
+        logging.error(err_msg, exc_info=False)
+        raise CompareResultError(err_msg)
+    finally:
+        await neo4j.close()

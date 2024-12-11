@@ -116,3 +116,9 @@ class HandleResultError(UnderstandingError, ConvertingError):
 class SaveFileError(UnderstandingError, ConvertingError):
     def __init__(self, message="파일을 읽고 저장하는 도중 오류가 발생했습니다."):
         super().__init__(message)
+
+
+"""----------------------------------------------------------결과비교---------------------------------------------------------"""
+class CompareResultError(CustomBaseException):
+    def __init__(self, message="결과 검증 및 비교하는 도중 오류가 발생했습니다."):
+        super().__init__(message)
