@@ -58,14 +58,14 @@ public class ComparisonTest {{
 
     String javaLogPath = getLogFilePath("java_logs.jsonl");
     String plsqlLogPath = getLogFilePath("plsql_logs.jsonl");
-    
+
     {chr(10).join(fields) if fields else ""}
 
     @Test
     void testLogComparison() {{
         assertDoesNotThrow(() -> {{
             executeJava();
-            boolean result = LogComparator.compareLogFiles(javaLogPath, plsqlLogPath);
+            boolean result = compareLogFiles(javaLogPath, plsqlLogPath);
             assertTrue(result, "Java와 PL/SQL 로그의 핵심 정보가 일치하지 않습니다.");
         }}, "로그 비교 중 예외가 발생했습니다.");
     }}
