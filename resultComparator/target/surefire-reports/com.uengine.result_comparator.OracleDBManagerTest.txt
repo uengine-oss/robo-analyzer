@@ -1,0 +1,25 @@
+-------------------------------------------------------------------------------
+Test set: com.uengine.result_comparator.OracleDBManagerTest
+-------------------------------------------------------------------------------
+Tests run: 1, Failures: 1, Errors: 0, Skipped: 0, Time elapsed: 0.456 s <<< FAILURE! -- in com.uengine.result_comparator.OracleDBManagerTest
+com.uengine.result_comparator.OracleDBManagerTest.testLogComparison -- Time elapsed: 0.409 s <<< FAILURE!
+org.opentest4j.AssertionFailedError: 로그 비교 중 예외가 발생했습니다. ==> Unexpected exception thrown: org.opentest4j.AssertionFailedError: Java와 PL/SQL 로그의 핵심 정보가 일치하지 않습니다. ==> expected: <true> but was: <false>
+	at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:152)
+	at org.junit.jupiter.api.AssertDoesNotThrow.createAssertionFailedError(AssertDoesNotThrow.java:84)
+	at org.junit.jupiter.api.AssertDoesNotThrow.assertDoesNotThrow(AssertDoesNotThrow.java:53)
+	at org.junit.jupiter.api.AssertDoesNotThrow.assertDoesNotThrow(AssertDoesNotThrow.java:40)
+	at org.junit.jupiter.api.Assertions.assertDoesNotThrow(Assertions.java:3187)
+	at com.uengine.result_comparator.OracleDBManagerTest.testLogComparison(OracleDBManagerTest.java:96)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:568)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+	at java.base/java.util.ArrayList.forEach(ArrayList.java:1511)
+Caused by: org.opentest4j.AssertionFailedError: Java와 PL/SQL 로그의 핵심 정보가 일치하지 않습니다. ==> expected: <true> but was: <false>
+	at org.junit.jupiter.api.AssertionFailureBuilder.build(AssertionFailureBuilder.java:151)
+	at org.junit.jupiter.api.AssertionFailureBuilder.buildAndThrow(AssertionFailureBuilder.java:132)
+	at org.junit.jupiter.api.AssertTrue.failNotTrue(AssertTrue.java:63)
+	at org.junit.jupiter.api.AssertTrue.assertTrue(AssertTrue.java:36)
+	at org.junit.jupiter.api.Assertions.assertTrue(Assertions.java:214)
+	at com.uengine.result_comparator.OracleDBManagerTest.lambda$testLogComparison$6(OracleDBManagerTest.java:98)
+	at org.junit.jupiter.api.AssertDoesNotThrow.assertDoesNotThrow(AssertDoesNotThrow.java:49)
+	... 6 more
+

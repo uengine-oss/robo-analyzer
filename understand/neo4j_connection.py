@@ -15,7 +15,7 @@ class Neo4jConnection:
     def __init__(self):
         uri = os.getenv("NEO4J_URI", "bolt://localhost:7691")
         user = os.getenv("NEO4J_USER", "neo4j")
-        password = os.getenv("NEO4J_PASSWORD", "an1021402!@")
+        password = os.getenv("NEO4J_PASSWORD", "jhyg1234")
         self.__driver = AsyncGraphDatabase.driver(uri, auth=(user, password))
 
 

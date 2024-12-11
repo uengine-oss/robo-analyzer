@@ -1,0 +1,23 @@
+version: '3'
+services:
+  oracle:
+    container_name: oracle
+    image: container-registry.oracle.com/database/express:21.3.0-xe
+    ports:
+     - 1521:1521
+     - 5500:5500
+    environment:
+     - ORACLE_PWD=debezium
+     - ORACLE_CHARACTERSET=AL32UTF8
+    volumes:
+      - ./setup/01_init_database_config.sql:/opt/oracle/scripts/startup/01_init_database_config.sql
+      - ./setup/02_create_table_space.sql:/opt/oracle/scripts/startup/02_create_table_space.sql
+      - ./setup/03_table_creation/TPJ_ALARM.sql:/opt/oracle/scripts/startup/03_01_TPJ_ALARM.sql
+      - ./setup/03_table_creation/TPJ_ALARM_CONTENT.sql:/opt/oracle/scripts/startup/03_02_TPJ_ALARM_CONTENT.sql
+      - ./setup/03_table_creation/TPJ_ALARM_FILE.sql:/opt/oracle/scripts/startup/03_03_TPJ_ALARM_FILE.sql
+      - ./setup/03_table_creation/TPJ_ALARM_RECIPIENT.sql:/opt/oracle/scripts/startup/03_04_TPJ_ALARM_RECIPIENT.sql
+      - ./setup/03_table_creation/TPJ_PROJECT.sql:/opt/oracle/scripts/startup/03_05_TPJ_PROJECT.sql
+      - ./setup/03_table_creation/TPJ_TMF_SYNC_JOB_STATUS.sql:/opt/oracle/scripts/startup/03_06_TPJ_TMF_SYNC_JOB_STATUS.sql
+      - ./setup/03_table_creation/TPJ_TMF_SYNC_JOB.sql:/opt/oracle/scripts/startup/03_07_TPJ_TMF_SYNC_JOB.sql
+      # - ./setup/04_insert_data.sql:/opt/oracle/scripts/startup/04_insert_data.sql
+    command: ["/bin/sh", "-c", "exec /opt/oracle/runOracle.sh"]
