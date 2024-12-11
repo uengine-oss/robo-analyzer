@@ -56,9 +56,9 @@ public class ComparisonTest {{
     @Autowired
     private {pascal_procedure_name}Service {camel_procedure_name}Service;
 
-    String javaLogPath = new File("").getAbsolutePath() + "/logs/java_logs.jsonl";
-    String plsqlLogPath = new File("").getAbsolutePath() + "/logs/plsql_logs.jsonl";
-
+    String javaLogPath = getLogFilePath("java_logs.jsonl");
+    String plsqlLogPath = getLogFilePath("plsql_logs.jsonl");
+    
     {chr(10).join(fields) if fields else ""}
 
     @Test
