@@ -1,0 +1,300 @@
+import os
+from pathlib import Path
+import subprocess
+import time
+
+
+async def generate_docker_compose_yml(table_names):
+    """
+    docker-compose.yml 파일을 생성하는 함수
+    """
+    try:
+        # 테이블 이름들을 공백으로 구분된 문자열로 변환
+        table_names_str = " ".join(table_names)
+
+        # docker-compose.yml 템플릿
+        template = f'''version: '3'
+services:
+  zookeeper:
+    container_name: zookeeper
+    image: quay.io/debezium/zookeeper:2.7
+    ports:
+     - 2181:2181
+     - 2888:2888
+     - 3888:3888
+    healthcheck:
+      test: ["CMD", "/zookeeper/bin/zkServer.sh", "status"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 3s
+
+  kafka:
+    container_name: kafka
+    image: quay.io/debezium/kafka:2.7
+    ports:
+     - 9092:9092
+    links:
+     - zookeeper
+    environment:
+     - ZOOKEEPER_CONNECT=zookeeper:2181
+     - KAFKA_AUTO_CREATE_TOPICS_ENABLE=true
+     - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "/kafka/bin/kafka-topics.sh --list --bootstrap-server kafka:9092 > /dev/null 2>&1 || exit 1"]
+      interval: 5s
+      timeout: 5s
+      retries: 3
+      start_period: 6s
+
+  oracle:
+    container_name: oracle
+    image: container-registry.oracle.com/database/express:21.3.0-xe
+    ports:
+     - 1521:1521
+     - 5500:5500
+    environment:
+     - ORACLE_PWD=debezium
+     - ORACLE_CHARACTERSET=AL32UTF8
+    volumes:
+     - ./01_init_database_config.sql:/opt/oracle/scripts/startup/01_init_database_config.sql
+     - ../../ddl/create/:/opt/oracle/scripts/sql/ddl/
+     - ../../src/:/opt/oracle/scripts/sql/procedure/
+     - ./healthcheck.sql:/opt/oracle/healthcheck.sql
+    command: ["/bin/sh", "-c", "exec /opt/oracle/runOracle.sh"]
+    healthcheck:
+      test: ["CMD", "sqlplus", "-S", "/ as sysdba", "@/opt/oracle/healthcheck.sql"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 120s
+  
+  connect:
+    image: quay.io/debezium/connect:2.7
+    container_name: connect
+    ports:
+      - 8083:8083
+    environment:
+      GROUP_ID: 1
+      CONFIG_STORAGE_TOPIC: my_connect_configs
+      OFFSET_STORAGE_TOPIC: my_connect_offsets
+      STATUS_STORAGE_TOPIC: my_connect_statuses
+      BOOTSTRAP_SERVERS: kafka:9092
+      CONNECT_BOOTSTRAP_SERVERS: kafka:9092
+      CONNECT_REST_ADVERTISED_HOST_NAME: connect
+      CONNECT_REST_PORT: 8083
+    depends_on:
+      kafka:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8083/connectors"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+    entrypoint: ["/docker-entrypoint.sh", "start"]
+
+  topic-creator:
+    image: quay.io/debezium/kafka:2.7
+    container_name: topic-creator
+    depends_on:
+      kafka:
+        condition: service_healthy
+      connect:
+        condition: service_healthy  
+    environment:
+      - TABLE_NAMES={table_names_str}
+    command: >
+      sh -c "
+      /kafka/bin/kafka-topics.sh --create --topic \\"server1\\" --bootstrap-server kafka:9092 --partitions 1 --replication-factor 1 --if-not-exists &&
+      /kafka/bin/kafka-topics.sh --create --topic \\"server2\\" --bootstrap-server kafka:9092 --partitions 1 --replication-factor 1 --if-not-exists &&
+      for table in $$TABLE_NAMES; do
+        topic_name1=\\"server1.C__DEBEZIUM.$${{table}}\\"
+        topic_name2=\\"server2.C__DEBEZIUM.$${{table}}\\"
+        /kafka/bin/kafka-topics.sh --create --topic \\"$$topic_name1\\" --bootstrap-server kafka:9092 --partitions 1 --replication-factor 1 --if-not-exists &&
+        /kafka/bin/kafka-topics.sh --create --topic \\"$$topic_name2\\" --bootstrap-server kafka:9092 --partitions 1 --replication-factor 1 --if-not-exists
+      done &&
+      echo '토픽 생성 확인 시작' &&
+      /kafka/bin/kafka-topics.sh --list --bootstrap-server kafka:9092 | grep -q 'server1' &&
+      /kafka/bin/kafka-topics.sh --list --bootstrap-server kafka:9092 | grep -q 'server2' &&
+      for table in $$TABLE_NAMES; do
+        /kafka/bin/kafka-topics.sh --list --bootstrap-server kafka:9092 | grep -q \\"server1.C__DEBEZIUM.$${{table}}\\" &&
+        /kafka/bin/kafka-topics.sh --list --bootstrap-server kafka:9092 | grep -q \\"server2.C__DEBEZIUM.$${{table}}\\"
+      done &&
+      echo '모든 토픽이 성공적으로 생성되었습니다.'
+      "
+    restart: "no"
+
+  debezium-config:
+    image: curlimages/curl
+    container_name: curl
+    depends_on:
+      connect:
+        condition: service_healthy 
+      topic-creator:
+        condition: service_completed_successfully
+      oracle:
+        condition: service_healthy
+    command: >
+      sh -c "
+      curl -i -X POST -H 'Accept:application/json' -H 'Content-Type:application/json' connect:8083/connectors/ -d '{{
+        \\"name\\": \\"plsqldb-connector\\",
+        \\"config\\": {{
+          \\"connector.class\\": \\"io.debezium.connector.oracle.OracleConnector\\",
+          \\"tasks.max\\": \\"1\\",
+          \\"database.hostname\\": \\"oracle\\",
+          \\"database.port\\": \\"1521\\",
+          \\"database.user\\": \\"c##debezium\\",
+          \\"database.password\\": \\"dbz\\",
+          \\"database.dbname\\": \\"XE\\",
+          \\"database.pdb.name\\": \\"plsqldb\\",
+          \\"database.server.name\\": \\"server1\\",
+          \\"topic.prefix\\": \\"server1\\",
+          \\"schema.history.internal.kafka.bootstrap.servers\\": \\"kafka:9092\\",
+          \\"schema.history.internal.kafka.topic\\": \\"schema-changes.plsqldb\\",
+          \\"database.connection.adapter\\": \\"logminer\\",
+          \\"log.mining.strategy\\": \\"online_catalog\\",
+          \\"include.schema.changes\\": \\"true\\"
+        }}
+      }}' &&
+      curl -i -X POST -H 'Accept:application/json' -H 'Content-Type:application/json' connect:8083/connectors/ -d '{{
+        \\"name\\": \\"javadb-connector\\",
+        \\"config\\": {{
+          \\"connector.class\\": \\"io.debezium.connector.oracle.OracleConnector\\",
+          \\"tasks.max\\": \\"1\\",
+          \\"database.hostname\\": \\"oracle\\",
+          \\"database.port\\": \\"1521\\",
+          \\"database.user\\": \\"c##debezium\\",
+          \\"database.password\\": \\"dbz\\",
+          \\"database.dbname\\": \\"XE\\",
+          \\"database.pdb.name\\": \\"javadb\\",
+          \\"database.server.name\\": \\"server2\\",
+          \\"topic.prefix\\": \\"server2\\",
+          \\"schema.history.internal.kafka.bootstrap.servers\\": \\"kafka:9092\\",
+          \\"schema.history.internal.kafka.topic\\": \\"schema-changes.javadb\\",
+          \\"database.connection.adapter\\": \\"logminer\\",
+          \\"log.mining.strategy\\": \\"online_catalog\\",
+          \\"include.schema.changes\\": \\"true\\"
+        }}
+      }}' &&
+      echo '커넥터 상태 확인 시작' &&
+      until curl -s -f http://connect:8083/connectors/plsqldb-connector/status | grep -q '\\"state\\":\\"RUNNING\\"' && \\
+            curl -s -f http://connect:8083/connectors/javadb-connector/status | grep -q '\\"state\\":\\"RUNNING\\"'; do
+        echo '커넥터가 시작되기를 기다리는 중...'
+        sleep 5
+      done &&
+      echo '모든 커넥터가 정상적으로 실행 중입니다.'
+      "
+    restart: "no"
+
+  watcher-plsql:
+    image: quay.io/debezium/kafka:2.7
+    container_name: watcher-plsql
+    depends_on:
+      debezium-config:
+        condition: service_completed_successfully
+    volumes:
+     - ../logs:/kafka/logs 
+    command: >
+      sh -c "
+      /kafka/bin/kafka-console-consumer.sh --bootstrap-server kafka:9092 --whitelist 'server1.C__DEBEZIUM.*' --from-beginning >> /kafka/logs/plsql_logs.jsonl
+      "
+
+  watcher-java:
+    image: quay.io/debezium/kafka:2.7
+    container_name: watcher-java
+    depends_on:
+      debezium-config:
+        condition: service_completed_successfully
+    volumes:
+     - ../logs:/kafka/logs 
+    command: >
+      sh -c "
+      /kafka/bin/kafka-console-consumer.sh --bootstrap-server kafka:9092 --whitelist 'server2.C__DEBEZIUM.*' --from-beginning >> /kafka/logs/java_logs.jsonl
+      "'''
+
+        # 프로젝트 루트 경로 찾기
+        current_dir = Path(__file__).parent.parent
+        setup_dir = current_dir / 'setup'
+        
+        # setup 디렉토리가 없으면 생성
+        setup_dir.mkdir(exist_ok=True)
+        
+        # docker-compose.yml 파일 생성
+        docker_compose_path = setup_dir / 'docker-compose.yml'
+        with open(docker_compose_path, 'w', encoding='utf-8') as f:
+            f.write(template)
+            
+        print(f"docker-compose.yml 파일이 생성되었습니다: {docker_compose_path}")
+        return True
+        
+    except Exception as e:
+        print(f"docker-compose.yml 파일 생성 중 오류 발생: {str(e)}")
+        return False
+
+
+
+async def start_docker_compose_yml():
+    """
+    docker-compose.yml 파일을 실행하고 일정 시간 대기하는 함수
+    """
+    try:
+        # 프로젝트 루트 경로 찾기
+        current_dir = Path(__file__).parent.parent
+        setup_dir = current_dir / 'setup'
+        
+        # setup 디렉토리로 이동
+        os.chdir(setup_dir)
+        
+        # docker-compose up 명령 실행
+        result = subprocess.run(
+            ['docker-compose', 'up', '-d'],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        
+        print("Docker Compose 실행 시작...")
+        print(result.stdout)
+        
+        print("Docker Compose 실행 완료")
+        time.sleep(10)
+        return True
+        
+    except subprocess.CalledProcessError as e:
+        print(f"Docker Compose 실행 실패: {e.stderr}")
+        return False
+    except Exception as e:
+        print(f"예상치 못한 에러 발생: {str(e)}")
+        return False
+
+
+async def process_docker_compose_yml(table_names: list) -> bool:
+    """
+    docker-compose.yml 생성, 도커 실행을 순차적으로 처리하는 메인 함수
+    
+    Args:
+        table_names: 처리할 테이블 이름 리스트
+    Returns:
+        bool: 모든 과정 성공 여부
+    """
+    try:
+        # 1. docker-compose.yml 생성
+        if not await generate_docker_compose_yml(table_names):
+            print("docker-compose.yml 생성 실패")
+            return False
+
+        # 2. 도커 실행
+        if not await start_docker_compose_yml():
+            print("Docker Compose 실행 실패")
+            return False
+
+        print("모든 설정 및 실행이 완료되었습니다.")
+        return True
+
+    except Exception as e:
+        print(f"환경 설정 중 오류 발생: {str(e)}")
+        return False

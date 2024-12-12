@@ -19,6 +19,8 @@ neo4j = "*"
 anthropic = "*"
 langchain-anthropic = "*"
 pyjson5 = "*"
+oracledb = "==2.5.0"
+
 
 [dev-packages]
 

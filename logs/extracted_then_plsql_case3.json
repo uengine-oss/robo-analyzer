@@ -1,0 +1,24 @@
+{
+    "u_TPJ_SALARY_1": {
+        "fields": {
+            "SAL_KEY": "string",
+            "EMP_KEY": "string",
+            "PAY_DATE": "io.debezium.time.Timestamp",
+            "AMOUNT": "int64"
+        },
+        "before": {
+            "SAL_KEY": "SAL003",
+            "EMP_KEY": "EMP003",
+            "PAY_DATE": "2024-03-01 09:00:00",
+            "AMOUNT": 150000
+        },
+        "after": {
+            "SAL_KEY": "SAL003",
+            "EMP_KEY": "EMP003",
+            "PAY_DATE": "2024-03-01 09:00:00",
+            "AMOUNT": -250000
+        },
+        "table": "TPJ_SALARY",
+        "operation": "u"
+    }
+}
