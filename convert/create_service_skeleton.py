@@ -69,12 +69,12 @@ async def create_service_skeleton(object_name: str, entity_name_list: list, glob
         # * 3. Autowired 주입 로직 및 필드 생성
         sections = []
         if global_fields:
-            sections.append(chr(10).join(global_fields))
+            sections.append('\n'.join(global_fields))
         if entity_name_list:
-            sections.append(chr(10).join(f'    @Autowired\n    private {entity}Repository {entity[0].lower()}{entity[1:]}Repository;' for entity in entity_name_list))
+            sections.append('\n'.join(f'    @Autowired\n    private {entity}Repository {entity[0].lower()}{entity[1:]}Repository;' for entity in entity_name_list))
         if external_call_package_names:
-            sections.append(chr(10).join(f'    @Autowired\n    private {convert_to_pascal_case(package_name)}Service {convert_to_camel_case(package_name)}Service;' for package_name in external_call_package_names))
-        
+            sections.append('\n'.join(f'    @Autowired\n    private {convert_to_pascal_case(package_name)}Service {convert_to_camel_case(package_name)}Service;' for package_name in external_call_package_names))
+
 
         # * 4 섹션들을 하나의 줄바꿈으로 연결하고, strip()으로 양쪽 공백 제거
         class_content = "\n\n".join(sections).strip()
@@ -103,7 +103,7 @@ import java.util.*;
 @RestController
 @Transactional
 public class {service_class_name} {{
-{class_content}
+    {class_content}
 
 CodePlaceHolder
 }}"""

@@ -44,140 +44,33 @@
   "service_skeleton_list": {
     "TPX_MAIN": [
       {
-        "command_class_variable": null,
-        "command_class_name": null,
-        "method_skeleton_name": "mainProcess",
-        "method_skeleton_code": "    public void mainProcess() {\n        String vEmpKey = \"EMP001\";\n        String vEmpName = \"홍길동\";\n        String vDeptCode = \"DEPT01\";\n        Long vBaseAmount = 3000000L;\n        LocalDate vPayDate = LocalDate.now();\n\n        CodePlaceHolder\n    }",
-        "method_signature": "void mainProcess()",
-        "service_method_skeleton": "package com.example.demo.service;\n\n\n\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxMainService {\n@Autowired\n    private TpxEmployeeService tpxEmployeeService;\n    @Autowired\n    private TpxSalaryService tpxSalaryService;\n    @Autowired\n    private TpxAttendanceService tpxAttendanceService;\n\n    public void mainProcess() {\n        String vEmpKey = \"EMP001\";\n        String vEmpName = \"홍길동\";\n        String vDeptCode = \"DEPT01\";\n        Long vBaseAmount = 3000000L;\n        LocalDate vPayDate = LocalDate.now();\n\n        CodePlaceHolder\n    }\n}",
-        "node_type": "CREATE_PROCEDURE_BODY",
-        "procedure_name": "MAIN_PROCESS"
-      }
-    ],
-    "TPX_EMPLOYEE": [
-      {
-        "command_class_variable": null,
-        "command_class_name": null,
-        "method_skeleton_name": "existsEmployee",
-        "method_skeleton_code": "    public Boolean existsEmployee(String iEmpKey) {\n        Long vCount;\n\n        CodePlaceHolder\n    }",
-        "method_signature": "Boolean existsEmployee(String iEmpKey)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjEmployee;\nimport com.example.demo.repository.TpjEmployeeRepository;\nimport com.example.demo.command.tpxEmployee.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxEmployeeService {\n@Autowired\n    private TpjEmployeeRepository tpjEmployeeRepository;\n\n    public Boolean existsEmployee(String iEmpKey) {\n        Long vCount;\n\n        CodePlaceHolder\n    }\n}",
-        "node_type": "FUNCTION",
-        "procedure_name": "EXISTS_EMPLOYEE"
-      },
-      {
-        "command_class_variable": null,
-        "command_class_name": null,
-        "method_skeleton_name": "getEmployee",
-        "method_skeleton_code": "    public TpjEmployee getEmployee(String iEmpKey) {\n        TpjEmployee vEmployee = new TpjEmployee();\n\n        CodePlaceHolder\n    }",
-        "method_signature": "TpjEmployee getEmployee(String iEmpKey)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjEmployee;\nimport com.example.demo.repository.TpjEmployeeRepository;\nimport com.example.demo.command.tpxEmployee.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxEmployeeService {\n@Autowired\n    private TpjEmployeeRepository tpjEmployeeRepository;\n\n    public TpjEmployee getEmployee(String iEmpKey) {\n        TpjEmployee vEmployee = new TpjEmployee();\n\n        CodePlaceHolder\n    }\n}",
-        "node_type": "FUNCTION",
-        "procedure_name": "GET_EMPLOYEE"
-      },
-      {
         "command_class_variable": [
           "String:empKey",
           "String:empName",
-          "String:deptCode"
-        ],
-        "command_class_name": "InsEmployeeCommand",
-        "method_skeleton_name": "insEmployee",
-        "method_skeleton_code": "    public void insEmployee(String iEmpKey, String iEmpName, String iDeptCode) {\n        Boolean vExists;\n\n        CodePlaceHolder\n    }",
-        "method_signature": "void insEmployee(String iEmpKey, String iEmpName, String iDeptCode)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjEmployee;\nimport com.example.demo.repository.TpjEmployeeRepository;\nimport com.example.demo.command.tpxEmployee.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxEmployeeService {\n@Autowired\n    private TpjEmployeeRepository tpjEmployeeRepository;\n\n    public void insEmployee(String iEmpKey, String iEmpName, String iDeptCode) {\n        Boolean vExists;\n\n        CodePlaceHolder\n    }\n}",
-        "node_type": "PROCEDURE",
-        "procedure_name": "INS_EMPLOYEE"
-      }
-    ],
-    "TPX_SALARY": [
-      {
-        "command_class_variable": null,
-        "command_class_name": null,
-        "method_skeleton_name": "pCalculateDeduction",
-        "method_skeleton_code": "    public Long pCalculateDeduction(Long iAbsentDays) {\n        Long vDeduction;\n\n        CodePlaceHolder\n    }",
-        "method_signature": "Long pCalculateDeduction(Long iAbsentDays)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjSalary;\nimport com.example.demo.repository.TpjSalaryRepository;\nimport com.example.demo.command.tpxSalary.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxSalaryService {\n@Autowired\n    private TpjSalaryRepository tpjSalaryRepository;\n\n    @Autowired\n    private TpxEmployeeService tpxEmployeeService;\n    @Autowired\n    private TpxAttendanceService tpxAttendanceService;\n\n    public Long pCalculateDeduction(Long iAbsentDays) {\n        Long vDeduction;\n\n        CodePlaceHolder\n    }\n}",
-        "node_type": "FUNCTION",
-        "procedure_name": "p_CALCULATE_DEDUCTION"
-      },
-      {
-        "command_class_variable": null,
-        "command_class_name": null,
-        "method_skeleton_name": "getSalary",
-        "method_skeleton_code": "    public Long getSalary(String iEmpKey, LocalDate iPayDate) {\n        Long vAmount;\n\n        CodePlaceHolder\n    }",
-        "method_signature": "Long getSalary(String iEmpKey, LocalDate iPayDate)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjSalary;\nimport com.example.demo.repository.TpjSalaryRepository;\nimport com.example.demo.command.tpxSalary.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxSalaryService {\n@Autowired\n    private TpjSalaryRepository tpjSalaryRepository;\n\n    @Autowired\n    private TpxEmployeeService tpxEmployeeService;\n    @Autowired\n    private TpxAttendanceService tpxAttendanceService;\n\n    public Long getSalary(String iEmpKey, LocalDate iPayDate) {\n        Long vAmount;\n\n        CodePlaceHolder\n    }\n}",
-        "node_type": "FUNCTION",
-        "procedure_name": "GET_SALARY"
-      },
-      {
-        "command_class_variable": [
-          "String:empKey",
+          "String:deptCode",
+          "Long:baseAmount",
           "LocalDate:payDate",
-          "Long:baseAmount"
+          "Long:absentDays"
         ],
-        "command_class_name": "InsSalaryCommand",
-        "method_skeleton_name": "insSalary",
-        "method_skeleton_code": "    public void insSalary(String iEmpKey, LocalDate iPayDate, Long iBaseAmount) {\n        Boolean vExists;\n\n        CodePlaceHolder\n    }",
-        "method_signature": "void insSalary(String iEmpKey, LocalDate iPayDate, Long iBaseAmount)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjSalary;\nimport com.example.demo.repository.TpjSalaryRepository;\nimport com.example.demo.command.tpxSalary.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxSalaryService {\n@Autowired\n    private TpjSalaryRepository tpjSalaryRepository;\n\n    @Autowired\n    private TpxEmployeeService tpxEmployeeService;\n    @Autowired\n    private TpxAttendanceService tpxAttendanceService;\n\n    public void insSalary(String iEmpKey, LocalDate iPayDate, Long iBaseAmount) {\n        Boolean vExists;\n\n        CodePlaceHolder\n    }\n}",
-        "node_type": "PROCEDURE",
-        "procedure_name": "INS_SALARY"
-      },
-      {
-        "command_class_variable": [
-          "String:empKey",
-          "LocalDate:payDate"
-        ],
-        "command_class_name": "UpdSalaryByAbsentCommand",
-        "method_skeleton_name": "updSalaryByAbsent",
-        "method_skeleton_code": "    public void updSalaryByAbsent(String iEmpKey, LocalDate iPayDate) {\n        Long vBaseAmount;\n        Long vAbsentDays;\n        Long vFinalAmount;\n        Boolean vExists;\n    \n        CodePlaceHolder\n    }",
-        "method_signature": "void updSalaryByAbsent(String iEmpKey, LocalDate iPayDate)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjSalary;\nimport com.example.demo.repository.TpjSalaryRepository;\nimport com.example.demo.command.tpxSalary.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxSalaryService {\n@Autowired\n    private TpjSalaryRepository tpjSalaryRepository;\n\n    @Autowired\n    private TpxEmployeeService tpxEmployeeService;\n    @Autowired\n    private TpxAttendanceService tpxAttendanceService;\n\n    public void updSalaryByAbsent(String iEmpKey, LocalDate iPayDate) {\n        Long vBaseAmount;\n        Long vAbsentDays;\n        Long vFinalAmount;\n        Boolean vExists;\n    \n        CodePlaceHolder\n    }\n}",
-        "node_type": "PROCEDURE",
-        "procedure_name": "UPD_SALARY_BY_ABSENT"
-      }
-    ],
-    "TPX_ATTENDANCE": [
-      {
-        "command_class_variable": [
-          "String:empKey",
-          "LocalDate:workDate",
-          "String:status"
-        ],
-        "command_class_name": "InsAttendanceCommand",
-        "method_skeleton_name": "insAttendance",
-        "method_skeleton_code": "    public void insAttendance(String iEmpKey, LocalDate iWorkDate, String iStatus) {\n        Boolean vExists;\n\n        CodePlaceHolder\n    }",
-        "method_signature": "void insAttendance(String iEmpKey, LocalDate iWorkDate, String iStatus)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjAttendance;\nimport com.example.demo.repository.TpjAttendanceRepository;\nimport com.example.demo.command.tpxAttendance.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxAttendanceService {\n@Autowired\n    private TpjAttendanceRepository tpjAttendanceRepository;\n\n    @Autowired\n    private TpxEmployeeService tpxEmployeeService;\n\n    public void insAttendance(String iEmpKey, LocalDate iWorkDate, String iStatus) {\n        Boolean vExists;\n\n        CodePlaceHolder\n    }\n}",
-        "node_type": "PROCEDURE",
-        "procedure_name": "INS_ATTENDANCE"
-      },
-      {
-        "command_class_variable": null,
-        "command_class_name": null,
-        "method_skeleton_name": "getAbsentDays",
-        "method_skeleton_code": "    public Long getAbsentDays(String iEmpKey, LocalDate iStartDate, LocalDate iEndDate) {\n        Long vCount;\n        Boolean vExists;\n    \n        CodePlaceHolder\n    }",
-        "method_signature": "Long getAbsentDays(String iEmpKey, LocalDate iStartDate, LocalDate iEndDate)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjAttendance;\nimport com.example.demo.repository.TpjAttendanceRepository;\nimport com.example.demo.command.tpxAttendance.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxAttendanceService {\n@Autowired\n    private TpjAttendanceRepository tpjAttendanceRepository;\n\n    @Autowired\n    private TpxEmployeeService tpxEmployeeService;\n\n    public Long getAbsentDays(String iEmpKey, LocalDate iStartDate, LocalDate iEndDate) {\n        Long vCount;\n        Boolean vExists;\n    \n        CodePlaceHolder\n    }\n}",
-        "node_type": "FUNCTION",
-        "procedure_name": "GET_ABSENT_DAYS"
+        "command_class_name": "TpxMainCommand",
+        "method_skeleton_name": "tpxMain",
+        "method_skeleton_code": "    public void tpxMain(String pEmpKey, String pEmpName, String pDeptCode, Long pBaseAmount, LocalDate pPayDate, Long pAbsentDays) {\n        CodePlaceHolder\n    }",
+        "method_signature": "void tpxMain(String pEmpKey, String pEmpName, String pDeptCode, Long pBaseAmount, LocalDate pPayDate, Long pAbsentDays)",
+        "service_method_skeleton": "package com.example.demo.service;\n\n\n\nimport com.example.demo.command.tpxMain.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxMainService {\n    @Autowired\n    private TpxEmployeeService tpxEmployeeService;\n    @Autowired\n    private TpxSalaryService tpxSalaryService;\n    @Autowired\n    private TpxAttendanceService tpxAttendanceService;\n\n    public void tpxMain(String pEmpKey, String pEmpName, String pDeptCode, Long pBaseAmount, LocalDate pPayDate, Long pAbsentDays) {\n        CodePlaceHolder\n    }\n}",
+        "node_type": "CREATE_PROCEDURE_BODY",
+        "procedure_name": "TPX_MAIN"
       }
     ]
   },
   "service_skeleton": {
-    "TPX_MAIN": "package com.example.demo.service;\n\n\n\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxMainService {\n@Autowired\n    private TpxEmployeeService tpxEmployeeService;\n    @Autowired\n    private TpxSalaryService tpxSalaryService;\n    @Autowired\n    private TpxAttendanceService tpxAttendanceService;\n\nCodePlaceHolder\n}",
-    "TPX_EMPLOYEE": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjEmployee;\nimport com.example.demo.repository.TpjEmployeeRepository;\nimport com.example.demo.command.tpxEmployee.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxEmployeeService {\n@Autowired\n    private TpjEmployeeRepository tpjEmployeeRepository;\n\nCodePlaceHolder\n}",
-    "TPX_SALARY": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjSalary;\nimport com.example.demo.repository.TpjSalaryRepository;\nimport com.example.demo.command.tpxSalary.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxSalaryService {\n@Autowired\n    private TpjSalaryRepository tpjSalaryRepository;\n\n    @Autowired\n    private TpxEmployeeService tpxEmployeeService;\n    @Autowired\n    private TpxAttendanceService tpxAttendanceService;\n\nCodePlaceHolder\n}",
-    "TPX_ATTENDANCE": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjAttendance;\nimport com.example.demo.repository.TpjAttendanceRepository;\nimport com.example.demo.command.tpxAttendance.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxAttendanceService {\n@Autowired\n    private TpjAttendanceRepository tpjAttendanceRepository;\n\n    @Autowired\n    private TpxEmployeeService tpxEmployeeService;\n\nCodePlaceHolder\n}"
+    "TPX_MAIN": "package com.example.demo.service;\n\n\n\nimport com.example.demo.command.tpxMain.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxMainService {\n    @Autowired\n    private TpxEmployeeService tpxEmployeeService;\n    @Autowired\n    private TpxSalaryService tpxSalaryService;\n    @Autowired\n    private TpxAttendanceService tpxAttendanceService;\n\nCodePlaceHolder\n}"
   },
   "service_class_name": {
-    "TPX_MAIN": "TpxMainService",
-    "TPX_EMPLOYEE": "TpxEmployeeService",
-    "TPX_SALARY": "TpxSalaryService",
-    "TPX_ATTENDANCE": "TpxAttendanceService"
+    "TPX_MAIN": "TpxMainService"
   },
   "controller_skeleton": {},
-  "controller_class_name": {}
+  "controller_class_name": {},
+  "exist_command_class": {
+    "TPX_MAIN": true
+  }
 }

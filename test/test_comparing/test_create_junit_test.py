@@ -2,7 +2,6 @@ import unittest
 import sys
 import os
 import logging
-import asyncio
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from service.service import process_comparison_result
@@ -11,7 +10,7 @@ from service.service import process_comparison_result
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 logging.getLogger('asyncio').setLevel(logging.ERROR)
 
-
+# PLSQL 결과 로그와 자바 실행 로그와 비교하는 프로세스를 테스트
 class TestGenerateJunitTest(unittest.IsolatedAsyncioTestCase):
     async def test_process_comparison_result(self):
         try:

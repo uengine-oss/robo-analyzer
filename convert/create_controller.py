@@ -62,7 +62,7 @@ async def create_controller_class_file(controller_skeleton, controller_class_nam
         # * 컨트롤러 클래스 파일을 생성합니다.
         async with aiofiles.open(service_file_path, 'w', encoding='utf-8') as file:  
             await file.write(controller_code)  
-            logging.info(f"Success Create Service Java File\n")  
+            logging.info(f"[{controller_class_name}] Success Create Controller Java File\n")  
 
     except Exception:
         err_msg = "컨트롤러 클래스 파일 생성 중 오류가 발생했습니다."

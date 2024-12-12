@@ -1,0 +1,22 @@
+{
+  "u_EMPLOYEES" : {
+    "status" : "different",
+    "differences" : {
+      "after" : {
+        "FINALSALARY" : {
+          "java" : "4358.7",
+          "plsql" : "4359.375"
+        }
+      }
+    }
+  },
+  "c_WORK_LOGS" : {
+    "status" : "identical"
+  },
+  "c_EMPLOYEES" : {
+    "status" : "identical"
+  },
+  "c_LEAVE_RECORDS" : {
+    "status" : "identical"
+  }
+}
