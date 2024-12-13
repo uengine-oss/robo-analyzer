@@ -3,7 +3,7 @@ import os
 import sys
 
 sys.path.append('/Users/jhyg/Desktop/legacy-modernizer/legacy-modernizer-back')
-from convert.create_service_skeleton import execute_maven_commands
+from compare.result_compare import execute_maven_commands
 
 async def test_execute_maven_commands():
     # 환경 변수 설정 (필요한 경우)
