@@ -8,7 +8,7 @@ PROPERTIES_PATH = 'java/demo/src/main/resources'
 APPLICATION_PROPERTIES_TEMPLATE = """spring.application.name=demo
 server.port=8082
 spring.jpa.hibernate.naming.physical-strategy=org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
-spring.jpa.hibernate.ddl-auto=create-drop
+spring.jpa.hibernate.ddl-auto=create
 spring.jpa.properties.hibernate.show_sql=true
 spring.jpa.properties.hibernate.format_sql=true
 spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.OracleDialect

@@ -5,10 +5,18 @@ async def generate_init_sql(table_names: list[str], package_names: list[str]) ->
     01_init_database_config.sql 파일을 생성하는 함수
     """
     try:
-        # 테이블 생성 명령어 생성
-        table_creation_plsql = "\n".join([f"@/opt/oracle/scripts/sql/ddl/{table}.sql" for table in table_names])
-        package_creation_plsql = "\n".join([f"@/opt/oracle/scripts/sql/procedure/{package}.sql" for package in package_names])
+        # SQL 실행 명령어 생성 
+        table_creation_commands = "\n    ".join([
+            f"EXECUTE IMMEDIATE '@/opt/oracle/scripts/sql/ddl/{table}.sql';" 
+            for table in table_names
+        ])
+        
+        package_creation_commands = "\n    ".join([
+            f"EXECUTE IMMEDIATE '@/opt/oracle/scripts/sql/procedure/{package}.sql';" 
+            for package in package_names
+        ])
 
+        # SQL 템플릿 생성
         template = f'''SHUTDOWN IMMEDIATE;
 STARTUP MOUNT;
 ALTER DATABASE ARCHIVELOG;
@@ -38,6 +46,12 @@ BEGIN
     EXECUTE IMMEDIATE 'CREATE PLUGGABLE DATABASE javadb ADMIN USER pdbadmin IDENTIFIED BY dbz
     FILE_NAME_CONVERT = (''/opt/oracle/oradata/XE/'', ''/opt/oracle/oradata/XE/javadb/'')';
     EXECUTE IMMEDIATE 'ALTER PLUGGABLE DATABASE javadb OPEN';
+
+    -- PLSQLDB 테이블 및 프로시저 등록
+    EXECUTE IMMEDIATE 'ALTER SESSION SET CONTAINER = plsqldb';
+    EXECUTE IMMEDIATE 'ALTER SESSION SET CURRENT_SCHEMA = C##DEBEZIUM';
+    {table_creation_commands}
+    {package_creation_commands}
   END IF;
 END;
 /
@@ -93,12 +107,6 @@ BEGIN
   END IF;
 END;
 /
-
-ALTER SESSION SET CONTAINER = plsqldb;
-ALTER SESSION SET CURRENT_SCHEMA = C##DEBEZIUM;
-{table_creation_plsql}
-{package_creation_plsql}
-
 
 COMMIT;
 

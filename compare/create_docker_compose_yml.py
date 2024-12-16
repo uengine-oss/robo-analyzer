@@ -269,7 +269,6 @@ async def start_docker_compose_yml():
         print(result.stdout)
         
         print("Docker Compose 실행 완료")
-        time.sleep(10)
         return True
         
     except subprocess.CalledProcessError as e:

@@ -413,9 +413,9 @@ async def delete_all_temp_data(delete_paths: dict):
 # 매개변수:
 #   - main_file_name: 처리할 메인 파일의 이름 (예: "TPX_UPDATE_SALARY.sql")
 # 반환값: 없음
-async def process_comparison_result(main_file_name: str):
+async def process_comparison_result(file_name: str):
     try:
-        object_name = os.path.splitext(main_file_name)[0]
+        object_name = os.path.splitext(file_name)[0]
         procedure_name = None
         # input_parameters = None
         # parameters = None
@@ -424,91 +424,37 @@ async def process_comparison_result(main_file_name: str):
         neo4j = Neo4jConnection()
         
 
-        # # * CREATE_PROCEDURE_BODY 노드를 찾는 사이퍼 쿼리
-        # query = f"""
-        # MATCH (n:CREATE_PROCEDURE_BODY)-[:parent_of]->(s:SPEC)
-        # WHERE n.object_name = '{object_name}'
-        # WITH s
-        # MATCH (t:Table)
-        # WITH s, collect(t) as tables
-        # MATCH (r:ROOT)
-        # RETURN s, tables, collect(r.object_name) as procedure_names
-        # """
+        # * CREATE_PROCEDURE_BODY 노드를 찾는 사이퍼 쿼리
+        query = f"""
+        MATCH (n:CREATE_PROCEDURE_BODY)-[:parent_of]->(s:SPEC)
+        WHERE n.object_name = '{object_name}'
+        WITH s
+        MATCH (t:Table)
+        WITH s, collect(t) as tables
+        MATCH (r:ROOT)
+        RETURN s, tables, collect(r.object_name) as procedure_names
+        """
         
-        # # * Junit 테스트와 docker-compose.yml 생성을 위한 정보를 Neo4J로 부터 가지고 옴
-        # result = await neo4j.execute_queries(query)
-        # if result:
-        #     # parameters = result[0]['s']['node_code']
-        #     procedure_name = result[0]['s']['procedure_name']
-        #     table_names = [table['name'] for table in result[0]['tables']]
-        #     package_names = result[0]['procedure_names']
-
-
-        # * 테스트를 위한 하드 코딩된 데이터 설정 ( Neo4j 데이터 없이 테스트 진행 )
-        procedure_name = "TPX_UPDATE_SALARY"
-        table_names = ["TPJ_EMPLOYEE", "TPJ_SALARY", "TPJ_ATTENDANCE"]
-        package_names = ["TPX_EMPLOYEE", "TPX_ATTENDANCE", "TPX_SALARY", "TPX_UPDATE_SALARY"]
+        # * Junit 테스트와 docker-compose.yml 생성을 위한 정보를 Neo4J로 부터 가지고 옴
+        result = await neo4j.execute_queries(query)
+        if result:
+            # parameters = result[0]['s']['node_code']
+            procedure_name = result[0]['s']['procedure_name']
+            table_names = [table['name'] for table in result[0]['tables']]
+            package_names = result[0]['procedure_names']
         called_procedure_name = "TPX_UPDATE_SALARY"
+
+
+        # # * 테스트를 위한 하드 코딩된 데이터 설정 ( Neo4j 데이터 없이 테스트 진행 )
+        # procedure_name = "TPX_UPDATE_SALARY"
+        # table_names = ["TPJ_EMPLOYEE", "TPJ_SALARY", "TPJ_ATTENDANCE"]
+        # package_names = ["TPX_EMPLOYEE", "TPX_ATTENDANCE", "TPX_SALARY", "TPX_UPDATE_SALARY"]
+
+
         # TODO 테스트 커버리지를 100% 진행할 수 있도록하는 Given을 여러개 생성 어떻게? 
         # TODO When 또한 어떤 프로시저를 어떤 파라미터를 전달할지 필요 
         # 함수 호출 llm을 이용()
 
-
-        # GIVEN과 THEN 로그를 얻기 위한 데이터 생성
-        test_cases = [
-            # Case 1: 이정규 (정규직, 결근 4번)
-            {
-                "params": {
-                    "pEmpKey": "EMP001",
-                    "pEmpName": "이정규",
-                    "pDeptCode": "DEV001",
-                    "pBaseAmount": 100000,
-                    "pPayDate": date(2024, 3, 1),
-                    "pRegularYn": "Y"
-                },
-                "sql": [
-                    "INSERT INTO TPJ_EMPLOYEE (EMP_KEY, EMP_NAME, DEPT_CODE, REGULAR_YN) VALUES ('EMP001', '이정규', 'DEV001', 'Y')",
-                    "INSERT INTO TPJ_SALARY (SAL_KEY, EMP_KEY, PAY_DATE, AMOUNT) VALUES ('SAL001', 'EMP001', TO_DATE('2024-03-01', 'YYYY-MM-DD'), 100000)",
-                    "INSERT INTO TPJ_ATTENDANCE (ATT_KEY, EMP_KEY, WORK_DATE, STATUS) VALUES ('ATT001', 'EMP001', TO_DATE('2024-03-01', 'YYYY-MM-DD'), 'AB')",
-                    "INSERT INTO TPJ_ATTENDANCE (ATT_KEY, EMP_KEY, WORK_DATE, STATUS) VALUES ('ATT002', 'EMP001', TO_DATE('2024-03-02', 'YYYY-MM-DD'), 'AB')",
-                    "INSERT INTO TPJ_ATTENDANCE (ATT_KEY, EMP_KEY, WORK_DATE, STATUS) VALUES ('ATT003', 'EMP001', TO_DATE('2024-03-03', 'YYYY-MM-DD'), 'AB')",
-                    "INSERT INTO TPJ_ATTENDANCE (ATT_KEY, EMP_KEY, WORK_DATE, STATUS) VALUES ('ATT004', 'EMP001', TO_DATE('2024-03-04', 'YYYY-MM-DD'), 'AB')"
-                ]
-            },
-            # Case 2: 김정규 (정규직, 결근 없음)
-            {
-                "params": {
-                    "pEmpKey": "EMP002",
-                    "pEmpName": "김정규",
-                    "pDeptCode": "DEV002",
-                    "pBaseAmount": 200000,
-                    "pPayDate": date(2024, 3, 1),
-                    "pRegularYn": "Y"
-                },
-                "sql": [
-                    "INSERT INTO TPJ_EMPLOYEE (EMP_KEY, EMP_NAME, DEPT_CODE, REGULAR_YN) VALUES ('EMP002', '김정규', 'DEV002', 'Y')",
-                    "INSERT INTO TPJ_SALARY (SAL_KEY, EMP_KEY, PAY_DATE, AMOUNT) VALUES ('SAL002', 'EMP002', TO_DATE('2024-03-01', 'YYYY-MM-DD'), 200000)",
-                    "INSERT INTO TPJ_ATTENDANCE (ATT_KEY, EMP_KEY, WORK_DATE, STATUS) VALUES ('ATT005', 'EMP002', TO_DATE('2024-03-01', 'YYYY-MM-DD'), 'NM')"
-                ]
-            },
-            # Case 3: 박계약 (비정규직, 결근 2번)
-            {
-                "params": {
-                    "pEmpKey": "EMP003",
-                    "pEmpName": "박계약",
-                    "pDeptCode": "DEV001",
-                    "pBaseAmount": 150000,
-                    "pPayDate": date(2024, 3, 1),
-                    "pRegularYn": "N"
-                },
-                "sql": [
-                    "INSERT INTO TPJ_EMPLOYEE (EMP_KEY, EMP_NAME, DEPT_CODE, REGULAR_YN) VALUES ('EMP003', '박계약', 'DEV001', 'N')",
-                    "INSERT INTO TPJ_SALARY (SAL_KEY, EMP_KEY, PAY_DATE, AMOUNT) VALUES ('SAL003', 'EMP003', TO_DATE('2024-03-01', 'YYYY-MM-DD'), 150000)",
-                    "INSERT INTO TPJ_ATTENDANCE (ATT_KEY, EMP_KEY, WORK_DATE, STATUS) VALUES ('ATT006', 'EMP003', TO_DATE('2024-03-01', 'YYYY-MM-DD'), 'AB')",
-                    "INSERT INTO TPJ_ATTENDANCE (ATT_KEY, EMP_KEY, WORK_DATE, STATUS) VALUES ('ATT007', 'EMP003', TO_DATE('2024-03-02', 'YYYY-MM-DD'), 'AB')"
-                ]
-            }
-        ]
 
         # ! 패키지 간의 의존 관계 파악 필요
         # await generate_init_sql(table_names, package_names)

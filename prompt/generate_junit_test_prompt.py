@@ -182,19 +182,6 @@ Then 로그: {{
                     .as("최종 급여가 1500이어야 합니다")
                     .isEqualTo(1500);
             }}
-
-            @AfterEach
-            void printTestResult() {{
-                if (testSuccess) {{
-                    System.out.println("\n╔════════════════════════════════════════════╗");
-                    System.out.println("║             TEST SUCCESSFUL                ║");
-                    System.out.println("╠════════════════════════════════════════════╣");
-                    System.out.println("║ Test: calculateSalary                      ║");
-                    System.out.println("║ Input: Employee E001, WorkDays 5           ║");
-                    System.out.println("║ Result: Final Salary 1500                  ║");
-                    System.out.println("╚════════════════════════════════════════════╝\n");
-                }}
-            }}
         }}
     "
 }}
