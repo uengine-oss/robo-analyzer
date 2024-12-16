@@ -6,7 +6,8 @@ import shutil
 import zipfile
 import aiofiles
 import os
-from compare.extract_log_info import compare_log_files, extract_given_log, extract_then_log, generate_given_when_then
+from compare.create_init_sql import extract_procedure_params, generate_insert_sql
+from compare.extract_log_info import clear_log_file, generate_given_when_then
 from compare.create_docker_compose_yml import generate_docker_compose_yml, process_docker_compose_yml, start_docker_compose_yml
 # from compare.create_init_sql import generate_init_sql
 from compare.create_junit_test import create_junit_test
@@ -413,69 +414,123 @@ async def delete_all_temp_data(delete_paths: dict):
 # 매개변수:
 #   - main_file_name: 처리할 메인 파일의 이름 (예: "TPX_UPDATE_SALARY.sql")
 # 반환값: 없음
-async def process_comparison_result(file_name: str):
+async def process_comparison_result(test_cases: list):
     try:
-        object_name = os.path.splitext(file_name)[0]
-        procedure_name = None
-        # input_parameters = None
-        # parameters = None
-        table_names = []
-        package_names = []
-        neo4j = Neo4jConnection()
-        
+        # * 모든 테스트 케이스에서 사용된 테이블 이름을 추출하여 집합으로 저장
+        table_names = list({table for case in test_cases for table in case['tableFields'].keys()})
+        delete_statements = [f"DELETE FROM {table_name}" for table_name in table_names]
+        test_class_names = []
 
-        # * CREATE_PROCEDURE_BODY 노드를 찾는 사이퍼 쿼리
-        query = f"""
-        MATCH (n:CREATE_PROCEDURE_BODY)-[:parent_of]->(s:SPEC)
-        WHERE n.object_name = '{object_name}'
-        WITH s
-        MATCH (t:Table)
-        WITH s, collect(t) as tables
-        MATCH (r:ROOT)
-        RETURN s, tables, collect(r.object_name) as procedure_names
-        """
-        
-        # * Junit 테스트와 docker-compose.yml 생성을 위한 정보를 Neo4J로 부터 가지고 옴
-        result = await neo4j.execute_queries(query)
-        if result:
-            # parameters = result[0]['s']['node_code']
-            procedure_name = result[0]['s']['procedure_name']
-            table_names = [table['name'] for table in result[0]['tables']]
-            package_names = result[0]['procedure_names']
-        called_procedure_name = "TPX_UPDATE_SALARY"
+        # * docker-compose.yml 파일 생성 및 실행 상태 전송
+        yield json.dumps({
+            "type": "status",
+            "message": "Docker 환경 구성 시작"
+        }, ensure_ascii=False).encode('utf-8') + b"send_stream"
 
-
-        # # * 테스트를 위한 하드 코딩된 데이터 설정 ( Neo4j 데이터 없이 테스트 진행 )
-        # procedure_name = "TPX_UPDATE_SALARY"
-        # table_names = ["TPJ_EMPLOYEE", "TPJ_SALARY", "TPJ_ATTENDANCE"]
-        # package_names = ["TPX_EMPLOYEE", "TPX_ATTENDANCE", "TPX_SALARY", "TPX_UPDATE_SALARY"]
-
-
-        # TODO 테스트 커버리지를 100% 진행할 수 있도록하는 Given을 여러개 생성 어떻게? 
-        # TODO When 또한 어떤 프로시저를 어떤 파라미터를 전달할지 필요 
-        # 함수 호출 llm을 이용()
-
-
+        # * 테이블 이름을 기반으로 초기 데이터 삽입 SQL 생성과 docker-compose.yml 파일 생성 및 실행
         # ! 패키지 간의 의존 관계 파악 필요
         # await generate_init_sql(table_names, package_names)
-        await process_docker_compose_yml(table_names)
+        # await process_docker_compose_yml(table_names)
 
-
-        # * 테스트 데이터 생성 및 Junit 테스트 코드 작성
-        for i, test_data in enumerate(test_cases, 1):
-            await execute_sql(test_data["sql"])
-            await extract_given_log(i)
-            await execute_plsql(object_name, test_data["params"])
-            await extract_then_log(i)
-            given_when_then_log = await generate_given_when_then(i, procedure_name, test_data["params"])
+        # * 각 테스트 케이스에 처리 진행 
+        for test_case in test_cases:
+            case_id = test_case['id']
+            procedure = test_case['procedure']
+            table_fields = test_case['tableFields']
             
-            # * Junit 테스트 코드 작성 
-            await create_junit_test(given_when_then_log, table_names, procedure_name, called_procedure_name)
+            # * 프로시저 이름과 패키지(파일) 이름 추출
+            procedure_name = procedure['procedure_name']
+            package_name = procedure['object_name']
 
+            # * 현재 처리중인 케이스 정보 전송
+            yield json.dumps({
+                "type": "status",
+                "message": f"테스트 케이스 {case_id} 처리 중"
+            }, ensure_ascii=False).encode('utf-8') + b"send_stream"
+
+            # * 테스트 데이터 생성을 위한 초기 데이터 삽입 SQL 생성
+            insert_statements = generate_insert_sql(table_fields)
+            await execute_sql(insert_statements)
+
+            # * Given 로그 파일 비우기
+            await clear_log_file()
+
+            # * 테스트 데이터 생성을 위한 프로시저 파라미터 추출
+            procedure_params = extract_procedure_params(procedure)
+            await execute_plsql(procedure_name, procedure_params)
+
+            # * Given-When-Then 로그 생성
+            given_when_then_log = await generate_given_when_then(case_id, procedure, procedure_params, table_fields)
+
+            # 실제 로그 데이터 전송
+            yield json.dumps({
+                "type": "plsql",
+                "log": given_when_then_log
+            }, ensure_ascii=False).encode('utf-8') + b"send_stream"
+
+            # * Junit 테스트 코드 작성 
+            test_class_name = await create_junit_test(given_when_then_log, table_names, package_name, procedure_name)
+            test_class_names.append(test_class_name)
+
+            # * 테스트 데이터 삭제
+            await execute_sql(delete_statements)
+
+        # TODO 여기에 테스트 코드 실행하는 메서드 호출
+        yield "end_of_stream" 
 
     except Exception:
         err_msg = "결과 검증 및 비교하는 도중 오류가 발생했습니다."
         logging.error(err_msg, exc_info=False)
-        raise CompareResultError(err_msg)
+        yield json.dumps({"type": "error","message": err_msg}).encode('utf-8') + b"send_stream"
+
+
+async def get_node_info_from_neo4j():
+    try:
+        neo4j = Neo4jConnection()
+        # 모든 쿼리를 리스트로 구성
+        queries = [
+            """
+            MATCH (t:Table)
+            RETURN COLLECT({
+                name: t.name,
+                fields: [key IN keys(t) 
+                    WHERE key <> 'name' 
+                    AND key <> 'object_name'
+                    AND key <> 'id'
+                    AND key <> 'elementId'
+                    AND key <> 'primary_keys'
+                    AND key <> 'foreign_keys'
+                    AND key <> 'reference_tables'
+                    | t[key]
+                ] 
+            }) as tables
+            """,
+            """
+            MATCH (r:ROOT)
+            RETURN COLLECT({
+                object_name: r.object_name
+            }) as roots
+            """,
+            """
+            MATCH (n)-[:PARENT_OF]->(s:SPEC)-[:SCOPE]->(v:Variable)
+            WHERE n:PROCEDURE OR n:FUNCTION OR n:CREATE_PROCEDURE_BODY
+            WITH n, collect({name: v.name, type: v.type}) as vars
+            RETURN COLLECT({
+                procedure_name: n.procedure_name,
+                object_name: n.object_name,
+                variables: vars
+            }) as procedures
+            """
+        ]
+
+        results = await neo4j.execute_queries(queries)
+        
+        return {
+            "table": results[0][0]['tables'],
+            "root": results[1][0]['roots'],
+            "procedure": results[2][0]['procedures']
+        }
+    except Exception:
+        raise Neo4jError("Neo4j에서 노드 정보를 가져오는데 실패했습니다.")
     finally:
         await neo4j.close()

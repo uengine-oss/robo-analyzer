@@ -30,17 +30,6 @@ BEGIN
     EXECUTE IMMEDIATE 'CREATE PLUGGABLE DATABASE javadb ADMIN USER pdbadmin IDENTIFIED BY dbz
     FILE_NAME_CONVERT = (''/opt/oracle/oradata/XE/'', ''/opt/oracle/oradata/XE/javadb/'')';
     EXECUTE IMMEDIATE 'ALTER PLUGGABLE DATABASE javadb OPEN';
-    
-    -- PLSQLDB 테이블 및 프로시저 등록
-    EXECUTE IMMEDIATE 'ALTER SESSION SET CONTAINER = plsqldb';
-    EXECUTE IMMEDIATE 'ALTER SESSION SET CURRENT_SCHEMA = C##DEBEZIUM';
-    EXECUTE IMMEDIATE '@/opt/oracle/scripts/sql/ddl/TPJ_EMPLOYEE.sql';
-    EXECUTE IMMEDIATE '@/opt/oracle/scripts/sql/ddl/TPJ_SALARY.sql';
-    EXECUTE IMMEDIATE '@/opt/oracle/scripts/sql/ddl/TPJ_ATTENDANCE.sql';
-    EXECUTE IMMEDIATE '@/opt/oracle/scripts/sql/procedure/TPX_EMPLOYEE.sql';
-    EXECUTE IMMEDIATE '@/opt/oracle/scripts/sql/procedure/TPX_ATTENDANCE.sql';
-    EXECUTE IMMEDIATE '@/opt/oracle/scripts/sql/procedure/TPX_SALARY.sql';
-    EXECUTE IMMEDIATE '@/opt/oracle/scripts/sql/procedure/TPX_UPDATE_SALARY.sql';
   END IF;
 END;
 /
@@ -62,7 +51,31 @@ BEGIN
     EXECUTE IMMEDIATE 'GRANT LOGMINING TO c##debezium CONTAINER=ALL';
     EXECUTE IMMEDIATE 'GRANT CREATE TABLE, LOCK ANY TABLE TO c##debezium CONTAINER=ALL';
     EXECUTE IMMEDIATE 'GRANT CREATE SEQUENCE TO c##debezium CONTAINER=ALL';
-    
+
+    -- 프로시저 생성 권한
+    EXECUTE IMMEDIATE 'GRANT CREATE PROCEDURE TO c##debezium CONTAINER=ALL';
+
+  END IF;
+END;
+/
+
+ALTER SESSION SET CONTAINER = plsqldb;
+ALTER SESSION SET CURRENT_SCHEMA = C##DEBEZIUM;
+@/opt/oracle/scripts/sql/ddl/TPJ_EMPLOYEE.sql
+@/opt/oracle/scripts/sql/ddl/TPJ_SALARY.sql
+@/opt/oracle/scripts/sql/ddl/TPJ_ATTENDANCE.sql
+@/opt/oracle/scripts/sql/procedure/TPX_EMPLOYEE.sql
+@/opt/oracle/scripts/sql/procedure/TPX_ATTENDANCE.sql
+@/opt/oracle/scripts/sql/procedure/TPX_SALARY.sql
+@/opt/oracle/scripts/sql/procedure/TPX_UPDATE_SALARY.sql
+ALTER SESSION SET CONTAINER = CDB$ROOT;
+
+DECLARE
+  v_count NUMBER;
+BEGIN
+  SELECT COUNT(*) INTO v_count FROM dba_users WHERE username = 'C##DEBEZIUM';
+  IF v_count > 0 THEN
+
     -- LOGMNR 관련 권한
     EXECUTE IMMEDIATE 'GRANT SELECT ANY DICTIONARY TO c##debezium CONTAINER=ALL';
     EXECUTE IMMEDIATE 'GRANT EXECUTE ON DBMS_LOGMNR TO c##debezium CONTAINER=ALL';
@@ -78,13 +91,9 @@ BEGIN
     EXECUTE IMMEDIATE 'GRANT SELECT ON V_$ARCHIVE_DEST_STATUS TO c##debezium CONTAINER=ALL';
     EXECUTE IMMEDIATE 'GRANT SELECT ON V_$TRANSACTION TO c##debezium CONTAINER=ALL';
     
-
     -- QUOTA 설정
     EXECUTE IMMEDIATE 'ALTER USER c##debezium QUOTA UNLIMITED ON SYSTEM';
     EXECUTE IMMEDIATE 'ALTER USER c##debezium QUOTA UNLIMITED ON SYSAUX';
-    
-    -- 프로시저 생성 권한
-    EXECUTE IMMEDIATE 'GRANT CREATE PROCEDURE TO c##debezium CONTAINER=ALL';
     
     -- 테이블스페이스 관련 권한
     EXECUTE IMMEDIATE 'GRANT CREATE TABLESPACE TO c##debezium CONTAINER=ALL';
@@ -95,6 +104,7 @@ BEGIN
     
     -- 테이블 삭제 권한
     EXECUTE IMMEDIATE 'GRANT DROP ANY TABLE TO c##debezium CONTAINER=ALL';
+  
   END IF;
 END;
 /

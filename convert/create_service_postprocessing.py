@@ -168,7 +168,7 @@ async def create_service_class_file(service_skeleton, service_class_name, merge_
 
         async with aiofiles.open(service_file_path, 'w', encoding='utf-8') as file:  
             await file.write(service_skeleton)  
-            logging.info(f"[{service_class_name}] Success Create Service Java File\n")  
+            logging.info(f"[{service_class_name}] Success Create Service Java File")  
 
     except Exception:
         err_msg = "서비스 클래스 파일 생성 중 오류가 발생했습니다."

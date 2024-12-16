@@ -29,17 +29,17 @@ prompt = PromptTemplate.from_template(
     @Autowired
     private [테이블명PascalCase]Repository [테이블명camelCase]Repository;
 
-2. 프로시저 정보:
-- 프로시저명: {procedure_name}
+2. 패키지 정보:
+- 패키지명: {package_name}
 - import:
-  import com.example.demo.service.[프로시저명PascalCase]Service
+  import com.example.demo.service.[패키지명PascalCase]Service
 - @Autowired:
   @Autowired
-  private [프로시저명PascalCase]Service [프로시저명camelCase]Service;
+  private [패키지명PascalCase]Service [패키지명camelCase]Service;
 
-3. 호출될 프로시저: {called_procedure_name}
+3. 호출될 프로시저: {procedure_name}
 - When 섹션에서 다음 형식으로 호출:
-  [프로시저명camelCase]Service.[호출프로시저명camelCase]([파라미터])
+  [패키지명camelCase]Service.[호출프로시저명camelCase]([파라미터])
 
 
 [입력 정보 상세]
@@ -51,14 +51,10 @@ prompt = PromptTemplate.from_template(
 
 2. Given 로그 데이터:
 {given_log}
-- before: 프로시저 실행 전 초기 데이터 상태
-- after: 초기 데이터 설정 후 상태
 - 이 데이터를 기반으로 테스트의 초기 상태를 설정
 
 3. Then 로그 데이터:
 {then_log}
-- before: 프로시저 실행 직전 데이터 상태
-- after: 프로시저 실행 후 최종 데이터 상태
 - 이 데이터를 기반으로 테스트의 검증 로직 구성
 
 4. Jpa 쿼리 메서드 :
@@ -78,10 +74,9 @@ TpjSalary findSalaryForUpdate(@Param("empKey") String empKey, @Param("payDate") 
 1. 테스트 클래스 구조:
    - @SpringBootTest 또는 적절한 테스트 어노테이션 사용
    - 필요한 의존성 @Autowired로 주입
-   - 테스트 클래스명은 프로시저명 + Test로 구성
 
 2. Given 섹션 작성:
-   - given_log의 before/after 데이터를 분석하여 초기 상태 설정
+   - given_log의 데이터를 분석하여 초기 상태 설정
    - 필요한 모든 엔티티 객체 생성 및 초기화
    - Repository를 통한 데이터 저장
    - @BeforeEach 사용이 필요한 경우 별도 메서드로 분리
@@ -92,7 +87,7 @@ TpjSalary findSalaryForUpdate(@Param("empKey") String empKey, @Param("payDate") 
    - 예외 발생 가능성이 있는 경우 try-catch 구문 사용
 
 4. Then 섹션 작성:
-   - then_log의 before/after 비교하여 변경된 항목 검증
+   - then_log의 데이터를 분석하여 변경된 항목 검증
    - 모든 변경 사항에 대해 구체적인 검증 로직 구현
    - assertThat(), assertEquals() 등 적절한 검증 메서드 사용
    - 데이터베이스 상태 검증을 위한 Repository 조회 포함
@@ -129,16 +124,24 @@ TpjSalary findSalaryForUpdate(@Param("empKey") String empKey, @Param("payDate") 
 ===============================================
 입력:
 테이블: ["EMPLOYEE"]
-프로시저명: "SALARY_CALCULATOR"
+패키지명: "SALARY_CALCULATOR"
 호출프로시저명: "CALCULATE_MONTHLY_SALARY"
 프로시저 정보: ("calculateMonthlySalary", ["employeeId", "workDays"])
 Given 로그: {{
-    "before": {{"employeeId": "E001", "baseSalary": 1000}},
-    "after": {{"employeeId": "E001", "baseSalary": 1000}}
+    "operation": "c",
+    "table": "EMPLOYEE",
+    "data": {{
+        "employeeId": "E001",
+        "baseSalary": 1000
+    }}
 }}
 Then 로그: {{
-    "before": {{"employeeId": "E001", "baseSalary": 1000}},
-    "after": {{"employeeId": "E001", "baseSalary": 1000, "finalSalary": 1500}}
+    "operation": "u",
+    "table": "EMPLOYEE",
+    "data": {{
+        "employeeId": "E001",
+        "baseSalary": 1500
+    }}
 }}
 
 출력:
@@ -201,7 +204,7 @@ Then 로그: {{
 )
 
 
-def generate_test_code(table_names: list, procedure_name: str, called_procedure_name: str, procedure_info: dict, given_log: dict, then_log: dict) -> str:
+def generate_test_code(table_names: list, package_name: str, procedure_name: str, procedure_info: dict, given_log: dict, then_log: dict) -> str:
     try:
         chain = (
             RunnablePassthrough()
@@ -212,8 +215,8 @@ def generate_test_code(table_names: list, procedure_name: str, called_procedure_
         
         result = chain.invoke({
             "table_names": table_names,
+            "package_name": package_name,
             "procedure_name": procedure_name,
-            "called_procedure_name": called_procedure_name,
             "procedure_info": json.dumps(procedure_info, indent=2, ensure_ascii=False),
             "given_log": json.dumps(given_log, indent=2, ensure_ascii=False),
             "then_log": json.dumps(then_log, indent=2, ensure_ascii=False)

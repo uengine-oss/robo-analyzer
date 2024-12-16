@@ -1,3 +1,6 @@
+from pathlib import Path
+import time
+import aiofiles
 import oracledb  # cx_Oracle 대신 사용
 
 # DB 연결 정보
@@ -27,10 +30,13 @@ async def execute_sql(sql_content: list) -> bool:
         cursor.close()
         connection.close()
 
+
+
 async def execute_plsql(plsql_name: str, params: dict) -> bool:
     """PLSQL 프로시저 실행"""
     connection = oracledb.connect(**DB_CONFIG)
     cursor = connection.cursor()
+    print(params)
     
     try:
         cursor.callproc(plsql_name, keywordParameters=params)

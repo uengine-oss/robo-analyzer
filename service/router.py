@@ -1,9 +1,8 @@
 import logging
 import os
-import shutil
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
-from service.service import delete_all_temp_data, get_comparison_result, process_project_zipping
+from service.service import delete_all_temp_data, get_node_info_from_neo4j, process_comparison_result, process_project_zipping
 from service.service import generate_and_execute_cypherQuery
 from service.service import generate_two_depth_match
 from service.service import generate_simple_java_code
@@ -162,21 +161,35 @@ async def delete_all_data():
         raise HTTPException(status_code=500, detail="임시 파일 삭제 중 오류가 발생했습니다.")
 
 
-# # 역할: 비교 결과를 반환하는 엔드포인트
-# # 매개변수: 
-# #   - request: 비교할 파일 정보가 담긴 요청 객체 (fileNames: string[])
-# # 반환값: 비교 결과 데이터
-# @router.post("/compare/")
-# async def get_compare_result(request: Request):
-#     try:
-#         file_data = await request.json()
-#         logging.info("Received Files for Compare: %s", file_data)
+# 역할: 비교 결과를 반환하는 엔드포인트
+# 매개변수: 
+#   - request: 비교할 파일 정보가 담긴 요청 객체 (fileNames: string[])
+# 반환값: 비교 결과 데이터
+@router.post("/compare/")
+async def get_compare_result(request: Request):
+    try:
+        compare_data = await request.json()
+        logging.info("Received Compare Data")
         
-#         file_names = file_data.get('fileNames', [])
-#         if not file_names:
-#             raise HTTPException(status_code=400, detail="파일 정보가 없습니다.")
+        test_cases = compare_data.get('cases', [])
+        
+        # 테스트 케이스 정보 검증
+        if not test_cases:
+            raise HTTPException(status_code=400, detail="테스트 케이스 정보가 없습니다.")
             
-#         result = await get_comparison_result(file_names)
-#         return result
-#     except Exception:
-#         raise HTTPException(status_code=500, detail="비교 결과를 가져오는데 실패했습니다.")
+        return StreamingResponse(process_comparison_result(test_cases))
+    except Exception:
+        raise HTTPException(status_code=500, detail="비교 결과를 가져오는데 실패했습니다.")
+
+
+# 역할: Neo4j에서 모든 노드 정보를 조회하여 반환합니다
+# 매개변수: 없음
+# 반환값: 노드 정보 데이터
+@router.get("/nodeInfo/")
+async def get_node_info():
+    try:
+        # Neo4j에서 모든 노드 정보를 조회하는 로직 구현 필요
+        result = await get_node_info_from_neo4j()
+        return result
+    except Exception:
+        raise HTTPException(status_code=500, detail="노드 정보를 가져오는데 실패했습니다.")
