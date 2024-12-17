@@ -103,6 +103,8 @@ async def compare_then_results(case_number: int):
 
 async def extract_java_given_when_then(case_number: int):
     try:
+        time.sleep(10)
+
         # 파일 읽기
         async with aiofiles.open(LOGS_DIR / f"result_plsql_given_when_then_case{case_number}.json", 'r', encoding='utf-8') as f1, \
                   aiofiles.open(JAVA_LOG_PATH, encoding='utf-8') as f2:
@@ -162,6 +164,7 @@ async def extract_java_given_when_then(case_number: int):
             ("then", then_data)
         ])
 
+        await save_json_to_file(result, f"result_java_given_when_then_case{case_number}.json")
         return result
 
     except Exception as e:
@@ -275,20 +278,24 @@ async def save_json_to_file(data, file_name):
         print(f"파일 저장 중 오류 발생: {str(e)}")
 
 
-async def clear_log_file():
-    """로그 파일 내용 비우기"""
+async def clear_log_file(log_type: str):
+
     try:
-        # 로그 파일이 존재하는지 확인
-        if PLSQL_LOG_PATH.exists():
-            # 5초 대기 (절대적 대기)
-            time.sleep(10)
             
-            # 로그 파일 비우기
-            async with aiofiles.open(PLSQL_LOG_PATH, 'w', encoding='utf-8') as f:
-                await f.write('')
-                
-            print(f"로그 파일 비우기 완료: {PLSQL_LOG_PATH}")
+        # PLSQL 로그 타입일 경우 딜레이
+        if log_type == 'plsql':
+            time.sleep(10)
+        
+        # 두 파일 동시 처리
+        async with aiofiles.open(PLSQL_LOG_PATH, 'w', encoding='utf-8') as f1, \
+                  aiofiles.open(JAVA_LOG_PATH, 'w', encoding='utf-8') as f2:
+            await asyncio.gather(
+                f1.write(''),
+                f2.write('')
+            )
+            
+        print(f"{log_type} 로그 파일 비우기 완료")
             
     except Exception as e:
-        logging.error(f"로그 파일 비우기 실패: {str(e)}")
-        raise ProcessResultError("로그 파일 비우기 실패")
+        logging.error(f"{log_type} 로그 파일 비우기 실패: {str(e)}")
+        raise ProcessResultError(f"{log_type} 로그 파일 비우기 실패")

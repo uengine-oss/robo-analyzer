@@ -1,0 +1,15 @@
+{
+    "given": [],
+    "when": {
+        "procedure": "TPX_UPDATE_SALARY.TPX_UPDATE_SALARY",
+        "parameters": {
+            "pEmpKey": "EMP001",
+            "pEmpName": "이정규",
+            "pDeptCode": "DEV001",
+            "pBaseAmount": 1000000,
+            "pPayDate": "2024-12-13",
+            "pRegularYn": "Y"
+        }
+    },
+    "then": []
+}

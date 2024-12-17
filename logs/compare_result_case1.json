@@ -1,0 +1,26 @@
+{
+    "u_TPJ_SALARY": {
+        "status": "different",
+        "procedure_name": "TPX_UPDATE_SALARY",
+        "differences": {
+            "after": {
+                "PAYDATE": {
+                    "java": "None",
+                    "plsql": "2024-12-13"
+                },
+                "SALKEY": {
+                    "java": "None",
+                    "plsql": "SAL001"
+                },
+                "EMPKEY": {
+                    "java": "None",
+                    "plsql": "EMP001"
+                },
+                "AMOUNT": {
+                    "java": "None",
+                    "plsql": "900000"
+                }
+            }
+        }
+    }
+}

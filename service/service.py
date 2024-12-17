@@ -12,6 +12,7 @@ from compare.create_docker_compose_yml import generate_docker_compose_yml, proce
 # from compare.create_init_sql import generate_init_sql
 from compare.create_junit_test import create_junit_test
 from compare.execute_plsql_sql import execute_plsql, execute_sql
+from compare.result_compare import execute_maven_commands
 from convert.create_controller import create_controller_class_file, start_controller_processing
 from convert.create_controller_skeleton import start_controller_skeleton_processing
 from convert.create_main import start_main_processing
@@ -430,7 +431,7 @@ async def process_comparison_result(test_cases: list):
         # * 테이블 이름을 기반으로 초기 데이터 삽입 SQL 생성과 docker-compose.yml 파일 생성 및 실행
         # ! 패키지 간의 의존 관계 파악 필요
         # await generate_init_sql(table_names, package_names)
-        # await process_docker_compose_yml(table_names)
+        await process_docker_compose_yml(table_names)
 
         # * 각 테스트 케이스에 처리 진행 
         for test_case in test_cases:
@@ -453,7 +454,7 @@ async def process_comparison_result(test_cases: list):
             await execute_sql(insert_statements)
 
             # * Given 로그 파일 비우기
-            await clear_log_file()
+            await clear_log_file('plsql')
 
             # * 테스트 데이터 생성을 위한 프로시저 파라미터 추출
             procedure_params = extract_procedure_params(procedure)
@@ -462,7 +463,7 @@ async def process_comparison_result(test_cases: list):
             # * Given-When-Then 로그 생성
             given_when_then_log = await generate_given_when_then(case_id, procedure, procedure_params, table_fields)
 
-            # 실제 로그 데이터 전송
+            # * 실제 로그 데이터 전송
             yield json.dumps({
                 "type": "plsql",
                 "log": given_when_then_log
@@ -475,12 +476,13 @@ async def process_comparison_result(test_cases: list):
             # * 테스트 데이터 삭제
             await execute_sql(delete_statements)
 
-        # TODO 여기에 테스트 코드 실행하는 메서드 호출
-        yield "end_of_stream" 
+        # * 테스트 코드 실행하는 메서드 호출
+        async for result in execute_maven_commands(test_class_names):
+            yield result
 
     except Exception:
         err_msg = "결과 검증 및 비교하는 도중 오류가 발생했습니다."
-        logging.error(err_msg, exc_info=False)
+        logging.error(err_msg, exc_info=True)
         yield json.dumps({"type": "error","message": err_msg}).encode('utf-8') + b"send_stream"
 
 

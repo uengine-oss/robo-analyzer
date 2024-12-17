@@ -5,6 +5,8 @@ import subprocess
 import json
 from openai import OpenAI
 
+from compare.extract_log_info import clear_log_file, compare_then_results, extract_java_given_when_then
+
 encoder = tiktoken.get_encoding("cl100k_base")
 JAVA_PATH = 'target/java/demo/src/main/java/com/example/demo'
 JAVA_TEST_PATH = 'target/java/demo/src/test/java/com/example/demo'
@@ -107,8 +109,14 @@ def read_log_files_in_directory(directory_path, prefix):
         logging.error(f"로그 파일 읽기 중 오류 발생: {str(e)}")
         raise
 
-async def execute_maven_commands(pom_directory: str) -> None:
-    logging.info(f"Maven 테스트 실행 시작 (디렉토리: {pom_directory})")
+async def execute_maven_commands(test_class_names: list):
+    logging.info(f"Maven 테스트 실행 시작")
+    test_failed = False
+    failed_test_index = []
+    maven_project_root = os.path.join(base_directory, 'target', 'java', 'demo')
+    logging.info(f"Maven 프로젝트 경로: {maven_project_root}")
+        
+
     try:
         # base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT')
         #  if base_directory:
@@ -121,39 +129,102 @@ async def execute_maven_commands(pom_directory: str) -> None:
 
         java_test_directory = os.path.join(base_directory, JAVA_TEST_PATH)
 
-        test_result = subprocess.run(
-            ['mvn', 'test', '-Dtest=com.example.demo.ComparisonTest'],
-            cwd=java_test_directory,
-            capture_output=True,
-            text=True
-        )
+        for i, test_class_name in enumerate(test_class_names, start=1):
+            logging.info(f"{test_class_name} 테스트 클래스 실행 시작")
+            command = f"mvn test -Dtest=com.example.demo.{test_class_name}"
+            logging.info(f"실행 명령어: {command}")
+            
+            yield json.dumps({
+                "type": "status",
+                "message": f"Junit 테스트 케이스 {i} 실행 중"
+            }, ensure_ascii=False).encode('utf-8') + b"send_stream"
 
-        if test_result.returncode != 0:
-            error_output = test_result.stderr
-            logging.error(f"오류 내용: {error_output}")
 
+            test_result = subprocess.run(
+                command,
+                cwd=maven_project_root,
+                capture_output=True,
+                text=True,
+                shell=True
+            )
 
-            if "COMPILATION ERROR" in error_output or "Exception" in error_output:
-                java_files = get_all_files_in_directory(os.path.join(base_directory, 'target'))
-                update_code(java_files, error_output)
-            else:
-                error_output = ""
-                plsql_directory_path = 'data/plsql'
-                plsql_files = read_files_in_directory(plsql_directory_path)
-                java_files = get_all_java_files_in_directory(os.path.join(base_directory, 'target'))
+            if test_result.returncode != 0:
+                error_output = test_result.stderr
+                logging.error(f"오류 내용: {error_output}")
 
-                logs_directory = 'logs'
-                plsql_log_files = read_log_files_in_directory(logs_directory, 'result_plsql_given_when_then_')
-                java_log_files = read_log_files_in_directory(logs_directory, 'result_java_given_when_then_')
-                compare_result_files = read_log_files_in_directory(logs_directory, 'compare_result')
+                if "COMPILATION ERROR" in error_output or "Exception" in error_output:
+                    java_files = get_all_files_in_directory(os.path.join(base_directory, 'target'))
+                    update_code(java_files, error_output)
+                    return
 
-                update_code(java_files, error_output, plsql_files, plsql_log_files, java_log_files, compare_result_files)
+                else:
+                    test_failed = True
+                    failed_test_index.append(i)
+            
+            logging.info(f"{test_class_name} 테스트 클래스 실행 완료")
+            given_when_then_log = await extract_java_given_when_then(i)
+            await compare_then_results(i)
+            await clear_log_file('java')
+
+            yield json.dumps({
+                "type": "java",
+                "log": given_when_then_log
+            }, ensure_ascii=False).encode('utf-8') + b"send_stream"
+
+        if test_failed:
+            plsql_directory_path = 'data/plsql'
+            plsql_files = read_files_in_directory(plsql_directory_path)
+            java_files = get_all_java_files_in_directory(os.path.join(base_directory, 'target'))
+
+            logs_directory = 'logs'
+            plsql_log_files = []
+            java_log_files = []
+            compare_result_files = []
+            case_ids_str = ", ".join(map(str, failed_test_index))
+
+            yield json.dumps({
+                "type": "status",
+                "message": f"실패한 테스트 케이스 {case_ids_str} 처리 중"
+            }, ensure_ascii=False).encode('utf-8') + b"send_stream"
+
+            for index in failed_test_index:
+                plsql_log_files.extend(read_single_log_file(logs_directory, f'result_plsql_given_when_then_case{index}.json'))
+                java_log_files.extend(read_single_log_file(logs_directory, f'result_java_given_when_then_case{index}.json'))
+                compare_result_files.extend(read_single_log_file(logs_directory, f'compare_result_case{index}.json'))
+
+            update_code(java_files, error_output, plsql_files, plsql_log_files, java_log_files, compare_result_files, test_class_names)
         else:
             logging.info("테스트 실행 결과: 성공")
 
     except Exception as e:
         logging.error(f"Maven 명령 실행 중 오류 발생: {str(e)}")
         raise
+
+
+def read_single_log_file(directory_path, file_name):
+    logging.info(f"'{directory_path}' 디렉토리에서 '{file_name}' 파일 읽기 시작")
+    try:
+        file_path = os.path.join(directory_path, file_name)
+        if not os.path.exists(file_path):
+            logging.error(f"파일을 찾을 수 없음: {file_path}")
+            return None
+            
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except UnicodeDecodeError:
+            with open(file_path, 'r', encoding='latin-1') as f:
+                content = f.read()
+                
+        logging.info(f"'{file_name}' 파일을 성공적으로 읽음")
+        return {
+            "name": file_name,
+            "content": content
+        }
+    except Exception as e:
+        logging.error(f"파일 읽기 중 오류 발생: {str(e)}")
+        raise
+
 
 def extract_procedure_names_from_logs(log_files):
     """로그 파일에서 'when' 섹션의 프로시저 이름을 추출"""
@@ -316,7 +387,7 @@ def generate_error_fix_prompt(java_files, error):
     
     """
 
-def update_code(java_files, error=None, plsql_files=None, plsql_log_files=None, java_log_files=None, compare_result_files=None):
+def update_code(java_files, error=None, plsql_files=None, plsql_log_files=None, java_log_files=None, compare_result_files=None, test_class_names=None):
     logging.info("코드 업데이트 시작")
     try:
         if error:
@@ -325,8 +396,12 @@ def update_code(java_files, error=None, plsql_files=None, plsql_log_files=None, 
         else:
             prompt = generate_prompt(plsql_files, java_files, plsql_log_files, java_log_files, compare_result_files)
 
+        # client = OpenAI(
+        #     api_key=os.environ.get("sk-"),
+        # )
+
         client = OpenAI(
-            api_key=os.environ.get("sk-"),
+            api_key=os.environ.get("OPENAI_API_KEY")
         )
 
         chat_completion = client.chat.completions.create(
@@ -357,7 +432,7 @@ def update_code(java_files, error=None, plsql_files=None, plsql_log_files=None, 
             logging.info(f"파일 업데이트 완료: {file_path}")
 
         logging.info("모든 코드 업데이트가 완료되었습니다. 테스트를 재실행합니다.")
-        execute_maven_commands(pom_directory='/path/to/your/pom/directory')
+        execute_maven_commands(test_class_names)
         
     except json.JSONDecodeError as e:
         logging.error(f"GPT 응답 JSON 파싱 중 오류 발생: {str(e)}")
