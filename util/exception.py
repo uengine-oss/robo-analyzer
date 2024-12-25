@@ -135,6 +135,10 @@ class StringConversionError(UnderstandingError, ConvertingError):
     def __init__(self, message="문자열 변환 중 오류가 발생했습니다."):
         super().__init__(message)
 
+class PrepareDataError(UnderstandingError, ConvertingError):
+    def __init__(self, message="데이터를 준비하는 도중 오류가 발생했습니다."):
+        super().__init__(message)
+
 class Neo4jError(UnderstandingError, ConvertingError):
     def __init__(self, message="Neo4j에서 그래프 DB에 읽기 쓰기 작업을 하는 도중 오류가 발생했습니다."):
         super().__init__(message)

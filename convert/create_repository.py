@@ -4,10 +4,11 @@ import logging
 import textwrap
 from prompt.convert_repository_prompt import convert_repository_code
 from understand.neo4j_connection import Neo4jConnection
+from util.converting_utlis import extract_used_variable_nodes
 from util.exception import ConvertingError, LLMCallError, ProcessResultError, RepositoryCreationError, SaveFileError, TemplateGenerationError, TokenCountError, TraverseCodeError, VariableNodeError
 from util.file_utils import save_file
 from util.string_utils import convert_to_camel_case, convert_to_pascal_case
-from util.token_utils import calculate_code_token
+
 
 MAX_TOKENS = 1000
 REPOSITORY_PATH = 'java/demo/src/main/java/com/example/demo/repository'
@@ -67,49 +68,6 @@ public interface {entity_pascal_name}Repository extends JpaRepository<{entity_pa
         err_msg = "리포지토리 인터페이스 파일 저장 중 오류가 발생"
         logging.error(err_msg)
         raise TemplateGenerationError(err_msg)
-
-
-# 역할: 특정 코드 라인에서 사용된 변수들의 정보를 추출합니다.
-#
-# 매개변수: 
-#   - startLine : 분석할 코드의 시작 라인 번호
-#   - local_variable_nodes : Neo4j에서 조회한 모든 변수 노드 정보
-#
-# 반환값: 
-#   - used_variables : {'라인범위': ['변수타입: 변수명']} 형식의 딕셔너리
-#   - variable_tokens : 추출된 변수 정보의 토큰 수
-async def extract_used_variable_nodes(startLine: int, local_variable_nodes: list) -> tuple[dict, int]:
-    try:
-        used_variables = defaultdict(list)
-        
-        for variable_node in local_variable_nodes:
-            for used_range in variable_node['v']:
-
-                # * 라인 범위 형식 검증 (예: "1_5")
-                if not ('_' in used_range and all(part.isdigit() for part in used_range.split('_'))):
-                    continue
-                    
-                # * 시작 라인이 일치하는 경우만 처리
-                used_startLine, used_endLine = map(int, used_range.split('_'))
-                if used_startLine != startLine:
-                    continue
-                    
-                # * 변수 정보 저장
-                range_key = f'{used_startLine}~{used_endLine}'
-                var_type = variable_node['v'].get('type', 'Unknown')
-                var_name = variable_node['v']['name']
-                used_variables[range_key].append(f"{var_type}: {var_name}")
-                break
-
-        return used_variables, calculate_code_token(used_variables)
-    
-    except TokenCountError:
-        raise
-    except Exception:
-        err_msg = "사용된 변수 노드를 추출하는 도중 오류가 발생했습니다."
-        logging.error(err_msg)
-        raise VariableNodeError(err_msg)
-
 
 
 # 역할: 테이블 연관 노드들을 토큰 제한에 맞춰 처리하는 메인 로직입니다.

@@ -4,6 +4,7 @@ import logging
 from prompt.convert_service_prompt import convert_service_code
 from prompt.convert_summarized_service_skeleton_prompt import convert_summarized_code
 from understand.neo4j_connection import Neo4jConnection
+from util.converting_utlis import extract_used_jpa_methods
 from util.exception import ConvertingError, HandleResultError, LLMCallError, Neo4jError, ProcessResultError, ServiceCreationError, TraverseCodeError, VariableNodeError
 
 
@@ -11,21 +12,20 @@ from util.exception import ConvertingError, HandleResultError, LLMCallError, Neo
 # 역할: 코드 변환의 핵심 함수로, 노드들을 순회하면서 Java 코드로의 변환 작업을 조율합니다.
 #
 # 매개변수:
-#   - node_list : 처리할 노드들의 정보가 담긴 리스트 ([노드 리스트, 변수 노드 리스트])
+#   - traverse_nodes : 순회할 비즈니스 관련 노드 리스트
+#   - variable_nodes : 모든 변수 노드 리스트
 #   - connection : Neo4j 데이터베이스 연결 객체
 #   - command_class_variable : Command 클래스에 정의된 변수들의 정보
 #   - service_skeleton : 서비스의 기본 구조 템플릿
 #   - jpa_method_list : 사용 가능한 전체 JPA 쿼리 메서드 목록
 #   - object_name : 처리 중인 패키지/프로시저의 식별자
 #   - procedure_name : 처리 중인 프로시저의 이름
-async def traverse_node_for_service(node_list, connection, command_class_variable, service_skeleton, jpa_method_list, object_name, procedure_name):
+async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, connection:Neo4jConnection, command_class_variable:dict, service_skeleton:str, jpa_method_list:list, object_name:str, procedure_name:str):
 
     used_variables =  []                  # 사용된 변수 정보를 저장하는 리스트
     context_range = []                    # 분석할 컨텍스트 범위를 저장하는 리스트
     current_tokens = 0                    # 총 토큰 수
     convert_sp_code = ""                  # converting할 프로시저 코드 문자열
-    traverse_nodes = node_list[0]         # 순회할 모든 노드 리스트
-    variable_nodes = node_list[1]         # 모든 변수 노드 리스트
     small_parent_info = {}                # 크기가 작은 부모 노드 정보
     big_parent_info = {}                  # 크기가 큰 부모 노드의 정보
     another_big_parent_startLine = 0      # 부모안에 또 다른 부모의 시작라인
@@ -38,7 +38,7 @@ async def traverse_node_for_service(node_list, connection, command_class_variabl
     #
     # 매개변수: 
     #   - node_id : 현재 처리 중인 노드의 ID(시작라인) (변수 사용 범위를 확인하기 위한 기준점)
-    async def extract_used_variable_nodes(node_id:int) -> list:
+    async def trace_extract_used_variable_nodes(node_id:int) -> list:
         nonlocal used_variables, tracking_variables
         
         try:
@@ -194,24 +194,6 @@ async def traverse_node_for_service(node_list, connection, command_class_variabl
             err_msg = "(전처리) 서비스 코드 생성 과정에서 LLM의 결과를 처리하는 도중 문제가 발생했습니다."
             logging.error(err_msg)
             raise HandleResultError(err_msg)
-
-
-    # 역할: 특정 노드 범위 내에서 사용된 JPA 쿼리 메서드들을 식별하고 수집하는 함수입니다.
-    #
-    # 매개변수:
-    #   - start_line : 노드의 시작 라인
-    #   - end_line : 노드의 끝 라인
-    async def extract_used_jpa_methods(start_line:int, end_line:int) -> None:
-        nonlocal used_jpa_method_dict
-        
-        for method_dict in jpa_method_list:
-            for range_key, method_info in method_dict.items():
-                method_start, method_end = map(int, range_key.split('~'))
-                
-                # * 현재 범위 내에 있는 JPA 메서드 추출
-                if start_line <= method_start <= end_line and start_line <= method_end <= end_line:
-                    used_jpa_method_dict[range_key] = method_info
-                    break
     
 
     # ! 노드 순회 시작
@@ -314,8 +296,8 @@ async def traverse_node_for_service(node_list, connection, command_class_variabl
                         another_big_parent_startLine = start_node['startLine']
                         convert_sp_code += f"\n{end_node['node_code']}"
                         context_range.append({"startLine": end_node['startLine'], "endLine": end_node['endLine']})
-                        await extract_used_variable_nodes(end_node['startLine'])
-                        await extract_used_jpa_methods(end_node['startLine'], end_node['endLine'])
+                        await trace_extract_used_variable_nodes(end_node['startLine'])
+                        used_jpa_method_dict =await extract_used_jpa_methods(end_node['startLine'], end_node['endLine'], jpa_method_list, used_jpa_method_dict)
 
                 # * 부모의 노드 크기가 작은 경우  
                 else:
@@ -324,23 +306,23 @@ async def traverse_node_for_service(node_list, connection, command_class_variabl
                         small_parent_info = {"startLine": start_node['startLine'], "endLine": start_node['endLine'], "nextLine": 0, "code": start_node['node_code'], "token": start_node['token']}            
                         if not big_parent_info: 
                             context_range.append({"startLine": start_node['startLine'], "endLine": start_node['endLine']}) 
-                            await extract_used_variable_nodes(start_node['startLine'])
-                            await extract_used_jpa_methods(start_node['startLine'], start_node['endLine'])
+                            await trace_extract_used_variable_nodes(start_node['startLine'])
+                            used_jpa_method_dict = await extract_used_jpa_methods(start_node['startLine'], start_node['endLine'], jpa_method_list, used_jpa_method_dict)
                         context_range.append({"startLine": end_node['startLine'], "endLine": end_node['endLine']})
-                        await extract_used_variable_nodes(end_node['startLine'])
-                        await extract_used_jpa_methods(end_node['startLine'], end_node['endLine'])
+                        await trace_extract_used_variable_nodes(end_node['startLine'])
+                        used_jpa_method_dict = await extract_used_jpa_methods(end_node['startLine'], end_node['endLine'], jpa_method_list, used_jpa_method_dict)
                     else:
                         context_range.append({"startLine": end_node['startLine'], "endLine": end_node['endLine']})
-                        await extract_used_variable_nodes(end_node['startLine'])
-                        await extract_used_jpa_methods(end_node['startLine'], end_node['endLine'])
+                        await trace_extract_used_variable_nodes(end_node['startLine'])
+                        used_jpa_method_dict = await extract_used_jpa_methods(end_node['startLine'], end_node['endLine'], jpa_method_list, used_jpa_method_dict)
 
 
             # * 단일 노드의 경우
             elif not small_parent_info and not big_parent_info:
                 convert_sp_code += f"\n{start_node['node_code']}"
                 context_range.append({"startLine": start_node['startLine'], "endLine": start_node['endLine']})
-                used_variables = await extract_used_variable_nodes(start_node['startLine'])
-                used_jpa_method_dict = await extract_used_jpa_methods(start_node['startLine'], start_node['endLine'])
+                used_variables = await trace_extract_used_variable_nodes(start_node['startLine'])
+                used_jpa_method_dict = await extract_used_jpa_methods(start_node['startLine'], start_node['endLine'], jpa_method_list, used_jpa_method_dict)
             elif another_big_parent_startLine == start_node['startLine'] and context_range and convert_sp_code: 
                 print(f"큰 부모 노드 내의 또 다른 부모 노드 처리가 완료되어 LLM 분석을 시작합니다. (코드 흐름 분리)")
                 await process_service_class_code()
@@ -409,12 +391,12 @@ async def start_service_preprocessing(service_skeleton:str, command_class_variab
         ]
 
         # * 쿼리 실행하여, 노드들을 가져옵니다.
-        results = await connection.execute_queries(node_query)        
-        
+        service_nodes, variable_nodes = await connection.execute_queries(node_query)        
 
         # * (전처리) 서비스 생성 함수 호출
         await traverse_node_for_service(
-            results, 
+            service_nodes, 
+            variable_nodes,
             connection, 
             command_class_variable, 
             service_skeleton, 
@@ -423,6 +405,8 @@ async def start_service_preprocessing(service_skeleton:str, command_class_variab
             procedure_name
         )
         logging.info(f"[{object_name}] {procedure_name} 프로시저의 서비스 코드 생성이 완료되었습니다.\n")
+
+        return variable_nodes
 
 
     except ConvertingError: 

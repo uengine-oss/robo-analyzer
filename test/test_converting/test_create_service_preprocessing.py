@@ -60,6 +60,9 @@ class TestPreServiceGeneration(unittest.IsolatedAsyncioTestCase):
             else:
                 test_data = {}              
 
+            # * 전처리 결과를 저장할 사전
+            preprocessing_results = {}
+
             # * Service 전처리 테스트 시작
             for object_name in object_names:
 
@@ -68,15 +71,28 @@ class TestPreServiceGeneration(unittest.IsolatedAsyncioTestCase):
                 jpa_method_list = test_data.get('jpa_method_list', {}).get(object_name, [])
 
                 # * 각 스켈레톤 데이터에 대해 전처리 수행
+                procedure_results = {}
                 for skeleton_data in service_skeleton_list:
-                    await start_service_preprocessing(
+                    procedure_name = skeleton_data['procedure_name']
+                    variable_nodes = await start_service_preprocessing(
                         skeleton_data['service_method_skeleton'],
                         skeleton_data['command_class_variable'],
-                        skeleton_data['procedure_name'],
+                        procedure_name,
                         jpa_method_list,
                         object_name
                     )
+
+                    # * 전처리 결과를 저장합니다.
+                    procedure_results[procedure_name] = variable_nodes
+                
+                # * 각 객체의 전처리 결과를 저장합니다.
+                preprocessing_results[object_name] = procedure_results
             
+            # * 테스트 결과를 저장합니다.
+            test_data['variable_nodes'] = preprocessing_results
+            with open(result_file_path, 'w', encoding='utf-8') as f:
+                json.dump(test_data, f, ensure_ascii=False, indent=2)
+
             self.assertTrue(True, "전처리 Service 프로세스가 성공적으로 완료되었습니다.")
         except Exception:
             self.fail(f"Service 전처리 테스트 중 예외 발생")

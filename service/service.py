@@ -23,6 +23,7 @@ from convert.create_entity import start_entity_processing
 from convert.create_service_preprocessing import start_service_preprocessing
 from convert.create_service_postprocessing import create_service_class_file, start_service_postprocessing 
 from convert.create_service_skeleton import start_service_skeleton_processing
+from convert.validate_service_preprocessing import start_validate_service_preprocessing
 from prompt.understand_ddl import understand_ddl
 from understand.neo4j_connection import Neo4jConnection
 from understand.analysis import analysis
@@ -305,21 +306,33 @@ async def generate_spring_boot_project(file_names):
             controller_skeleton, controller_class_name = await start_controller_skeleton_processing(object_name, exist_command_class)
             yield f"{file_name}-Step3 completed\n"
 
-            # * 4 단계 : 각 프로시저별 서비스 생성
+            # * 4 단계 : 각 프로시저별 서비스 및 컨트롤러 생성
             for service_data in service_creation_info:
-                await start_service_preprocessing(
+
+                variable_nodes = await start_service_preprocessing(
                     service_data['service_method_skeleton'],
                     service_data['command_class_variable'],
                     service_data['procedure_name'],
                     jpa_method_list, 
                     object_name
                 )
+
+                await start_validate_service_preprocessing(
+                    variable_nodes,
+                    service_data['service_method_skeleton'],
+                    service_data['command_class_variable'],
+                    service_data['procedure_name'],
+                    jpa_method_list, 
+                    object_name
+                )
+
                 merge_method_code = await start_service_postprocessing(
                     service_data['method_skeleton_code'],
                     service_data['procedure_name'],
                     object_name,
                     merge_method_code
                 )
+
                 merge_controller_method_code = await start_controller_processing(
                     service_data['method_signature'],
                     service_data['procedure_name'],
@@ -330,6 +343,7 @@ async def generate_spring_boot_project(file_names):
                     controller_skeleton,
                     object_name,
                 )
+
             await create_service_class_file(service_skeleton, service_class_name, merge_method_code)            
             await save_controller_file(controller_skeleton, controller_class_name, merge_controller_method_code)            
             yield f"{file_name}-Step4 completed\n"

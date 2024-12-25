@@ -149,6 +149,7 @@ async def start_entity_processing(object_name: str) -> list[str]:
         # * 시퀀스 파일을 읽어 시퀀스 목록을 반환합니다
         sequence_data = await read_sequence_file(object_name)
 
+
         # * 테이블 데이터의 구조를 사용하기 쉽게 구조를 변경합니다
         for node in table_nodes:
             node_data = node['n']
