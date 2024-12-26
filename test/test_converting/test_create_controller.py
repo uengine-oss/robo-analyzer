@@ -5,9 +5,7 @@ import os
 import logging
 import unittest
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-from convert.create_controller import save_controller_file, start_controller_processing
-from convert.create_controller_skeleton import start_controller_skeleton_processing
-from convert.create_service_skeleton import start_service_skeleton_processing
+from convert.create_controller import generate_controller_class, start_controller_processing
 
 
 # * 로그 레벨 설정
@@ -40,15 +38,15 @@ class TestControllerGeneration(unittest.IsolatedAsyncioTestCase):
         
         # * 테스트할 객체 이름들을 설정
         object_names = [
-            "TPX_MAIN",
-            "TPX_EMPLOYEE",
-            "TPX_SALARY",
-            "TPX_ATTENDANCE",
-            # "TPX_PROJECT",
-            # "TPX_TMF_SYNC_JOB_STATUS",
+            # "TPX_MAIN",
+            # "TPX_EMPLOYEE",
+            # "TPX_SALARY",
+            # "TPX_ATTENDANCE",
+            "TPX_PROJECT",
+            "TPX_TMF_SYNC_JOB_STATUS",
+            "TPX_TMF_SYNC_JOB",
             # "TPX_ALARM",
             # "TPX_ALARM_CONTENT",
-            # "TPX_TMF_SYNC_JOB",
             # "TPX_ALARM_FILE",
             # "TPX_ALARM_RECIPIENT"
         ]
@@ -84,7 +82,7 @@ class TestControllerGeneration(unittest.IsolatedAsyncioTestCase):
                     )
 
                 # * 컨트롤러 클래스 파일 생성   
-                await save_controller_file(controller_skeleton, controller_class_name, merge_controller_method_code)
+                await generate_controller_class(controller_skeleton, controller_class_name, merge_controller_method_code)
 
 
             # * 결과를 결과 파일에 저장합니다.

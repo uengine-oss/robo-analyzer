@@ -723,5 +723,7 @@
         }
       ]
     }
-  }
+  },
+  "controller_skeleton": {},
+  "controller_class_name": {}
 }
