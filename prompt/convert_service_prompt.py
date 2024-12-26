@@ -275,7 +275,11 @@ JPA Method List:
    올바른 예) p_GET_ROW(ID_KEY) -> pGetRow(idKey) // 프로시저 호출을 단순 메서드 호출 형태로 전환
    잘못된 예) p_GET_ROW(ID_KEY) -> findbyId(idKey)  // JPA 쿼리 메서드를 사용하면 안됨
 
-2. 제공된 모든 Context Range에 대해서 코드 변환을 완료해야 합니다. 'code' 요소 개수는 {count}개와 일치해야 하며, 누락 및 생략 없이 결과를 생성하세요. 
+2. 제공된 모든 Context Range에 대해서 코드 변환을 완료해야 합니다. 'code' 요소 개수는 {count}개와 일치해야 하며, 누락 및 생략 없이 결과를 생성하세요. 반드시 'analysis'의 'code' 요소의 개수가 일치한지 검토하세요. 단 한 개의 누락 및 생략이 있어서는 안됩니다.
+
+3. Exception에 해당하는 구문 처리시 try문에는 'CodePlaceHolder'만 있어야합니다. 
+
+4. 'CHR(10)'가 식별되는 경우 줄바꿈 '\n'으로 처리하지 말고 무시하세요.
 
 
 [SECTION 9] JSON 출력 형식

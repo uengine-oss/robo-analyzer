@@ -227,7 +227,11 @@ async def get_procedure_groups(connection: Neo4jConnection, object_name: str) ->
             
             # * 파라미터 추가
             if item['sv']:
-                new_param = {'type': item['sv']['type'], 'name': item['sv']['name']}
+                new_param = {
+                    'type': item['sv']['type'],
+                    'name': item['sv']['name'],
+                    'parameter_type': item['sv'].get('parameter_type', '')  # parameter_type 추가
+                }
                 if new_param not in procedure_groups[proc_name]['parameters']:
                     procedure_groups[proc_name]['parameters'].append(new_param)
             
@@ -280,7 +284,7 @@ async def start_service_skeleton_processing(entity_name_list: list, object_name:
         
 
         # * 전역 변수 변환
-        convert_global_variables = convert_variables(global_variables),
+        convert_global_variables = convert_variables(global_variables)
         
 
         # * 서비스 스켈레톤 생성

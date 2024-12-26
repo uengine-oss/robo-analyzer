@@ -4,9 +4,8 @@ import sys
 import os
 import logging
 import unittest
-from convert.validate_service_preprocessing import start_validate_service_preprocessing
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-from convert.create_service_preprocessing import start_validate_service_preprocessing
+from convert.validate_service_preprocessing import start_validate_service_preprocessing
 
 
 # * 로그 레벨 설정

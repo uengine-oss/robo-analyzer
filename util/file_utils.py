@@ -45,9 +45,11 @@ async def read_sequence_file(object_name: str) -> str:
     try:
         seq_file_name = object_name.replace('TPX_', 'SEQ_')
         current_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        seq_file_path = os.path.join(current_dir, '..', 'data', 'sequence', f'{seq_file_name}.sql')
-        
+        seq_file_path = os.path.join(current_dir, 'data', 'sequence', f'{seq_file_name}.sql')
+        logging.info(f"현재 디렉토리: {current_dir}")
+        logging.info(f"시퀀스 파일 경로: {seq_file_path}")
         if os.path.exists(seq_file_path):
+            logging.info(f"시퀀스 파일명: {seq_file_name} 시퀀스 파일 읽기 성공")
             async with aiofiles.open(seq_file_path, 'r', encoding='utf-8') as f:
                 return await f.read()
         return ''

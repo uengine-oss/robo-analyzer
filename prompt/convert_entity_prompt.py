@@ -142,14 +142,14 @@ public class EntityName {{
 
 
 # 역할: Neo4j에서 추출한 테이블 메타데이터를 기반으로 JPA Entity 클래스를 생성하는 함수입니다.
-#      LLM을 통해 테이블의 컬럼들을 Java 데이터 타입으로 매핑하고,
-#      클린 아키텍처 원칙을 따르는 스프링 부트 엔티티 클래스를 생성합니다.
+#
 # 매개변수: 
 #   - table_data : 테이블 노드의 메타데이터 정보
 #   - sequence_data : 시퀀스 정보
+#
 # 반환값: 
 #   - result : LLM이 생성한 Entity 클래스 정보
-def convert_entity_code(table_data, sequence_data):
+def convert_entity_code(table_data: dict, sequence_data: dict) -> dict:
     
     try:
         table_json_data = json.dumps(table_data, ensure_ascii=False, indent=2)
@@ -164,5 +164,5 @@ def convert_entity_code(table_data, sequence_data):
         return result
     except Exception:
         err_msg = "엔티티 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다."
-        logging.error(err_msg, exc_info=False)
+        logging.error(err_msg)
         raise LLMCallError(err_msg)

@@ -228,7 +228,7 @@ async def start_service_postprocessing(method_skeleton_code: str, procedure_name
         
 
         # * 최종 병합된 메서드 코드를 생성
-        merge_method_code = f"{merge_method_code}\n{completed_service_code}"
+        merge_method_code = f"{merge_method_code}\n\n{completed_service_code}"
 
 
         logging.info(f"[{object_name}] {procedure_name} 프로시저의 메서드 코드 병합이 완료되었습니다.\n")

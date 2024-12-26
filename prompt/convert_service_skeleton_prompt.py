@@ -30,7 +30,7 @@ prompt = PromptTemplate.from_template(
 
 2. 파라미터 데이터:
 {parameter_data}
-- parameters: 파라미터 목록 (각 파라미터는 name, type, value 속성을 가짐)
+- parameters: 파라미터 목록 (각 파라미터는 name, type, value, parameter_type 속성을 가짐)
 - procedure_name: 함수 이름
 
 
@@ -45,9 +45,18 @@ prompt = PromptTemplate.from_template(
 2. 메서드 생성 규칙
     - 메서드로 생성 (어노테이션 없음)
     - 반환타입:
-        * declaration에서 반환타입이 명시되지 않은 경우 void로 설정
-        * declaration에 반환타입이 있는 경우 해당 타입으로 매핑
-        * 반드시 RETURN에 맞춰서 반환타입을 설정하세요. (예 : RETURN NUMBER -> Long, RETURN VARCHAR2 CHAR -> String, RETURN DATE -> LocalDate, RETURN BOOLEAN -> Boolean)
+    - 반환타입:
+        * parameter_type이 'OUT'인 파라미터가 있는 경우:
+            - OUT 파라미터의 type을 메서드의 반환 타입으로 사용
+        * OUT 파라미터가 없는 경우:
+            - declaration에서 반환타입이 명시되지 않은 경우 void로 설정
+            - declaration에 반환타입이 있는 경우 해당 타입으로 매핑
+        * 반드시 RETURN 또는 OUT 파라미터의 타입에 맞춰서 반환타입을 설정하세요.
+            - NUMBER -> Long
+            - VARCHAR2, CHAR -> String
+            - DATE -> LocalDate
+            - TIME -> LocalDateTime
+            - BOOLEAN -> Boolean
     - 파라미터: 'parameter_data'의 'parameters' 정보를 기반으로 생성
     
 3. 메서드의 필드 규칙

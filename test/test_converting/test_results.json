@@ -21,7 +21,7 @@
         "223~226": "@Query(\"SELECT t FROM TpjTmfSyncJobStatus t WHERE t.tmfSyncJobKey = :tmfSyncJobKey AND t.tscKey = :tscKey\")\nTpjTmfSyncJobStatus findByTmfSyncJobKeyAndTscKey(@Param(\"tmfSyncJobKey\") Long tmfSyncJobKey, @Param(\"tscKey\") Long tscKey);"
       },
       {
-        "249~252": "@Query(\"SELECT t FROM TpjTmfSyncJobStatus t WHERE t.tmfSyncJobKey = :tmfSyncJobKey AND t.tscKey = :tscKey\")\nTpjTmfSyncJobStatus findByTmfSyncJobKeyAndTscKeyForSelect(@Param(\"tmfSyncJobKey\") Long tmfSyncJobKey, @Param(\"tscKey\") Long tscKey);"
+        "249~252": "@Query(\"SELECT t FROM TpjTmfSyncJobStatus t WHERE t.tmfSyncJobKey = :tmfSyncJobKey AND t.tscKey = :tscKey\")\nTpjTmfSyncJobStatus findByTmfSyncJobKeyAndTscKey(@Param(\"tmfSyncJobKey\") Long tmfSyncJobKey, @Param(\"tscKey\") Long tscKey);"
       }
     ],
     "TPX_TMF_SYNC_JOB": [
@@ -29,7 +29,7 @@
         "182~184": "@Query(\"SELECT t FROM TpjTmfSyncJob t WHERE t.tmfSyncJobKey = :tmfSyncJobKey\")\nTpjTmfSyncJob findByTmfSyncJobKey(@Param(\"tmfSyncJobKey\") Long tmfSyncJobKey);"
       },
       {
-        "206~208": "@Query(\"SELECT t FROM TpjTmfSyncJob t WHERE t.tmfSyncJobKey = :tmfSyncJobKey\")\nTpjTmfSyncJob findByTmfSyncJobKeyForDetail(@Param(\"tmfSyncJobKey\") Long tmfSyncJobKey);"
+        "206~208": "@Query(\"SELECT t FROM TpjTmfSyncJob t WHERE t.tmfSyncJobKey = :tmfSyncJobKey\")\nTpjTmfSyncJob findByTmfSyncJobKey(@Param(\"tmfSyncJobKey\") Long tmfSyncJobKey);"
       }
     ]
   },
@@ -342,9 +342,9 @@
         ],
         "command_class_name": "InsRowCommand",
         "method_skeleton_name": "insRow",
-        "method_skeleton_code": "    public void insRow(Long iTmfSyncJobKey, String iTmfSyncMvrType, String iStatus, Long iProjKey, Long iUserKey, Long iSiteKey, Long oTmfSyncJobKey) {\n        TpjTmfSyncJob vRow = new TpjTmfSyncJob();\n\n        CodePlaceHolder\n    }",
-        "method_signature": "void insRow(Long iTmfSyncJobKey, String iTmfSyncMvrType, String iStatus, Long iProjKey, Long iUserKey, Long iSiteKey, Long oTmfSyncJobKey)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJob;\nimport com.example.demo.repository.TpjTmfSyncJobRepository;\nimport com.example.demo.command.tpxTmfSyncJob.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobService {\n    private TpjTmfSyncJob row = new TpjTmfSyncJob();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobRepository tpjTmfSyncJobRepository;\n\n    public void insRow(Long iTmfSyncJobKey, String iTmfSyncMvrType, String iStatus, Long iProjKey, Long iUserKey, Long iSiteKey, Long oTmfSyncJobKey) {\n        TpjTmfSyncJob vRow = new TpjTmfSyncJob();\n\n        CodePlaceHolder\n    }\n}",
+        "method_skeleton_code": "    public Long insRow(Long iTmfSyncJobKey, String iTmfSyncMvrType, String iStatus, Long iProjKey, Long iUserKey, Long iSiteKey) {\n        TpjTmfSyncJob vRow = new TpjTmfSyncJob();\n\n        CodePlaceHolder\n    }",
+        "method_signature": "Long insRow(Long iTmfSyncJobKey, String iTmfSyncMvrType, String iStatus, Long iProjKey, Long iUserKey, Long iSiteKey)",
+        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJob;\nimport com.example.demo.repository.TpjTmfSyncJobRepository;\nimport com.example.demo.command.tpxTmfSyncJob.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobService {\n    private TpjTmfSyncJob row = new TpjTmfSyncJob();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobRepository tpjTmfSyncJobRepository;\n\n    public Long insRow(Long iTmfSyncJobKey, String iTmfSyncMvrType, String iStatus, Long iProjKey, Long iUserKey, Long iSiteKey) {\n        TpjTmfSyncJob vRow = new TpjTmfSyncJob();\n\n        CodePlaceHolder\n    }\n}",
         "node_type": "PROCEDURE",
         "procedure_name": "INS_ROW"
       },
@@ -380,5 +380,348 @@
     "TPX_PROJECT": true,
     "TPX_TMF_SYNC_JOB_STATUS": true,
     "TPX_TMF_SYNC_JOB": true
+  },
+  "variable_nodes": {
+    "TPX_PROJECT": {
+      "p_GET_ROW": [
+        {
+          "v": {
+            "73_73": "Used",
+            "procedure_name": "p_GET_ROW",
+            "role": "변수 선언및 초기화",
+            "value_tracking": "초기값 null -> TPJ_PROJECT 조회결과 할당 -> return 값으로 사용",
+            "object_name": "TPX_PROJECT",
+            "scope": "Local",
+            "name": "vRow",
+            "type": "TPJ_PROJECT",
+            "value": "TPJ_PROJECT",
+            "70_71": "Used"
+          }
+        }
+      ],
+      "SET_KEY": []
+    },
+    "TPX_TMF_SYNC_JOB_STATUS": {
+      "p_EQUAL": [
+        {
+          "v": {
+            "procedure_name": "p_EQUAL",
+            "role": "변수 선언및 초기화",
+            "152_160": "Used",
+            "value_tracking": "boolean type variable for storing comparison result between row and iRow objects",
+            "object_name": "TPX_TMF_SYNC_JOB_STATUS",
+            "scope": "Local",
+            "name": "vBool",
+            "type": "BOOLEAN",
+            "163_163": "Used",
+            "value": "null"
+          }
+        }
+      ],
+      "p_VALUE": [],
+      "p_INSERT": [],
+      "p_UPDATE": [],
+      "p_GET_ROW": [
+        {
+          "v": {
+            "procedure_name": "p_GET_ROW",
+            "254_254": "Used",
+            "role": "변수 선언및 초기화",
+            "249_252": "Used",
+            "value_tracking": "초기값 null -> TpjTmfSyncJobStatus 조회결과 할당 -> 리턴값으로 사용",
+            "object_name": "TPX_TMF_SYNC_JOB_STATUS",
+            "scope": "Local",
+            "name": "vRow",
+            "type": "TPJ_TMF_SYNC_JOB_STATUS",
+            "value": "TPJ_TMF_SYNC_JOB_STATUS"
+          }
+        }
+      ],
+      "SET_KEY": [],
+      "INPUT": [
+        {
+          "v": {
+            "procedure_name": "INPUT",
+            "284_284": "Used",
+            "role": "변수 선언및 초기화",
+            "294_299": "Used",
+            "value_tracking": "초기값 null -> iRow 데이터 복사 -> setKey/pInsert/pUpdate 메서드에서 사용",
+            "object_name": "TPX_TMF_SYNC_JOB_STATUS",
+            "scope": "Local",
+            "name": "vRow",
+            "type": "TPJ_TMF_SYNC_JOB_STATUS",
+            "value": "TPJ_TMF_SYNC_JOB_STATUS",
+            "295_295": "Used",
+            "297_297": "Used"
+          }
+        }
+      ],
+      "INS_ROW": [
+        {
+          "v": {
+            "331_331": "Used",
+            "role": "변수 선언및 초기화",
+            "334_334": "Used",
+            "336_336": "Used",
+            "339_339": "Used",
+            "329_329": "Used",
+            "type": "TPJ_TMF_SYNC_JOB_STATUS",
+            "335_335": "Used",
+            "procedure_name": "INS_ROW",
+            "330_330": "Used",
+            "332_332": "Used",
+            "value_tracking": "new TpjTmfSyncJobStatus() -> 각 필드값이 순차적으로 설정된 후 저장됨",
+            "object_name": "TPX_TMF_SYNC_JOB_STATUS",
+            "scope": "Local",
+            "name": "vRow",
+            "333_333": "Used",
+            "337_337": "Used",
+            "value": "TPJ_TMF_SYNC_JOB_STATUS"
+          }
+        },
+        {
+          "v": {
+            "335_335": "Used",
+            "procedure_name": "INS_ROW",
+            "327_327": "Used",
+            "role": "변수 선언및 초기화",
+            "value_tracking": "LocalDateTime.now() -> 현재 시스템 시간으로 초기화되어 엔티티의 시간 필드들에 사용",
+            "object_name": "TPX_TMF_SYNC_JOB_STATUS",
+            "scope": "Local",
+            "name": "vCurrentTime",
+            "333_333": "Used",
+            "type": "DATE",
+            "value": "null"
+          }
+        }
+      ],
+      "UPD_STATUS": [
+        {
+          "v": {
+            "374_374": "Used",
+            "382_382": "Used",
+            "role": "변수 선언및 초기화",
+            "385_385": "Used",
+            "380_380": "Used",
+            "type": "TPJ_TMF_SYNC_JOB_STATUS",
+            "375_375": "Used",
+            "377_377": "Used",
+            "379_379": "Used",
+            "373_373": "Used",
+            "378_378": "Used",
+            "procedure_name": "UPD_STATUS",
+            "381_381": "Used",
+            "value_tracking": "초기값 new TpjTmfSyncJobStatus() -> 각 필드값 설정 -> pUpdate 메서드 파라미터로 사용",
+            "object_name": "TPX_TMF_SYNC_JOB_STATUS",
+            "scope": "Local",
+            "name": "vRow",
+            "376_376": "Used",
+            "383_383": "Used",
+            "value": "TPJ_TMF_SYNC_JOB_STATUS"
+          }
+        },
+        {
+          "v": {
+            "procedure_name": "UPD_STATUS",
+            "381_381": "Used",
+            "role": "변수 선언및 초기화",
+            "value_tracking": "초기값 NULL -> LocalDateTime.now() 할당 -> endTime, inputTime 설정에 사용",
+            "object_name": "TPX_TMF_SYNC_JOB_STATUS",
+            "scope": "Local",
+            "name": "vCurrentTime",
+            "type": "DATE",
+            "379_379": "Used",
+            "371_371": "Used",
+            "value": "null"
+          }
+        }
+      ],
+      "UPD_BATCH_FAIL": [
+        {
+          "v": {
+            "425_425": "Used",
+            "role": "변수 선언및 초기화",
+            "420_420": "Used",
+            "419_419": "Used",
+            "426_426": "Used",
+            "422_422": "Used",
+            "type": "TPJ_TMF_SYNC_JOB_STATUS",
+            "procedure_name": "UPD_BATCH_FAIL",
+            "424_424": "Used",
+            "429_429": "Used",
+            "421_421": "Used",
+            "418_418": "Used",
+            "value_tracking": "초기값 new TpjTmfSyncJobStatus() -> 각 필드값 설정 -> 최종 저장",
+            "object_name": "TPX_TMF_SYNC_JOB_STATUS",
+            "scope": "Local",
+            "name": "vRow",
+            "427_427": "Used",
+            "423_423": "Used",
+            "value": "TPJ_TMF_SYNC_JOB_STATUS"
+          }
+        },
+        {
+          "v": {
+            "procedure_name": "UPD_BATCH_FAIL",
+            "425_425": "Used",
+            "role": "변수 선언및 초기화",
+            "416_416": "Used",
+            "value_tracking": "초기값 NULL -> LocalDateTime.now() 할당 -> 여러 필드 설정에 사용",
+            "object_name": "TPX_TMF_SYNC_JOB_STATUS",
+            "scope": "Local",
+            "name": "vCurrentTime",
+            "422_422": "Used",
+            "423_423": "Used",
+            "type": "DATE",
+            "value": "null"
+          }
+        }
+      ],
+      "UPD_TMF_JOB_KEY": [
+        {
+          "v": {
+            "471_471": "Used",
+            "role": "변수 선언및 초기화",
+            "463_463": "Used",
+            "465_465": "Used",
+            "466_466": "Used",
+            "468_468": "Used",
+            "type": "TPJ_TMF_SYNC_JOB_STATUS",
+            "475_475": "Used",
+            "procedure_name": "UPD_TMF_JOB_KEY",
+            "472_472": "Used",
+            "470_470": "Used",
+            "value_tracking": "초기값 new TpjTmfSyncJobStatus() -> 각 필드값 설정 -> pUpdate()에서 사용",
+            "object_name": "TPX_TMF_SYNC_JOB_STATUS",
+            "scope": "Local",
+            "464_464": "Used",
+            "467_467": "Used",
+            "name": "vRow",
+            "473_473": "Used",
+            "value": "TPJ_TMF_SYNC_JOB_STATUS"
+          }
+        },
+        {
+          "v": {
+            "471_471": "Used",
+            "procedure_name": "UPD_TMF_JOB_KEY",
+            "role": "변수 선언및 초기화",
+            "value_tracking": "초기값 NULL -> LocalDateTime.now() 할당 -> vRow.setInputTime()에서 사용",
+            "object_name": "TPX_TMF_SYNC_JOB_STATUS",
+            "scope": "Local",
+            "461_461": "Used",
+            "name": "vCurrentTime",
+            "type": "DATE",
+            "value": "null"
+          }
+        }
+      ]
+    },
+    "TPX_TMF_SYNC_JOB": {
+      "p_EQUAL": [
+        {
+          "v": {
+            "procedure_name": "p_EQUAL",
+            "role": "변수 선언및 초기화",
+            "125_125": "Used",
+            "value_tracking": "초기값 null -> 엔티티 필드값 비교 결과 할당 -> 리턴값으로 사용",
+            "119_122": "Used",
+            "object_name": "TPX_TMF_SYNC_JOB",
+            "scope": "Local",
+            "name": "vBool",
+            "type": "BOOLEAN",
+            "value": "null"
+          }
+        }
+      ],
+      "p_VALUE": [],
+      "p_INSERT": [],
+      "p_UPDATE": [],
+      "p_GET_ROW": [
+        {
+          "v": {
+            "procedure_name": "p_GET_ROW",
+            "role": "변수 선언및 초기화",
+            "value_tracking": "초기값 null -> TpjTmfSyncJob 조회결과 할당 -> return으로 반환",
+            "206_208": "Used",
+            "210_210": "Used",
+            "object_name": "TPX_TMF_SYNC_JOB",
+            "scope": "Local",
+            "name": "vRow",
+            "type": "TPJ_TMF_SYNC_JOB",
+            "value": "TPJ_TMF_SYNC_JOB"
+          }
+        }
+      ],
+      "SET_KEY": [],
+      "INPUT": [
+        {
+          "v": {
+            "role": "변수 선언및 초기화",
+            "250_250": "Used",
+            "249_254": "Used",
+            "252_252": "Used",
+            "type": "TPJ_TMF_SYNC_JOB",
+            "procedure_name": "INPUT",
+            "value_tracking": "초기값 NULL -> iRow 데이터 복사 -> 키 설정 및 처리 대상으로 사용",
+            "object_name": "TPX_TMF_SYNC_JOB",
+            "scope": "Local",
+            "name": "vRow",
+            "244_244": "Used",
+            "239_239": "Used",
+            "value": "TPJ_TMF_SYNC_JOB"
+          }
+        }
+      ],
+      "INS_ROW": [
+        {
+          "v": {
+            "277_277": "Used",
+            "285_285": "Used",
+            "role": "변수 선언및 초기화",
+            "279_279": "Used",
+            "282_282": "Used",
+            "286_286": "Used",
+            "276_280": "Used",
+            "type": "TPJ_TMF_SYNC_JOB",
+            "288_288": "Used",
+            "procedure_name": "INS_ROW",
+            "284_284": "Used",
+            "value_tracking": "TpjTmfSyncJob 엔티티 객체 -> 필드값 설정 -> 저장 후 ID 반환",
+            "object_name": "TPX_TMF_SYNC_JOB",
+            "scope": "Local",
+            "name": "vRow",
+            "283_283": "Used",
+            "287_287": "Used",
+            "value": "TPJ_TMF_SYNC_JOB",
+            "290_290": "Used",
+            "292_292": "Used"
+          }
+        }
+      ],
+      "UPD_STATUS": [
+        {
+          "v": {
+            "role": "변수 선언및 초기화",
+            "320_320": "Used",
+            "323_323": "Used",
+            "318_318": "Used",
+            "321_321": "Used",
+            "325_325": "Used",
+            "type": "TPJ_TMF_SYNC_JOB",
+            "316_316": "Used",
+            "procedure_name": "UPD_STATUS",
+            "value_tracking": "초기값 new TpjTmfSyncJob() -> 필드값 설정 -> pUpdate 메서드 파라미터로 전달",
+            "object_name": "TPX_TMF_SYNC_JOB",
+            "scope": "Local",
+            "name": "vRow",
+            "322_322": "Used",
+            "value": "TPJ_TMF_SYNC_JOB",
+            "317_317": "Used",
+            "319_319": "Used"
+          }
+        }
+      ]
+    }
   }
 }

@@ -495,7 +495,7 @@ async def analysis(antlr_data, file_content, send_queue, receive_queue, last_lin
 
             # * 변수를 분석하고, 각 타입별로 변수 노드를 생성합니다
             analysis_result = understand_variables(declaration_code, ddl_tables)
-            logging.info(f"[{object_name}] {procedure_name if procedure_name else '패키지 변수'} 분석 완료")
+            logging.info(f"[{object_name}] {procedure_name}의 변수 분석 완료")
             var_summary = json.dumps(analysis_result.get("summary", "unknown"))
             for variable in analysis_result["variables"]:
                 var_parameter_type = variable["parameter_type"]

@@ -38,7 +38,7 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
     #
     # 매개변수: 
     #   - node_id : 현재 처리 중인 노드의 ID(시작라인) (변수 사용 범위를 확인하기 위한 기준점)
-    async def trace_extract_used_variable_nodes(node_id:int) -> list:
+    async def trace_extract_used_variable_nodes(node_id:int):
         nonlocal used_variables, tracking_variables
         
         try:
@@ -321,7 +321,7 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
             elif not small_parent_info and not big_parent_info:
                 convert_sp_code += f"\n{start_node['node_code']}"
                 context_range.append({"startLine": start_node['startLine'], "endLine": start_node['endLine']})
-                used_variables = await trace_extract_used_variable_nodes(start_node['startLine'])
+                await trace_extract_used_variable_nodes(start_node['startLine'])
                 used_jpa_method_dict = await extract_used_jpa_methods(start_node['startLine'], start_node['endLine'], jpa_method_list, used_jpa_method_dict)
             elif another_big_parent_startLine == start_node['startLine'] and context_range and convert_sp_code: 
                 print(f"큰 부모 노드 내의 또 다른 부모 노드 처리가 완료되어 LLM 분석을 시작합니다. (코드 흐름 분리)")

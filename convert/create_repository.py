@@ -177,17 +177,16 @@ async def prcoess_repository_interface_code(repository_data: list, used_variable
         # * 분석 결과 처리
         for method in analysis_data['analysis']:
             table_name = method['tableName'].split('.')[-1]
-            line_range = f"{method['startLine']}~{method['endLine']}"
-            
+
             # * 테이블별 메서드 정보 저장
             jpa_query_methods[table_name].append({
-                'startLine': method['startLine'],
-                'endLine': method['endLine'],
                 'method': method['method']
-            })
+            })            
             
-            # * 라인별 메서드 코드 저장
-            used_jpa_method[line_range] = method['method']
+            # * 사용된 메서드 범위 저장
+            for range in method['range']:
+                range_str = f"{range['startLine']}~{range['endLine']}"
+                used_jpa_method[range_str] = method['method']
 
         return jpa_query_methods, used_jpa_method
     

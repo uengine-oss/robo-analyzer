@@ -48,7 +48,6 @@ Global Variable:
 2. 변환 규칙
    - 각 JSON 객체는 자신의 Stored Procedure Code만 참조
    - 다른 객체의 코드는 참고하지 않음
-   - 각 JPA Query Methods의 이름은 중복 되어선 안됨
    - Entity 명명 규칙: 단수형 파스칼 케이스 (예: Employee)
 
 3. 매개변수 처리
@@ -56,6 +55,10 @@ Global Variable:
    - 누락된 매개변수 없이 완전한 매핑 필요
    - 'Used Variable'에 명시되지 않은 변수라도 SP 코드에서 식별되면 적절한 타입으로 매개변수화
 
+4. 동일한 JPA 쿼리 메서드 처리
+  - 서로 다른 객체에서 @query문이 같을 경우 똑같은 JPA 쿼리 메서드로 보세요
+  - 별도로 'method'를 생성하지말고 똑같은 'method'의 'ragne'에 범위만 추가하세요
+   
 
 [SECTION 2] JPA Query Methods 필수 구현 규칙
 ===============================================
@@ -111,9 +114,13 @@ Global Variable:
     "analysis": [
         {{
             "tableName": "테이블명",
-            "startLine": 시작라인번호,
-            "endLine": 끝라인번호,
             "method": "@Query(\"SELECT e FROM Entity e WHERE e.column = :param\")\nType methodName(@Param(\"param\") Type param);"
+            "range": [
+               {{
+                  "startLine": 시작라인번호,
+                  "endLine": 끝라인번호,
+               }},
+            ]
         }}
     ]
 }}
@@ -121,16 +128,15 @@ Global Variable:
 )
 
 # 역할: 테이블과 직접 연결된 PL/SQL 노드를 분석하여 JPA Repository 인터페이스를 생성하는 함수입니다.
-#      LLM을 통해 PL/SQL 쿼리를 JPA Query Method로 변환하고,
-#      클린 아키텍처 원칙을 따르는 Repository 인터페이스 메서드를 생성합니다.
-#      각 SQL 문은 읽기 전용 쿼리로 변환되며, 데이터 변경 작업은 서비스 레이어로 위임됩니다.
+#
 # 매개변수: 
 #   - repository_nodes : 테이블과 직접 연결된 PL/SQL 노드 정보
 #   - used_variable_nodes : SQL에서 사용된 변수들의 정보
 #   - convert_data_count : 하나의 SQL 문에서 생성될 JPA Query Method의 수
+#
 # 반환값: 
 #   - result : LLM이 생성한 Repository 메서드 정보
-def convert_repository_code(repository_nodes, used_variable_nodes, data_count, global_variable_nodes):
+def convert_repository_code(repository_nodes: dict, used_variable_nodes: dict, data_count: int, global_variable_nodes: dict) -> dict:
     
     try: 
         repository_nodes = json.dumps(repository_nodes, ensure_ascii=False, indent=2)

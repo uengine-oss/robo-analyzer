@@ -1,11 +1,10 @@
 import logging
 from typing import List, Dict, Tuple
-from neo4j.exceptions import Neo4jError, ServiceCreationError
 from convert.create_repository import extract_used_variable_nodes
 from understand.neo4j_connection import Neo4jConnection
 from util.converting_utlis import extract_used_jpa_methods
-from util.exception import ConvertingError, HandleResultError, PrepareDataError, ProcessResultError
-from prompt.convert_service_prompt import convert_service_code
+from util.exception import ConvertingError, HandleResultError, Neo4jError, PrepareDataError, ProcessResultError, ServiceCreationError
+from prompt.convert_service_prompt import convert_service_code 
 
 
 # 역할 : java_code가 없는 노드들을 조회합니다.
@@ -70,7 +69,7 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
     current_code = ""
     MAX_TOKEN = 1700
 
-    logging.info(f"서비스 전처리 검증을 시작합니다.")
+    logging.info(f"[{object_name}]의 {procedure_name} 서비스 전처리 검증을 시작합니다.")
 
     # 역할 : 누적된 코드를 LLM으로 처리하고 결과를 DB에 업데이트
     async def process_validate_service_class_code():
@@ -145,11 +144,13 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
         # * java_code가 없는 노드 확인
         has_nodes, nodes = await get_nodes_without_java_code(connection)
         if not has_nodes:
+            logging.info(f"[{object_name}]의 {procedure_name}의 모든 노드가 java_code 속성을 가지고 있습니다.")
             return
 
 
         # * 각 노드에 대해 처리
         for node in nodes:
+            logging.info(f"[{object_name}]의 {procedure_name}의 {node['n']['name']} 노드에 대해 처리합니다.")
             node_data = node['n']
             sp_code = node_data['node_code']
             start_line = node_data['startLine']
@@ -176,6 +177,7 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
         if current_code and context_range:
             await process_validate_service_class_code()
 
+        logging.info(f"[{object_name}]의 {procedure_name}의 전처리 검증이 완료되었습니다.\n")
 
     except ConvertingError:
         raise
