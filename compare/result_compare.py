@@ -421,12 +421,22 @@ def update_code(java_files, error=None, plsql_files=None, plsql_log_files=None, 
         
         for update in updates:
             file_path = update['filePath']
+            originalCode = next((file['content'] for file in java_files if file['filePath'] == file_path), None)
             logging.info(f"파일 업데이트 중: {file_path}")
-            new_code = update['code'].replace("\\n", "\n")  # Replace escaped newlines with actual newlines
+            modifiedCode = update['code'].replace("\\n", "\n")
+            reason = update['reason']
 
+
+            yield json.dumps({
+                "filePath": file_path, 
+                "originalCode": originalCode, 
+                "modifiedCode": modifiedCode, 
+                "reason": reason, 
+                "type": "java_file_update"
+            }).encode('utf-8') + b"send_stream"
             # Write the new code to the file
             with open(file_path, 'w', encoding='utf-8') as file:
-                file.write(new_code)
+                file.write(modifiedCode)
 
             print(f"Updated file: {file_path}")
             logging.info(f"파일 업데이트 완료: {file_path}")
