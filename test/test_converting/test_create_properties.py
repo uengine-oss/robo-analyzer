@@ -37,7 +37,7 @@ class TestAplPropertiesGeneration(unittest.IsolatedAsyncioTestCase):
 
         try:
             # * application.properties 생성 테스트 시작
-            await start_APLproperties_processing()
+            await start_APLproperties_processing(orm_type="jpa")
             self.assertTrue(True, "application.properties 프로세스가 성공적으로 완료되었습니다.")
         except Exception:
             self.fail(f"application.properties 생성 테스트 중 예외 발생")

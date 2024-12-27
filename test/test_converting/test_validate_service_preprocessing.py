@@ -71,7 +71,8 @@ class TestValidateServicePreprocessing(unittest.IsolatedAsyncioTestCase):
                         skeleton_data['command_class_variable'],
                         procedure_name,
                         jpa_method_list,
-                        object_name
+                        object_name,
+                        orm_type = "jpa" # ? 원하는 모델로 수정
                     )
 
             self.assertTrue(True, "서비스 검증 프로세스가 성공적으로 완료되었습니다.")

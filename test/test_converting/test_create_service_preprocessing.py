@@ -79,7 +79,8 @@ class TestPreServiceGeneration(unittest.IsolatedAsyncioTestCase):
                         skeleton_data['command_class_variable'],
                         procedure_name,
                         jpa_method_list,
-                        object_name
+                        object_name,
+                        orm_type = "jpa" # ? 원하는 모델로 수정
                     )
 
                     # * 전처리 결과를 저장합니다.

@@ -37,7 +37,7 @@ class TestPomGeneration(unittest.IsolatedAsyncioTestCase):
 
         try:
             # * pom.xml 생성 테스트 시작
-            await start_pomxml_processing()
+            await start_pomxml_processing(orm_type="jpa")
             self.assertTrue(True, "pom.xml 프로세스가 성공적으로 완료되었습니다.")
         except Exception:
             self.fail(f"pom.xml 생성 테스트 중 예외 발생")

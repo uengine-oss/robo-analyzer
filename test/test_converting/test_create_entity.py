@@ -4,6 +4,8 @@ import sys
 import os
 import logging
 import unittest
+
+from util.file_utils import read_sequence_file
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from convert.create_entity import start_entity_processing
 
@@ -64,13 +66,23 @@ class TestEntityGeneration(unittest.IsolatedAsyncioTestCase):
 
             # * 엔티티 클래스 생성 테스트 시작
             entity_results = {}
+            entity_codes = {}
             for object_name in object_names:
-                entity_names = await start_entity_processing(object_name)
+                seq_data = await read_sequence_file(object_name)
+                entity_names, code_dict = await start_entity_processing(
+                    object_name,
+                    seq_data,
+                    orm_type="JPA"
+                )
                 entity_results[object_name] = entity_names
+                entity_codes[object_name] = code_dict
 
+            test_data.update({
+                "entity_name_list": entity_results,
+                "entity_codes": entity_codes
+            })
 
-            # * 결과를 외부 파일에 저장
-            test_data["entity_name_list"] = entity_results
+            # * 테스트 결과를 외부 파일에 저장
             with open(result_file_path, 'w', encoding='utf-8') as f:
                 json.dump(test_data, f, ensure_ascii=False, indent=2)
                 

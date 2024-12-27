@@ -4,6 +4,8 @@ import sys
 import os
 import logging
 import unittest
+
+from util.file_utils import read_sequence_file
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from convert.create_repository import start_repository_processing
 
@@ -59,16 +61,26 @@ class TestRepositoryGeneration(unittest.IsolatedAsyncioTestCase):
                 test_data = {}          
             
             # * Repository Interface 생성 테스트 시작
-            jpa_results = {} 
+            used_methods_dict = {} 
             global_variables = {}
+            all_methods_dict = {}
+            orm_type = "jpa"  # ? 원하는 모델로 수정
+
             for object_name in object_names:
-                methods, global_variable_nodes = await start_repository_processing(object_name)
-                jpa_results[object_name] = methods
+                seq_data = await read_sequence_file(object_name)
+                used_methods, global_variable_nodes, all_methods = await start_repository_processing(object_name, seq_data, orm_type)
+                
+                used_methods_dict[object_name] = used_methods
                 global_variables[object_name] = global_variable_nodes
+                all_methods_dict[object_name] = all_methods
+            
+            test_data.update({
+                "repository_methods": used_methods_dict,
+                "global_variables": global_variables,
+                "all_query_methods": all_methods_dict,
+            })
             
             # * 결과를 결과 파일에 저장합니다.
-            test_data["jpa_method_list"] = jpa_results
-            test_data["global_variables"] = global_variables
             with open(result_file_path, 'w', encoding='utf-8') as f:
                 json.dump(test_data, f, ensure_ascii=False, indent=2)
 
