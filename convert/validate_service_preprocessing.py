@@ -59,7 +59,8 @@ async def get_nodes_without_java_code(connection: Neo4jConnection) -> Tuple[bool
 #   - procedure_name : 처리할 프로시저의 이름
 #   - query_method_list : 사용 가능한 전체 query 쿼리 메서드 목록
 #   - object_name : 처리 중인 패키지/프로시저의 식별자
-async def start_validate_service_preprocessing(variable_nodes:list, service_skeleton: str, command_class_variable: dict, procedure_name: str, query_method_list: list, object_name: str) -> None:
+#   - orm_type : 사용할 ORM 유형 (jpa, mybatis)
+async def start_validate_service_preprocessing(variable_nodes:list, service_skeleton: str, command_class_variable: dict, procedure_name: str, query_method_list: list, object_name: str, orm_type: str) -> None:
     
     connection = Neo4jConnection()
     used_query_method_dict = {}
@@ -90,7 +91,8 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
                 command_class_variable,
                 context_range,
                 range_count,
-                used_query_method_dict
+                used_query_method_dict,
+                orm_type
             )
 
             # * 결과 처리 및 노드 업데이트

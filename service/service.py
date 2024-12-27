@@ -332,7 +332,8 @@ async def generate_spring_boot_project(file_names: list, orm_type: str) -> Async
                     service_data['command_class_variable'],
                     service_data['procedure_name'],
                     used_query_methods, 
-                    object_name
+                    object_name,
+                    orm_type
                 )
 
                 await start_validate_service_preprocessing(
@@ -341,7 +342,8 @@ async def generate_spring_boot_project(file_names: list, orm_type: str) -> Async
                     service_data['command_class_variable'],
                     service_data['procedure_name'],
                     used_query_methods, 
-                    object_name
+                    object_name,
+                    orm_type
                 )
 
                 merge_method_code = await start_service_postprocessing(
@@ -370,22 +372,16 @@ async def generate_spring_boot_project(file_names: list, orm_type: str) -> Async
 
 
         # * 5 단계 : pom.xml 생성
-        await start_pomxml_processing()
+        await start_pomxml_processing(orm_type)
         yield f"{file_name}-Step5 completed\n"
         
 
         # * 6 단계 : application.properties 생성
-        await start_APLproperties_processing()
+        await start_APLproperties_processing(orm_type)
         yield f"Step6 completed\n"
 
 
         # * 7 단계 : StartApplication.java 생성
-        await start_main_processing()
-        yield f"Step7 completed\n"
-        yield f"Completed Converting {file_name}.\n\n"
-
-
-        # * 8 단계 : test 코드 생성
         await start_main_processing()
         yield f"Step7 completed\n"
         yield f"Completed Converting {file_name}.\n\n"

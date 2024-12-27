@@ -572,17 +572,17 @@ JPA Method List:
 
 
 # 역할: PL/SQL 프로시저를 Java 서비스 계층의 메서드로 변환하는 함수입니다.
-#      LLM을 통해 프로시저의 비즈니스 로직을 분석하고,
-#      클린 아키텍처와 DDD 원칙을 따르는 서비스 메서드를 생성합니다.
-#      SQL 작업은 Repository 계층으로 위임하고, 트랜잭션 관리와 비즈니스 규칙을 처리합니다.
+#
 # 매개변수: 
-#  - clean_code : 변환할 PL/SQL 프로시저 코드
+#  - convert_sp_code : 변환할 PL/SQL 프로시저 코드
 #  - service_skeleton : 생성될 Java Service 클래스의 기본 구조
 #  - variable_list : PL/SQL에서 사용된 변수들의 정보
-#  - query_query_methods : 사용 가능한 쿼리 메서드 목록
 #  - command_class_variable : Command 클래스의 필드 정보
 #  - context_range : 코드 변환 범위 정보
 #  - count : context_range의 범위 개수
+#  - query_method_list : 사용 가능한 쿼리 메서드 목록
+#  - orm_type : 사용할 ORM 유형 (jpa, mybatis)
+#
 # 반환값: 
 #  - json_parsed_content : LLM이 생성한 서비스 메서드 정보
 def convert_service_code(convert_sp_code: str, service_skeleton: str, variable_list: str, command_class_variable: str, context_range: str, count: int, query_method_list: str, orm_type: str) -> dict:

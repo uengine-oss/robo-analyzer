@@ -20,7 +20,7 @@ from util.exception import ConvertingError, HandleResultError, LLMCallError, Neo
 #   - query_method_list : 사용 가능한 전체 query 쿼리 메서드 목록
 #   - object_name : 처리 중인 패키지/프로시저의 식별자
 #   - procedure_name : 처리 중인 프로시저의 이름
-async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, connection:Neo4jConnection, command_class_variable:dict, service_skeleton:str, query_method_list:list, object_name:str, procedure_name:str):
+async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, connection:Neo4jConnection, command_class_variable:dict, service_skeleton:str, query_method_list:list, object_name:str, procedure_name:str, orm_type:str):
 
     used_variables =  []                  # 사용된 변수 정보를 저장하는 리스트
     context_range = []                    # 분석할 컨텍스트 범위를 저장하는 리스트
@@ -125,7 +125,8 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
                 used_variables, 
                 command_class_variable, 
                 context_range, range_count, 
-                used_query_method_dict
+                used_query_method_dict,
+                orm_type
             )
             tracking_variables = await handle_convert_result(analysis_result)
 
@@ -351,7 +352,8 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
 #   - procedure_name : 처리할 프로시저의 이름
 #   - query_method_list : 사용 가능한 전체 query 쿼리 메서드 목록
 #   - object_name : 처리 중인 패키지/프로시저의 식별자
-async def start_service_preprocessing(service_skeleton:str, command_class_variable:dict, procedure_name:str, query_method_list:list, object_name:str) -> None:
+#   - orm_type : 사용할 ORM 유형 (jpa, mybatis)
+async def start_service_preprocessing(service_skeleton:str, command_class_variable:dict, procedure_name:str, query_method_list:list, object_name:str, orm_type:str) -> None:
     
     connection = Neo4jConnection() 
     logging.info(f"[{object_name}] {procedure_name} 프로시저의 서비스 코드 생성을 시작합니다.")
@@ -402,7 +404,8 @@ async def start_service_preprocessing(service_skeleton:str, command_class_variab
             service_skeleton, 
             query_method_list, 
             object_name, 
-            procedure_name
+            procedure_name,
+            orm_type
         )
         logging.info(f"[{object_name}] {procedure_name} 프로시저의 서비스 코드 생성이 완료되었습니다.\n")
 
