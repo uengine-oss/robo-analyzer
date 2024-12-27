@@ -92,14 +92,15 @@ async def covnert_spring_project(request: Request):
         file_data = await request.json()
         logging.info("Received File Info for Convert Spring Boot: %s", file_data)
         file_names = [(item['fileName'], item['objectName']) for item in file_data['fileInfos']]
-        
+        orm_type = file_data.get('ormType', 'jpa').lower()
+
         if not file_names:
             raise HTTPException(status_code=400, detail="파일 정보가 없습니다.")
 
     except Exception:
         raise HTTPException(status_code=500, detail="스프링 부트 프로젝트 생성을 위해 전달된 데이터가 잘못되었습니다.")
 
-    return StreamingResponse(generate_spring_boot_project(file_names), media_type="text/plain")
+    return StreamingResponse(generate_spring_boot_project(file_names, orm_type), media_type="text/plain")
 
 
  

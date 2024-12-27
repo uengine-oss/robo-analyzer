@@ -10,13 +10,121 @@ from langchain.schema.runnable import RunnablePassthrough
 from langchain_anthropic import ChatAnthropic
 from util.exception import LLMCallError
 
-
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
-# llm = ChatOpenAI(model="gpt-4o", max_tokens=8000)
 llm = ChatAnthropic(model="claude-3-5-sonnet-20241022", max_tokens=8000, temperature=0.1)
-# TODO 엔티티클래스 필드 정보가 필요해보임
-prompt = PromptTemplate.from_template(
+
+
+# MyBatis Mapper 인터페이스 생성 프롬프트
+mybatis_prompt = PromptTemplate.from_template(
+"""
+당신은 클린 아키텍처 원칙을 따르는 스프링부트 기반의 자바 애플리케이션을 개발하는 소프트웨어 엔지니어입니다. 
+주어진 데이터를 기반으로 MyBatis Mapper 인터페이스의 메서드를 생성하는 작업을 맡았습니다.
+
+Stored Procedure Code:
+{repository_nodes}
+
+Used Variable:
+{used_variable_nodes}
+
+Global Variable:
+{global_variable_nodes}
+
+Sequence Info:
+{sequence_data}
+
+생성될 Mapper 메서드는 {count}개입니다.
+'Global Variable'들은 애플리케이션 전반에서 전역적으로 사용되는 변수들로 필요한 경우 활용하세요.
+
+
+[SECTION 1] Mapper 메서드 생성 지침
+===============================================
+1. 변환 범위
+   - 각 JSON 객체는 독립적으로 Mapper 메서드로 변환
+   - ...code... 표시된 부분은 제외하고 변환
+
+2. 변환 규칙
+   - 각 JSON 객체는 자신의 Stored Procedure Code만 참조
+   - 다른 객체의 코드는 참고하지 않음
+   - DTO 명명 규칙: 단수형 파스칼 케이스 + Dto (예: EmployeeDto)
+
+3. 매개변수 처리
+   - 모든 매개변수에 @Param 어노테이션 필수
+   - 'Used Variable' 목록의 모든 변수는 매개변수로 포함
+   - 누락된 매개변수 없이 완전한 매핑 필요
+
+4. 시퀀스 처리
+   - INSERT 문에서 시퀀스가 필요한 경우 SEQ_NAME.NEXTVAL 형식 사용
+   - 시퀀스 정보가 있는 컬럼은 입력 매개변수에서 제외
+
+   
+[SECTION 2] Mapper 메서드 필수 구현 규칙
+===============================================
+1. 반환 타입 규칙
+   - SELECT 단건 조회: DTO 객체
+   - SELECT 목록 조회: List<DTO>
+   - INSERT/UPDATE/DELETE: int (영향받은 행 수)
+   - 예시: List<EmployeeDto> findAll();
+
+2. 어노테이션 규칙
+   - SELECT: @Select
+   - INSERT: @Insert
+   - UPDATE: @Update
+   - DELETE: @Delete
+   - 복잡한 동적 쿼리는 어노테이션 생략 (XML에서 처리)
+
+3. 매개변수 규칙
+   - 모든 매개변수에 @Param 어노테이션 사용
+   - 예시: @Param("empNo") String empNo
+
+4. 명명 규칙
+   - 조회: findBy[조건]
+   - 삽입: insert[엔티티명]
+   - 수정: update[엔티티명]
+   - 삭제: deleteBy[조건]
+
+5. 날짜 기간 처리
+   - TRUNC 함수 사용 금지
+   - 시작일자(startDate)와 종료일자(endDate) 매개변수 사용
+   - BETWEEN 절을 통한 기간 필터링
+
+   
+[SECTION 3] Mapper 메서드 작성 예시
+===============================================
+출력 형식:
+- @Mapper 어노테이션 제외
+- 순수 메서드만 'method'에 포함
+- SQL 어노테이션과 메서드 시그니처를 개행문자(\\n)로 구분
+
+예시 출력:
+@Select("SELECT * FROM EMPLOYEE WHERE emp_no = #{empNo}")
+\nEmployeeDto findByEmpNo(@Param("empNo") String empNo);
+
+
+[SECTION 4] JSON 출력 형식
+===============================================
+부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요:
+{{
+    "analysis": [
+        {{
+            "tableName": "테이블명",
+            "method": "@Select(\"SELECT * FROM table WHERE id = #{id}\")\nType methodName(@Param(\"id\") Type id);",
+            "range": [
+               {{
+                  "startLine": 시작라인번호,
+                  "endLine": 끝라인번호,
+               }},
+            ]
+        }}
+    ]
+}}
+"""
+)
+
+
+
+# JPA Repository 인터페이스 생성 프롬프트
+jpa_prompt = PromptTemplate.from_template(
 """
 당신은 클린 아키텍처 원칙을 따르는 스프링부트 기반의 자바 애플리케이션을 개발하는 소프트웨어 엔지니어입니다. 
 주어진 데이터를 기반으로 Repository Interface의 JPA Query Methods를 생성하는 작업을 맡았습니다.
@@ -42,7 +150,6 @@ Global Variable:
 ===============================================
 1. 변환 범위
    - 각 JSON 객체는 독립적으로 JPA Query Methods로 변환
-   - 하나의 객체에서 복수의 Query Methods 생성 가능
    - ...code... 표시된 부분은 제외하고 변환
 
 2. 변환 규칙
@@ -127,32 +234,54 @@ Global Variable:
 """
 )
 
-# 역할: 테이블과 직접 연결된 PL/SQL 노드를 분석하여 JPA Repository 인터페이스를 생성하는 함수입니다.
+# 역할: 테이블과 직접 연결된 PL/SQL 노드를 분석하여 Repository 인터페이스를 생성하는 함수입니다.
 #
 # 매개변수: 
 #   - repository_nodes : 테이블과 직접 연결된 PL/SQL 노드 정보
 #   - used_variable_nodes : SQL에서 사용된 변수들의 정보
-#   - convert_data_count : 하나의 SQL 문에서 생성될 JPA Query Method의 수
+#   - convert_data_count : 하나의 SQL 문에서 생성될 Query Method의 수
+#   - global_variable_nodes : 전역 변수 노드 정보
+#   - sequence_data : 시퀀스 정보
+#   - orm_type : 사용할 ORM 유형
 #
 # 반환값: 
 #   - result : LLM이 생성한 Repository 메서드 정보
-def convert_repository_code(repository_nodes: dict, used_variable_nodes: dict, data_count: int, global_variable_nodes: dict) -> dict:
+def convert_repository_code(repository_nodes: dict, used_variable_nodes: dict, data_count: int, global_variable_nodes: dict, sequence_data: str, orm_type: str) -> dict:
     
     try: 
         repository_nodes = json.dumps(repository_nodes, ensure_ascii=False, indent=2)
         used_variable_nodes = json.dumps(used_variable_nodes, ensure_ascii=False, indent=2)
         global_variable_nodes = json.dumps(global_variable_nodes, ensure_ascii=False, indent=2)
+        
+        # 프레임워크별 프롬프트 및 데이터 설정
+        if orm_type.lower() == "jpa":
+            selected_prompt = jpa_prompt
+            prompt_data = {
+                "repository_nodes": repository_nodes,
+                "used_variable_nodes": used_variable_nodes,
+                "count": data_count,
+                "global_variable_nodes": global_variable_nodes
+            }
+        else: 
+            selected_prompt = mybatis_prompt
+            prompt_data = {
+                "repository_nodes": repository_nodes,
+                "used_variable_nodes": used_variable_nodes,
+                "count": data_count,
+                "global_variable_nodes": global_variable_nodes,
+                "sequence_data": sequence_data
+            }
 
         chain = (
             RunnablePassthrough()
-            | prompt
+            | selected_prompt
             | llm
             | JsonOutputParser()
         )
-        result = chain.invoke({"repository_nodes": repository_nodes, "used_variable_nodes": used_variable_nodes, "count": data_count, "global_variable_nodes": global_variable_nodes})
+        result = chain.invoke(prompt_data)
         return result
     
     except Exception:
         err_msg = "리포지토리 인터페이스 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다."
-        logging.error(err_msg, exc_info=False)
+        logging.error(err_msg)
         raise LLMCallError(err_msg)

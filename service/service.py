@@ -3,6 +3,7 @@ from datetime import date
 import json
 import logging
 import shutil
+from typing import Any, AsyncGenerator
 import zipfile
 import aiofiles
 import os
@@ -23,12 +24,14 @@ from convert.create_entity import start_entity_processing
 from convert.create_service_preprocessing import start_service_preprocessing
 from convert.create_service_postprocessing import generate_service_class, start_service_postprocessing 
 from convert.create_service_skeleton import start_service_skeleton_processing
+from convert.create_support_files import start_mybatis_mapper_processing
 from convert.validate_service_preprocessing import start_validate_service_preprocessing
 from prompt.understand_ddl import understand_ddl
 from understand.neo4j_connection import Neo4jConnection
 from understand.analysis import analysis
 from prompt.java2deths_prompt import convert_2deths_java
 from util.exception import AddLineNumError, ConvertingError, Java2dethsError, LLMCallError, Neo4jError, ProcessResultError
+from util.file_utils import read_sequence_file
 
 
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
@@ -280,12 +283,14 @@ async def transform_file_name(sp_fileName):
 
 
 # 역할: PL/SQL 프로시저를 스프링 부트 프로젝트로 변환하는 전체 프로세스를 관리합니다.
-#      엔티티, 리포지토리, 서비스 등 각 계층의 변환을 순차적으로 진행합니다.
+#
 # 매개변수: 
 #   - file_names : 변환할 파일 이름과 객체 이름 튜플의 리스트
+#   - orm_type : 사용할 ORM 유형 (JPA, MyBatis 등)
+#
 # 반환값: 
 #   - 스트림 : 각 변환 단계의 진행 상태 메시지
-async def generate_spring_boot_project(file_names):
+async def generate_spring_boot_project(file_names: list, orm_type: str) -> AsyncGenerator[Any, None]:
     try:
         for file_name, object_name in file_names:
             merge_method_code = ""
@@ -293,18 +298,31 @@ async def generate_spring_boot_project(file_names):
 
             yield f"Start converting {object_name}\n"
 
+
+            # * 시퀀스 파일을 읽어 시퀀스 목록을 반환합니다
+            sequence_data = await read_sequence_file(object_name)
+
+
             # * 1 단계 : 엔티티 클래스 생성
-            entity_name_list = await start_entity_processing(object_name) 
+            entity_name_list, entity_code_dict = await start_entity_processing(object_name, sequence_data, orm_type) 
             yield f"{file_name}-Step1 completed\n"
             
+
             # * 2 단계 : 리포지토리 인터페이스 생성
-            jpa_method_list, global_variables = await start_repository_processing(object_name) 
+            used_query_methods, global_variables, all_query_methods = await start_repository_processing(object_name, sequence_data, orm_type) 
             yield f"{file_name}-Step2 completed\n"
             
+
+            # * 2.5 단계 : MyBatis XML 매퍼 생성 (MyBatis 전용)
+            if orm_type == 'mybatis':
+                await start_mybatis_mapper_processing(entity_code_dict, all_query_methods, sequence_data)
+
+
             # * 3 단계 : 서비스, 컨트롤러 스켈레톤 생성
             service_creation_info, service_skeleton, service_class_name, exist_command_class = await start_service_skeleton_processing(entity_name_list, object_name, global_variables)
             controller_skeleton, controller_class_name = await start_controller_skeleton_processing(object_name, exist_command_class)
             yield f"{file_name}-Step3 completed\n"
+
 
             # * 4 단계 : 각 프로시저별 서비스 및 컨트롤러 생성
             for service_data in service_creation_info:
@@ -313,7 +331,7 @@ async def generate_spring_boot_project(file_names):
                     service_data['service_method_skeleton'],
                     service_data['command_class_variable'],
                     service_data['procedure_name'],
-                    jpa_method_list, 
+                    used_query_methods, 
                     object_name
                 )
 
@@ -322,7 +340,7 @@ async def generate_spring_boot_project(file_names):
                     service_data['service_method_skeleton'],
                     service_data['command_class_variable'],
                     service_data['procedure_name'],
-                    jpa_method_list, 
+                    used_query_methods, 
                     object_name
                 )
 
@@ -344,22 +362,28 @@ async def generate_spring_boot_project(file_names):
                     object_name,
                 )
 
+
+            # * 서비스 및 컨트롤러 클래스 생성
             await generate_service_class(service_skeleton, service_class_name, merge_method_code)            
             await generate_controller_class(controller_skeleton, controller_class_name, merge_controller_method_code)            
             yield f"{file_name}-Step4 completed\n"
+
 
         # * 5 단계 : pom.xml 생성
         await start_pomxml_processing()
         yield f"{file_name}-Step5 completed\n"
         
+
         # * 6 단계 : application.properties 생성
         await start_APLproperties_processing()
         yield f"Step6 completed\n"
+
 
         # * 7 단계 : StartApplication.java 생성
         await start_main_processing()
         yield f"Step7 completed\n"
         yield f"Completed Converting {file_name}.\n\n"
+
 
         # * 8 단계 : test 코드 생성
         await start_main_processing()

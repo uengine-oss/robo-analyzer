@@ -57,7 +57,7 @@ prompt = PromptTemplate.from_template(
 {then_log}
 - 이 데이터를 기반으로 테스트의 검증 로직 구성
 
-4. Jpa 쿼리 메서드 :
+4. 쿼리 메서드 :
 @Query("SELECT COUNT(s) FROM TpjSalary s WHERE s.empKey = :empKey AND s.payDate = :payDate")
 Long countByEmpKeyAndPayDate(@Param("empKey") String empKey, @Param("payDate") LocalDate payDate);
 

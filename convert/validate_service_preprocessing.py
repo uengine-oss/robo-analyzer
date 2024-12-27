@@ -2,7 +2,7 @@ import logging
 from typing import List, Dict, Tuple
 from convert.create_repository import extract_used_variable_nodes
 from understand.neo4j_connection import Neo4jConnection
-from util.converting_utlis import extract_used_jpa_methods
+from util.converting_utlis import extract_used_query_methods
 from util.exception import ConvertingError, HandleResultError, Neo4jError, PrepareDataError, ProcessResultError, ServiceCreationError
 from prompt.convert_service_prompt import convert_service_code 
 
@@ -57,12 +57,12 @@ async def get_nodes_without_java_code(connection: Neo4jConnection) -> Tuple[bool
 #   - service_skeleton : 생성될 서비스의 기본 구조 템플릿
 #   - command_class_variable : Command 클래스에 정의된 변수들의 정보
 #   - procedure_name : 처리할 프로시저의 이름
-#   - jpa_method_list : 사용 가능한 전체 JPA 쿼리 메서드 목록
+#   - query_method_list : 사용 가능한 전체 query 쿼리 메서드 목록
 #   - object_name : 처리 중인 패키지/프로시저의 식별자
-async def start_validate_service_preprocessing(variable_nodes:list, service_skeleton: str, command_class_variable: dict, procedure_name: str, jpa_method_list: list, object_name: str) -> None:
+async def start_validate_service_preprocessing(variable_nodes:list, service_skeleton: str, command_class_variable: dict, procedure_name: str, query_method_list: list, object_name: str) -> None:
     
     connection = Neo4jConnection()
-    used_jpa_method_dict = {}
+    used_query_method_dict = {}
     used_variables = {}
     context_range = []
     current_token = 0
@@ -73,7 +73,7 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
 
     # 역할 : 누적된 코드를 LLM으로 처리하고 결과를 DB에 업데이트
     async def process_validate_service_class_code():
-        nonlocal current_code, current_token, used_variables, context_range, used_jpa_method_dict
+        nonlocal current_code, current_token, used_variables, context_range, used_query_method_dict
 
 
         try:
@@ -90,7 +90,7 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
                 command_class_variable,
                 context_range,
                 range_count,
-                used_jpa_method_dict
+                used_query_method_dict
             )
 
             # * 결과 처리 및 노드 업데이트
@@ -167,10 +167,10 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
                 await process_validate_service_class_code()
 
 
-            # * 현재 코드, 범위, 토큰, JPA 메서드 정보 업데이트
+            # * 현재 코드, 범위, 토큰, query 메서드 정보 업데이트
             current_code += f"\n{sp_code}"  # 개행 추가
             current_token += token + variable_token
-            used_jpa_method_dict = await extract_used_jpa_methods(start_line, end_line, jpa_method_list, used_jpa_method_dict)
+            used_query_method_dict = await extract_used_query_methods(start_line, end_line, query_method_list, used_query_method_dict)
             context_range = [{"startLine": start_line, "endLine": end_line}]
 
         # * 남은 코드 처리

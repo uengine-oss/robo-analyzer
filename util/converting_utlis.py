@@ -57,7 +57,7 @@ async def extract_used_variable_nodes(startLine: int, local_variable_nodes: list
 #
 # 반환값:
 #   - used_jpa_method_dict : 사용된 JPA 메서드를 저장한 딕셔너리
-async def extract_used_jpa_methods(start_line:int, end_line:int, jpa_method_list: list[dict], used_jpa_method_dict: dict) -> dict:
+async def extract_used_query_methods(start_line:int, end_line:int, jpa_method_list: list[dict], used_jpa_method_dict: dict) -> dict:
     
     for method_dict in jpa_method_list:
         for range_key, method_info in method_dict.items():
