@@ -20,7 +20,8 @@ anthropic = "*"
 langchain-anthropic = "*"
 pyjson5 = "*"
 oracledb = "==2.5.0"
-
+sentence-transformers = "*"
+numpy = "*"
 
 [dev-packages]
 

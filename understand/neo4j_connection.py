@@ -1,6 +1,7 @@
 import logging
 from neo4j import AsyncGraphDatabase
 import os
+from semantic.vectorizer import vectorize_text
 from util.exception import Neo4jError
 
 class Neo4jConnection:
@@ -89,5 +90,38 @@ class Neo4jConnection:
             
         except Exception:
             error_msg = "Neo4J에서 그래프 객체 형태로 결과를 반환하는 도중 문제가 발생"
+            logging.exception(error_msg)
+            raise Neo4jError(error_msg)
+        
+
+
+    # 역할: 텍스트 유사도 기반으로 노드를 검색합니다.
+    # 매개변수: 
+    #   - search_text: 검색할 텍스트
+    #   - similarity_threshold: 유사도 임계값 (기본값: 0.5)
+    #   - limit: 반환할 최대 결과 수 (기본값: 5)
+    # 반환값:
+    #   - 유사도가 높은 순으로 정렬된 노드 목록
+    async def search_similar_nodes(self, search_vector, similarity_threshold=0.5, limit=5):
+        try:
+            query = """
+            MATCH (n)
+            WHERE n.summary_vector IS NOT NULL
+            WITH n, gds.similarity.cosine(n.summary_vector, $search_vector) AS similarity
+            WHERE similarity >= $threshold
+            RETURN n.summary as summary, n.name as name, similarity
+            ORDER BY similarity DESC
+            LIMIT $limit
+            """
+            
+            async with self.__driver.session(database=self.database_name) as session:
+                result = await session.run(query, 
+                                            search_vector=search_vector.tolist(),
+                                            threshold=similarity_threshold,
+                                            limit=limit)
+                return await result.data()
+
+        except Exception as e:
+            error_msg = f"유사도 검색 중 오류 발생: {str(e)}"
             logging.exception(error_msg)
             raise Neo4jError(error_msg)
