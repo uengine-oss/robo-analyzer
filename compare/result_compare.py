@@ -4,6 +4,7 @@ import tiktoken
 import subprocess
 import json
 from openai import OpenAI
+import difflib
 
 from compare.extract_log_info import clear_log_file, compare_then_results, extract_java_given_when_then
 
@@ -11,6 +12,7 @@ encoder = tiktoken.get_encoding("cl100k_base")
 JAVA_PATH = 'target/java/demo/src/main/java/com/example/demo'
 JAVA_TEST_PATH = 'target/java/demo/src/test/java/com/example/demo'
 base_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
+modification_history = []
 
 def read_files_in_directory(directory_path):
     logging.info(f"디렉토리 '{directory_path}'의 파일 읽기 시작")
@@ -325,6 +327,7 @@ def summarize_code(code_content):
 
 def generate_prompt(plsql_files, java_files, plsql_log_files, java_log_files, compare_result_files):
     
+    global modification_history
     summarized_plsql = prepare_code_for_prompt(plsql_files, plsql_log_files)
     
     return f"""
@@ -352,13 +355,19 @@ def generate_prompt(plsql_files, java_files, plsql_log_files, java_log_files, co
     PL/SQL, Java 실행 결과 비교:
     {compare_result_files}
 
+    이전 수정내용에 대한 기록:
+    {modification_history}
+
     Java 파일을 어떻게 수정해야 PL/SQL 파일과 동일한 실행 결과를 얻을 수 있을지 제안해 주세요.
+    이전 수정 내용들을 참고하여 수정 내용을 제안해 주세요. 동일한 수정 내용은 제안하지 않아도 됩니다.
+    또한 동일한 파일에 대한 수정 내용은 여러번 나눠서 제안하는것이 아니라 한번에 합쳐서 제안해 주세요. 이런 경우에는 수정 이유가 여러개가 될 수 있습니다.
+    수정 이유는 보다 상세하고 명확하게 작성해 주세요.
     답변은 항상 아래의 JSON 형식으로 출력해주세요.
     JSON 형식: [
         {{
             "filePath": "수정된 Java 파일 경로", 
             "code": "수정된 Java 코드",
-            "reason": "수정 이유"
+            "reason": "수정 이유(보다 상세하고 명확하게 작성)"
         }}
     ]
     
@@ -388,6 +397,7 @@ def generate_error_fix_prompt(java_files, error):
     """
 
 def update_code(java_files, error=None, plsql_files=None, plsql_log_files=None, java_log_files=None, compare_result_files=None, test_class_names=None):
+    global modification_history
     logging.info("코드 업데이트 시작")
     try:
         if error:
@@ -395,10 +405,6 @@ def update_code(java_files, error=None, plsql_files=None, plsql_log_files=None, 
             prompt = generate_error_fix_prompt(java_files, error)
         else:
             prompt = generate_prompt(plsql_files, java_files, plsql_log_files, java_log_files, compare_result_files)
-
-        # client = OpenAI(
-        #     api_key=os.environ.get("sk-"),
-        # )
 
         client = OpenAI(
             api_key=os.environ.get("OPENAI_API_KEY")
@@ -426,6 +432,21 @@ def update_code(java_files, error=None, plsql_files=None, plsql_log_files=None, 
             modifiedCode = update['code'].replace("\\n", "\n")
             reason = update['reason']
 
+            diff = difflib.unified_diff(
+                originalCode.splitlines(),
+                modifiedCode.splitlines(),
+                lineterm=''
+            )
+            diff_text = '\n'.join(diff)
+
+            if len(modification_history) >= 5:
+                modification_history.pop(0)
+
+            modification_history.append({
+                "filePath": file_path,
+                "diff": diff_text,
+                "reason": reason
+            })
 
             yield json.dumps({
                 "filePath": file_path, 
@@ -434,7 +455,7 @@ def update_code(java_files, error=None, plsql_files=None, plsql_log_files=None, 
                 "reason": reason, 
                 "type": "java_file_update"
             }).encode('utf-8') + b"send_stream"
-            # Write the new code to the file
+
             with open(file_path, 'w', encoding='utf-8') as file:
                 file.write(modifiedCode)
 
@@ -442,6 +463,7 @@ def update_code(java_files, error=None, plsql_files=None, plsql_log_files=None, 
             logging.info(f"파일 업데이트 완료: {file_path}")
 
         logging.info("모든 코드 업데이트가 완료되었습니다. 테스트를 재실행합니다.")
+        yield json.dumps({"type": "java_file_update_finished"}).encode('utf-8') + b"send_stream"
         execute_maven_commands(test_class_names)
         
     except json.JSONDecodeError as e:
