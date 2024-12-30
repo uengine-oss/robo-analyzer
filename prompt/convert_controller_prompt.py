@@ -3,7 +3,6 @@ import logging
 import os
 from langchain.globals import set_llm_cache
 from langchain_community.cache import SQLiteCache
-from langchain_openai import ChatOpenAI
 from langchain_anthropic import ChatAnthropic
 from langchain_core.output_parsers import JsonOutputParser
 from langchain.prompts import PromptTemplate

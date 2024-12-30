@@ -56,8 +56,9 @@ class TestValidateServicePreprocessing(unittest.IsolatedAsyncioTestCase):
 
                 # * 필요한 데이터 가져오기
                 service_skeleton_list = test_data.get('service_skeleton_list', {}).get(object_name, [])
-                jpa_method_list = test_data.get('jpa_method_list', {}).get(object_name, [])
+                repository_methods = test_data.get('repository_methods', {}).get(object_name, [])
                 variable_nodes = test_data.get('variable_nodes', {}).get(object_name, {})
+                sequence_methods = test_data.get('sequence_methods', {}).get(object_name, [])
 
                 # * 각 스켈레톤 데이터에 대해 검증 수행
                 for skeleton_data in service_skeleton_list:
@@ -70,8 +71,10 @@ class TestValidateServicePreprocessing(unittest.IsolatedAsyncioTestCase):
                         skeleton_data['service_method_skeleton'],
                         skeleton_data['command_class_variable'],
                         procedure_name,
-                        jpa_method_list,
-                        object_name
+                        repository_methods,
+                        object_name,
+                        sequence_methods,
+                        orm_type = "jpa" # ? 원하는 모델로 수정
                     )
 
             self.assertTrue(True, "서비스 검증 프로세스가 성공적으로 완료되었습니다.")

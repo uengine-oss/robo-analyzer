@@ -96,7 +96,7 @@ async def compare_then_results(case_number: int):
         return result
 
     except Exception as e:
-        logging.error(f"결과 비교 중 오류가 발생했습니다: {str(e)}", exc_info=True)
+        logging.error(f"결과 비교 중 오류가 발생했습니다: {str(e)}")
         raise ProcessResultError(f"결과 비교 중 오류가 발생했습니다: {str(e)}")
     
 
@@ -168,7 +168,7 @@ async def extract_java_given_when_then(case_number: int):
         return result
 
     except Exception as e:
-        logging.error(f"Java Given-When-Then 로그 생성 중 오류가 발생했습니다: {str(e)}", exc_info=True)
+        logging.error(f"Java Given-When-Then 로그 생성 중 오류가 발생했습니다: {str(e)}")
         raise ProcessResultError(f"Java Given-When-Then 로그 생성 중 오류가 발생했습니다: {str(e)}")
     
 
@@ -231,7 +231,7 @@ async def generate_given_when_then(case_number: int, procedure: dict, params: di
 
     except Exception as e:
         err_msg = f"Given-When-Then 로그 생성 중 오류가 발생했습니다: {str(e)}"
-        logging.error(err_msg, exc_info=True)
+        logging.error(err_msg)
         raise ProcessResultError(err_msg)
     
     

@@ -10,28 +10,31 @@
       "TpjTmfSyncJob"
     ]
   },
-  "jpa_method_list": {
-    "TPX_PROJECT": [
-      {
-        "70~71": "@Query(\"SELECT p FROM TpjProject p WHERE p.projKey = :projKey\")\nTpjProject findByProjKey(@Param(\"projKey\") Long projKey);"
-      }
-    ],
-    "TPX_TMF_SYNC_JOB_STATUS": [
-      {
-        "223~226": "@Query(\"SELECT t FROM TpjTmfSyncJobStatus t WHERE t.tmfSyncJobKey = :tmfSyncJobKey AND t.tscKey = :tscKey\")\nTpjTmfSyncJobStatus findByTmfSyncJobKeyAndTscKey(@Param(\"tmfSyncJobKey\") Long tmfSyncJobKey, @Param(\"tscKey\") Long tscKey);"
-      },
-      {
-        "249~252": "@Query(\"SELECT t FROM TpjTmfSyncJobStatus t WHERE t.tmfSyncJobKey = :tmfSyncJobKey AND t.tscKey = :tscKey\")\nTpjTmfSyncJobStatus findByTmfSyncJobKeyAndTscKey(@Param(\"tmfSyncJobKey\") Long tmfSyncJobKey, @Param(\"tscKey\") Long tscKey);"
-      }
-    ],
-    "TPX_TMF_SYNC_JOB": [
-      {
-        "182~184": "@Query(\"SELECT t FROM TpjTmfSyncJob t WHERE t.tmfSyncJobKey = :tmfSyncJobKey\")\nTpjTmfSyncJob findByTmfSyncJobKey(@Param(\"tmfSyncJobKey\") Long tmfSyncJobKey);"
-      },
-      {
-        "206~208": "@Query(\"SELECT t FROM TpjTmfSyncJob t WHERE t.tmfSyncJobKey = :tmfSyncJobKey\")\nTpjTmfSyncJob findByTmfSyncJobKey(@Param(\"tmfSyncJobKey\") Long tmfSyncJobKey);"
-      }
-    ]
+  "entity_codes": {
+    "TPX_PROJECT": {
+      "TpjProject": "package com.example.demo.entity;\n\nimport lombok.Data;\nimport java.time.*;\n\n@Data\npublic class TpjProject {\n    private Long imvr;\n    private String payUnitOther;\n    private Long subjNum;\n    private String lpi;\n    private Long otvr;\n    private String alias;\n    private String endDate;\n    private Long studyKey;\n    private String indication;\n    private String effectDate;\n    private String payUnit;\n    private LocalDateTime inputTime;\n    private String status;\n    private String phase;\n    private String description;\n    private String product;\n    private Long siteNum;\n    private String reason;\n    private Long userKey;\n    private String expiredDate;\n    private String isSyncSiteId;\n    private String phaseOther;\n    private String projId;\n    private String subjPeriord;\n    private String isSyncSae;\n    private String mvrHisAttach;\n    private String protocol;\n    private String delFlag;\n    private String startDate;\n    private String isSyncPdpv;\n    private Long sivr;\n    private Long covr;\n    private Long projKey;\n    private String aprHisAttach;\n    private String isSync;\n    private String title;\n    private Long sqvr;\n    private String fpi;\n    private Long siteKey;\n}"
+    },
+    "TPX_TMF_SYNC_JOB_STATUS": {
+      "TpjTmfSyncJobStatus": "package com.example.demo.entity;\n\nimport lombok.Data;\nimport java.time.LocalDateTime;\n\n@Data\npublic class TpjTmfSyncJobStatus {\n    private LocalDateTime startTime;\n    private String delFlag;\n    private Long tscKey;\n    private LocalDateTime inputTime;\n    private String status;\n    private LocalDateTime endTime;\n    private Long tmfSyncJobKey;\n    private Long projKey;\n    private Long tmfJobKey;\n    private Long userKey;\n    private Long siteKey;\n}"
+    },
+    "TPX_TMF_SYNC_JOB": {
+      "TpjTmfSyncJob": "package com.example.demo.entity;\n\nimport lombok.Data;\nimport java.time.*;\n\n@Data\npublic class TpjTmfSyncJob {\n    private String delFlag;\n    private LocalDateTime inputTime;\n    private String status;\n    private Long tmfSyncJobKey;\n    private Long projKey;\n    private String tmfSyncMvrType;\n    private Long userKey;\n    private Long siteKey;\n}"
+    }
+  },
+  "repository_methods": {
+    "TPX_PROJECT": {
+      "70~71": "@Select(\"SELECT * FROM TPJ_PROJECT WHERE PROJ_KEY = #{projKey}\")\nTpjProject findByProjKey(@Param(\"projKey\") Long projKey);"
+    },
+    "TPX_TMF_SYNC_JOB_STATUS": {
+      "203~203": "@Insert(\"INSERT INTO TPJ_TMF_SYNC_JOB_STATUS VALUES #{row}\")\nvoid insertTpjTmfSyncJobStatus(@Param(\"row\") TpjTmfSyncJobStatus row);",
+      "223~226": "@Update(\"UPDATE TPJ_TMF_SYNC_JOB_STATUS SET ROW = #{row} WHERE TMF_SYNC_JOB_KEY = #{row.tmfSyncJobKey} AND TSC_KEY = #{row.tscKey}\")\nvoid updateTpjTmfSyncJobStatus(@Param(\"row\") TpjTmfSyncJobStatus row);",
+      "249~252": "@Select(\"SELECT * FROM TPJ_TMF_SYNC_JOB_STATUS WHERE TMF_SYNC_JOB_KEY = #{tmfSyncJobKey} AND TSC_KEY = #{tscKey}\")\nTpjTmfSyncJobStatus findByTmfSyncJobKeyAndTscKey(@Param(\"tmfSyncJobKey\") Long tmfSyncJobKey, @Param(\"tscKey\") Long tscKey);"
+    },
+    "TPX_TMF_SYNC_JOB": {
+      "162~162": "@Insert(\"INSERT INTO TPJ_TMF_SYNC_JOB VALUES #{row}\")\nvoid insertTpjTmfSyncJob(@Param(\"row\") TpjTmfSyncJob row);",
+      "182~184": "@Update(\"UPDATE TPJ_TMF_SYNC_JOB SET ROW = #{row} WHERE TMF_SYNC_JOB_KEY = #{row.tmfSyncJobKey}\")\nvoid updateTpjTmfSyncJob(@Param(\"row\") TpjTmfSyncJob row);",
+      "206~208": "@Select(\"SELECT * FROM TPJ_TMF_SYNC_JOB WHERE TMF_SYNC_JOB_KEY = #{tmfSyncJobKey}\")\nTpjTmfSyncJob findByTmfSyncJobKey(@Param(\"tmfSyncJobKey\") Long tmfSyncJobKey);"
+    }
   },
   "global_variables": {
     "TPX_PROJECT": [
@@ -76,6 +79,37 @@
       }
     ]
   },
+  "all_query_methods": {
+    "TPX_PROJECT": {
+      "TpjProject": [
+        "@Select(\"SELECT * FROM TPJ_PROJECT WHERE PROJ_KEY = #{projKey}\")\nTpjProject findByProjKey(@Param(\"projKey\") Long projKey);"
+      ]
+    },
+    "TPX_TMF_SYNC_JOB_STATUS": {
+      "TpjTmfSyncJobStatus": [
+        "@Insert(\"INSERT INTO TPJ_TMF_SYNC_JOB_STATUS VALUES #{row}\")\nvoid insertTpjTmfSyncJobStatus(@Param(\"row\") TpjTmfSyncJobStatus row);",
+        "@Update(\"UPDATE TPJ_TMF_SYNC_JOB_STATUS SET ROW = #{row} WHERE TMF_SYNC_JOB_KEY = #{row.tmfSyncJobKey} AND TSC_KEY = #{row.tscKey}\")\nvoid updateTpjTmfSyncJobStatus(@Param(\"row\") TpjTmfSyncJobStatus row);",
+        "@Select(\"SELECT * FROM TPJ_TMF_SYNC_JOB_STATUS WHERE TMF_SYNC_JOB_KEY = #{tmfSyncJobKey} AND TSC_KEY = #{tscKey}\")\nTpjTmfSyncJobStatus findByTmfSyncJobKeyAndTscKey(@Param(\"tmfSyncJobKey\") Long tmfSyncJobKey, @Param(\"tscKey\") Long tscKey);"
+      ]
+    },
+    "TPX_TMF_SYNC_JOB": {
+      "TpjTmfSyncJob": [
+        "@Insert(\"INSERT INTO TPJ_TMF_SYNC_JOB VALUES #{row}\")\nvoid insertTpjTmfSyncJob(@Param(\"row\") TpjTmfSyncJob row);",
+        "@Update(\"UPDATE TPJ_TMF_SYNC_JOB SET ROW = #{row} WHERE TMF_SYNC_JOB_KEY = #{row.tmfSyncJobKey}\")\nvoid updateTpjTmfSyncJob(@Param(\"row\") TpjTmfSyncJob row);",
+        "@Select(\"SELECT * FROM TPJ_TMF_SYNC_JOB WHERE TMF_SYNC_JOB_KEY = #{tmfSyncJobKey}\")\nTpjTmfSyncJob findByTmfSyncJobKey(@Param(\"tmfSyncJobKey\") Long tmfSyncJobKey);"
+      ]
+    }
+  },
+  "sequence_methods": {
+    "TPX_PROJECT": [],
+    "TPX_TMF_SYNC_JOB_STATUS": [],
+    "TPX_TMF_SYNC_JOB": [
+      {
+        "method": "@Select(\"SELECT SEQ_TMF_SYNC_JOB_KEY.NEXTVAL FROM DUAL\")\nLong getNextTmfSyncJobKey();",
+        "field": "TMF_SYNC_JOB_KEY"
+      }
+    ]
+  },
   "service_skeleton_list": {
     "TPX_PROJECT": [
       {
@@ -84,7 +118,7 @@
         "method_skeleton_name": "pGetRow",
         "method_skeleton_code": "    public TpjProject pGetRow(Long iProjKey) {\n        TpjProject vRow = new TpjProject();\n\n        CodePlaceHolder\n    }",
         "method_signature": "TpjProject pGetRow(Long iProjKey)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjProject;\nimport com.example.demo.repository.TpjProjectRepository;\nimport com.example.demo.command.tpxProject.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxProjectService {\n    private TpjProject row = new TpjProject();\n\n    @Autowired\n    private TpjProjectRepository tpjProjectRepository;\n\n    public TpjProject pGetRow(Long iProjKey) {\n        TpjProject vRow = new TpjProject();\n\n        CodePlaceHolder\n    }\n}",
+        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjProject;\nimport com.example.demo.repository.TpjProjectRepository;\nimport com.example.demo.command.tpxProject.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\npublic class TpxProjectService {\n    private TpjProject row = new TpjProject();\n\n    @Autowired\n    private TpjProjectRepository tpjProjectRepository;\n\n    public TpjProject pGetRow(Long iProjKey) {\n        TpjProject vRow = new TpjProject();\n\n        CodePlaceHolder\n    }\n}",
         "node_type": "FUNCTION",
         "procedure_name": "p_GET_ROW"
       },
@@ -96,7 +130,7 @@
         "method_skeleton_name": "setKey",
         "method_skeleton_code": "    public void setKey(Long iProjKey) {\n        CodePlaceHolder\n    }",
         "method_signature": "void setKey(Long iProjKey)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjProject;\nimport com.example.demo.repository.TpjProjectRepository;\nimport com.example.demo.command.tpxProject.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxProjectService {\n    private TpjProject row = new TpjProject();\n\n    @Autowired\n    private TpjProjectRepository tpjProjectRepository;\n\n    public void setKey(Long iProjKey) {\n        CodePlaceHolder\n    }\n}",
+        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjProject;\nimport com.example.demo.repository.TpjProjectRepository;\nimport com.example.demo.command.tpxProject.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\npublic class TpxProjectService {\n    private TpjProject row = new TpjProject();\n\n    @Autowired\n    private TpjProjectRepository tpjProjectRepository;\n\n    public void setKey(Long iProjKey) {\n        CodePlaceHolder\n    }\n}",
         "node_type": "PROCEDURE",
         "procedure_name": "SET_KEY"
       }
@@ -108,7 +142,7 @@
         "method_skeleton_name": "pEqual",
         "method_skeleton_code": "    public Boolean pEqual(TpjTmfSyncJobStatus iRow) {\n        Boolean vBool;\n\n        CodePlaceHolder\n    }",
         "method_signature": "Boolean pEqual(TpjTmfSyncJobStatus iRow)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJobStatus;\nimport com.example.demo.repository.TpjTmfSyncJobStatusRepository;\nimport com.example.demo.command.tpxTmfSyncJobStatus.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n    private TpjTmfSyncJobStatus row = new TpjTmfSyncJobStatus();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\n    @Autowired\n    private TpxProjectService tpxProjectService;\n\n    public Boolean pEqual(TpjTmfSyncJobStatus iRow) {\n        Boolean vBool;\n\n        CodePlaceHolder\n    }\n}",
+        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJobStatus;\nimport com.example.demo.repository.TpjTmfSyncJobStatusRepository;\nimport com.example.demo.command.tpxTmfSyncJobStatus.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n    private TpjTmfSyncJobStatus row = new TpjTmfSyncJobStatus();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\n    @Autowired\n    private TpxProjectService tpxProjectService;\n\n    public Boolean pEqual(TpjTmfSyncJobStatus iRow) {\n        Boolean vBool;\n\n        CodePlaceHolder\n    }\n}",
         "node_type": "FUNCTION",
         "procedure_name": "p_EQUAL"
       },
@@ -118,7 +152,7 @@
         "method_skeleton_name": "pValue",
         "method_skeleton_code": "    public String pValue(TpjTmfSyncJobStatus iRow) {\n        CodePlaceHolder\n    }",
         "method_signature": "String pValue(TpjTmfSyncJobStatus iRow)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJobStatus;\nimport com.example.demo.repository.TpjTmfSyncJobStatusRepository;\nimport com.example.demo.command.tpxTmfSyncJobStatus.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n    private TpjTmfSyncJobStatus row = new TpjTmfSyncJobStatus();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\n    @Autowired\n    private TpxProjectService tpxProjectService;\n\n    public String pValue(TpjTmfSyncJobStatus iRow) {\n        CodePlaceHolder\n    }\n}",
+        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJobStatus;\nimport com.example.demo.repository.TpjTmfSyncJobStatusRepository;\nimport com.example.demo.command.tpxTmfSyncJobStatus.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n    private TpjTmfSyncJobStatus row = new TpjTmfSyncJobStatus();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\n    @Autowired\n    private TpxProjectService tpxProjectService;\n\n    public String pValue(TpjTmfSyncJobStatus iRow) {\n        CodePlaceHolder\n    }\n}",
         "node_type": "FUNCTION",
         "procedure_name": "p_VALUE"
       },
@@ -130,7 +164,7 @@
         "method_skeleton_name": "pInsert",
         "method_skeleton_code": "    public void pInsert(TpjTmfSyncJobStatus iRow) {\n        CodePlaceHolder\n    }",
         "method_signature": "void pInsert(TpjTmfSyncJobStatus iRow)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJobStatus;\nimport com.example.demo.repository.TpjTmfSyncJobStatusRepository;\nimport com.example.demo.command.tpxTmfSyncJobStatus.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n    private TpjTmfSyncJobStatus row = new TpjTmfSyncJobStatus();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\n    @Autowired\n    private TpxProjectService tpxProjectService;\n\n    public void pInsert(TpjTmfSyncJobStatus iRow) {\n        CodePlaceHolder\n    }\n}",
+        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJobStatus;\nimport com.example.demo.repository.TpjTmfSyncJobStatusRepository;\nimport com.example.demo.command.tpxTmfSyncJobStatus.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n    private TpjTmfSyncJobStatus row = new TpjTmfSyncJobStatus();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\n    @Autowired\n    private TpxProjectService tpxProjectService;\n\n    public void pInsert(TpjTmfSyncJobStatus iRow) {\n        CodePlaceHolder\n    }\n}",
         "node_type": "PROCEDURE",
         "procedure_name": "p_INSERT"
       },
@@ -142,7 +176,7 @@
         "method_skeleton_name": "pUpdate",
         "method_skeleton_code": "    public void pUpdate(TpjTmfSyncJobStatus iRow) {\n        CodePlaceHolder\n    }",
         "method_signature": "void pUpdate(TpjTmfSyncJobStatus iRow)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJobStatus;\nimport com.example.demo.repository.TpjTmfSyncJobStatusRepository;\nimport com.example.demo.command.tpxTmfSyncJobStatus.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n    private TpjTmfSyncJobStatus row = new TpjTmfSyncJobStatus();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\n    @Autowired\n    private TpxProjectService tpxProjectService;\n\n    public void pUpdate(TpjTmfSyncJobStatus iRow) {\n        CodePlaceHolder\n    }\n}",
+        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJobStatus;\nimport com.example.demo.repository.TpjTmfSyncJobStatusRepository;\nimport com.example.demo.command.tpxTmfSyncJobStatus.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n    private TpjTmfSyncJobStatus row = new TpjTmfSyncJobStatus();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\n    @Autowired\n    private TpxProjectService tpxProjectService;\n\n    public void pUpdate(TpjTmfSyncJobStatus iRow) {\n        CodePlaceHolder\n    }\n}",
         "node_type": "PROCEDURE",
         "procedure_name": "p_UPDATE"
       },
@@ -152,7 +186,7 @@
         "method_skeleton_name": "pGetRow",
         "method_skeleton_code": "    public TpjTmfSyncJobStatus pGetRow(Long iTmfSyncJobKey, Long iTscKey) {\n        TpjTmfSyncJobStatus vRow = new TpjTmfSyncJobStatus();\n\n        CodePlaceHolder\n    }",
         "method_signature": "TpjTmfSyncJobStatus pGetRow(Long iTmfSyncJobKey, Long iTscKey)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJobStatus;\nimport com.example.demo.repository.TpjTmfSyncJobStatusRepository;\nimport com.example.demo.command.tpxTmfSyncJobStatus.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n    private TpjTmfSyncJobStatus row = new TpjTmfSyncJobStatus();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\n    @Autowired\n    private TpxProjectService tpxProjectService;\n\n    public TpjTmfSyncJobStatus pGetRow(Long iTmfSyncJobKey, Long iTscKey) {\n        TpjTmfSyncJobStatus vRow = new TpjTmfSyncJobStatus();\n\n        CodePlaceHolder\n    }\n}",
+        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJobStatus;\nimport com.example.demo.repository.TpjTmfSyncJobStatusRepository;\nimport com.example.demo.command.tpxTmfSyncJobStatus.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n    private TpjTmfSyncJobStatus row = new TpjTmfSyncJobStatus();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\n    @Autowired\n    private TpxProjectService tpxProjectService;\n\n    public TpjTmfSyncJobStatus pGetRow(Long iTmfSyncJobKey, Long iTscKey) {\n        TpjTmfSyncJobStatus vRow = new TpjTmfSyncJobStatus();\n\n        CodePlaceHolder\n    }\n}",
         "node_type": "FUNCTION",
         "procedure_name": "p_GET_ROW"
       },
@@ -165,7 +199,7 @@
         "method_skeleton_name": "setKey",
         "method_skeleton_code": "    public void setKey(Long iTmfSyncJobKey, Long iTscKey) {\n        CodePlaceHolder\n    }",
         "method_signature": "void setKey(Long iTmfSyncJobKey, Long iTscKey)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJobStatus;\nimport com.example.demo.repository.TpjTmfSyncJobStatusRepository;\nimport com.example.demo.command.tpxTmfSyncJobStatus.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n    private TpjTmfSyncJobStatus row = new TpjTmfSyncJobStatus();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\n    @Autowired\n    private TpxProjectService tpxProjectService;\n\n    public void setKey(Long iTmfSyncJobKey, Long iTscKey) {\n        CodePlaceHolder\n    }\n}",
+        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJobStatus;\nimport com.example.demo.repository.TpjTmfSyncJobStatusRepository;\nimport com.example.demo.command.tpxTmfSyncJobStatus.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n    private TpjTmfSyncJobStatus row = new TpjTmfSyncJobStatus();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\n    @Autowired\n    private TpxProjectService tpxProjectService;\n\n    public void setKey(Long iTmfSyncJobKey, Long iTscKey) {\n        CodePlaceHolder\n    }\n}",
         "node_type": "PROCEDURE",
         "procedure_name": "SET_KEY"
       },
@@ -177,7 +211,7 @@
         "method_skeleton_name": "input",
         "method_skeleton_code": "    public void input(TpjTmfSyncJobStatus iRow) {\n        TpjTmfSyncJobStatus vRow = new TpjTmfSyncJobStatus();\n\n        CodePlaceHolder\n    }",
         "method_signature": "void input(TpjTmfSyncJobStatus iRow)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJobStatus;\nimport com.example.demo.repository.TpjTmfSyncJobStatusRepository;\nimport com.example.demo.command.tpxTmfSyncJobStatus.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n    private TpjTmfSyncJobStatus row = new TpjTmfSyncJobStatus();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\n    @Autowired\n    private TpxProjectService tpxProjectService;\n\n    public void input(TpjTmfSyncJobStatus iRow) {\n        TpjTmfSyncJobStatus vRow = new TpjTmfSyncJobStatus();\n\n        CodePlaceHolder\n    }\n}",
+        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJobStatus;\nimport com.example.demo.repository.TpjTmfSyncJobStatusRepository;\nimport com.example.demo.command.tpxTmfSyncJobStatus.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n    private TpjTmfSyncJobStatus row = new TpjTmfSyncJobStatus();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\n    @Autowired\n    private TpxProjectService tpxProjectService;\n\n    public void input(TpjTmfSyncJobStatus iRow) {\n        TpjTmfSyncJobStatus vRow = new TpjTmfSyncJobStatus();\n\n        CodePlaceHolder\n    }\n}",
         "node_type": "PROCEDURE",
         "procedure_name": "INPUT"
       },
@@ -194,7 +228,7 @@
         "method_skeleton_name": "insRow",
         "method_skeleton_code": "    public void insRow(Long iTmfSyncJobKey, Long iTscKey, Long iProjKey, String iStatus, Long iUserKey, Long iSiteKey) {\n        TpjTmfSyncJobStatus vRow = new TpjTmfSyncJobStatus();\n        LocalDateTime vCurrentTime;\n\n        CodePlaceHolder\n    }",
         "method_signature": "void insRow(Long iTmfSyncJobKey, Long iTscKey, Long iProjKey, String iStatus, Long iUserKey, Long iSiteKey)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJobStatus;\nimport com.example.demo.repository.TpjTmfSyncJobStatusRepository;\nimport com.example.demo.command.tpxTmfSyncJobStatus.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n    private TpjTmfSyncJobStatus row = new TpjTmfSyncJobStatus();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\n    @Autowired\n    private TpxProjectService tpxProjectService;\n\n    public void insRow(Long iTmfSyncJobKey, Long iTscKey, Long iProjKey, String iStatus, Long iUserKey, Long iSiteKey) {\n        TpjTmfSyncJobStatus vRow = new TpjTmfSyncJobStatus();\n        LocalDateTime vCurrentTime;\n\n        CodePlaceHolder\n    }\n}",
+        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJobStatus;\nimport com.example.demo.repository.TpjTmfSyncJobStatusRepository;\nimport com.example.demo.command.tpxTmfSyncJobStatus.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n    private TpjTmfSyncJobStatus row = new TpjTmfSyncJobStatus();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\n    @Autowired\n    private TpxProjectService tpxProjectService;\n\n    public void insRow(Long iTmfSyncJobKey, Long iTscKey, Long iProjKey, String iStatus, Long iUserKey, Long iSiteKey) {\n        TpjTmfSyncJobStatus vRow = new TpjTmfSyncJobStatus();\n        LocalDateTime vCurrentTime;\n\n        CodePlaceHolder\n    }\n}",
         "node_type": "PROCEDURE",
         "procedure_name": "INS_ROW"
       },
@@ -211,7 +245,7 @@
         "method_skeleton_name": "updStatus",
         "method_skeleton_code": "    public void updStatus(Long iTmfSyncJobKey, Long iTscKey, Long iProjKey, String iStatus, Long iUserKey, Long iSiteKey) {\n        TpjTmfSyncJobStatus vRow = new TpjTmfSyncJobStatus();\n        LocalDateTime vCurrentTime;\n\n        CodePlaceHolder\n    }",
         "method_signature": "void updStatus(Long iTmfSyncJobKey, Long iTscKey, Long iProjKey, String iStatus, Long iUserKey, Long iSiteKey)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJobStatus;\nimport com.example.demo.repository.TpjTmfSyncJobStatusRepository;\nimport com.example.demo.command.tpxTmfSyncJobStatus.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n    private TpjTmfSyncJobStatus row = new TpjTmfSyncJobStatus();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\n    @Autowired\n    private TpxProjectService tpxProjectService;\n\n    public void updStatus(Long iTmfSyncJobKey, Long iTscKey, Long iProjKey, String iStatus, Long iUserKey, Long iSiteKey) {\n        TpjTmfSyncJobStatus vRow = new TpjTmfSyncJobStatus();\n        LocalDateTime vCurrentTime;\n\n        CodePlaceHolder\n    }\n}",
+        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJobStatus;\nimport com.example.demo.repository.TpjTmfSyncJobStatusRepository;\nimport com.example.demo.command.tpxTmfSyncJobStatus.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n    private TpjTmfSyncJobStatus row = new TpjTmfSyncJobStatus();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\n    @Autowired\n    private TpxProjectService tpxProjectService;\n\n    public void updStatus(Long iTmfSyncJobKey, Long iTscKey, Long iProjKey, String iStatus, Long iUserKey, Long iSiteKey) {\n        TpjTmfSyncJobStatus vRow = new TpjTmfSyncJobStatus();\n        LocalDateTime vCurrentTime;\n\n        CodePlaceHolder\n    }\n}",
         "node_type": "PROCEDURE",
         "procedure_name": "UPD_STATUS"
       },
@@ -228,7 +262,7 @@
         "method_skeleton_name": "updBatchFail",
         "method_skeleton_code": "    public void updBatchFail(Long iTmfSyncJobKey, Long iTscKey, Long iProjKey, String iStatus, Long iUserKey, Long iSiteKey) {\n        TpjTmfSyncJobStatus vRow = new TpjTmfSyncJobStatus();\n        LocalDateTime vCurrentTime;\n\n        CodePlaceHolder\n    }",
         "method_signature": "void updBatchFail(Long iTmfSyncJobKey, Long iTscKey, Long iProjKey, String iStatus, Long iUserKey, Long iSiteKey)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJobStatus;\nimport com.example.demo.repository.TpjTmfSyncJobStatusRepository;\nimport com.example.demo.command.tpxTmfSyncJobStatus.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n    private TpjTmfSyncJobStatus row = new TpjTmfSyncJobStatus();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\n    @Autowired\n    private TpxProjectService tpxProjectService;\n\n    public void updBatchFail(Long iTmfSyncJobKey, Long iTscKey, Long iProjKey, String iStatus, Long iUserKey, Long iSiteKey) {\n        TpjTmfSyncJobStatus vRow = new TpjTmfSyncJobStatus();\n        LocalDateTime vCurrentTime;\n\n        CodePlaceHolder\n    }\n}",
+        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJobStatus;\nimport com.example.demo.repository.TpjTmfSyncJobStatusRepository;\nimport com.example.demo.command.tpxTmfSyncJobStatus.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n    private TpjTmfSyncJobStatus row = new TpjTmfSyncJobStatus();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\n    @Autowired\n    private TpxProjectService tpxProjectService;\n\n    public void updBatchFail(Long iTmfSyncJobKey, Long iTscKey, Long iProjKey, String iStatus, Long iUserKey, Long iSiteKey) {\n        TpjTmfSyncJobStatus vRow = new TpjTmfSyncJobStatus();\n        LocalDateTime vCurrentTime;\n\n        CodePlaceHolder\n    }\n}",
         "node_type": "PROCEDURE",
         "procedure_name": "UPD_BATCH_FAIL"
       },
@@ -246,7 +280,7 @@
         "method_skeleton_name": "updTmfJobKey",
         "method_skeleton_code": "    public void updTmfJobKey(Long iTmfSyncJobKey, Long iTscKey, Long iProjKey, Long iTmfJobKey, String iStatus, Long iUserKey, Long iSiteKey) {\n        TpjTmfSyncJobStatus vRow = new TpjTmfSyncJobStatus();\n        LocalDateTime vCurrentTime;\n\n        CodePlaceHolder\n    }",
         "method_signature": "void updTmfJobKey(Long iTmfSyncJobKey, Long iTscKey, Long iProjKey, Long iTmfJobKey, String iStatus, Long iUserKey, Long iSiteKey)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJobStatus;\nimport com.example.demo.repository.TpjTmfSyncJobStatusRepository;\nimport com.example.demo.command.tpxTmfSyncJobStatus.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n    private TpjTmfSyncJobStatus row = new TpjTmfSyncJobStatus();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\n    @Autowired\n    private TpxProjectService tpxProjectService;\n\n    public void updTmfJobKey(Long iTmfSyncJobKey, Long iTscKey, Long iProjKey, Long iTmfJobKey, String iStatus, Long iUserKey, Long iSiteKey) {\n        TpjTmfSyncJobStatus vRow = new TpjTmfSyncJobStatus();\n        LocalDateTime vCurrentTime;\n\n        CodePlaceHolder\n    }\n}",
+        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJobStatus;\nimport com.example.demo.repository.TpjTmfSyncJobStatusRepository;\nimport com.example.demo.command.tpxTmfSyncJobStatus.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n    private TpjTmfSyncJobStatus row = new TpjTmfSyncJobStatus();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\n    @Autowired\n    private TpxProjectService tpxProjectService;\n\n    public void updTmfJobKey(Long iTmfSyncJobKey, Long iTscKey, Long iProjKey, Long iTmfJobKey, String iStatus, Long iUserKey, Long iSiteKey) {\n        TpjTmfSyncJobStatus vRow = new TpjTmfSyncJobStatus();\n        LocalDateTime vCurrentTime;\n\n        CodePlaceHolder\n    }\n}",
         "node_type": "PROCEDURE",
         "procedure_name": "UPD_TMF_JOB_KEY"
       }
@@ -258,7 +292,7 @@
         "method_skeleton_name": "pEqual",
         "method_skeleton_code": "    public Boolean pEqual(TpjTmfSyncJob iRow) {\n        Boolean vBool;\n\n        CodePlaceHolder\n    }",
         "method_signature": "Boolean pEqual(TpjTmfSyncJob iRow)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJob;\nimport com.example.demo.repository.TpjTmfSyncJobRepository;\nimport com.example.demo.command.tpxTmfSyncJob.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobService {\n    private TpjTmfSyncJob row = new TpjTmfSyncJob();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobRepository tpjTmfSyncJobRepository;\n\n    public Boolean pEqual(TpjTmfSyncJob iRow) {\n        Boolean vBool;\n\n        CodePlaceHolder\n    }\n}",
+        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJob;\nimport com.example.demo.repository.TpjTmfSyncJobRepository;\nimport com.example.demo.command.tpxTmfSyncJob.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\npublic class TpxTmfSyncJobService {\n    private TpjTmfSyncJob row = new TpjTmfSyncJob();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobRepository tpjTmfSyncJobRepository;\n\n    public Boolean pEqual(TpjTmfSyncJob iRow) {\n        Boolean vBool;\n\n        CodePlaceHolder\n    }\n}",
         "node_type": "FUNCTION",
         "procedure_name": "p_EQUAL"
       },
@@ -268,7 +302,7 @@
         "method_skeleton_name": "pValue",
         "method_skeleton_code": "    public String pValue(TpjTmfSyncJob iRow) {\n        CodePlaceHolder\n    }",
         "method_signature": "String pValue(TpjTmfSyncJob iRow)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJob;\nimport com.example.demo.repository.TpjTmfSyncJobRepository;\nimport com.example.demo.command.tpxTmfSyncJob.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobService {\n    private TpjTmfSyncJob row = new TpjTmfSyncJob();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobRepository tpjTmfSyncJobRepository;\n\n    public String pValue(TpjTmfSyncJob iRow) {\n        CodePlaceHolder\n    }\n}",
+        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJob;\nimport com.example.demo.repository.TpjTmfSyncJobRepository;\nimport com.example.demo.command.tpxTmfSyncJob.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\npublic class TpxTmfSyncJobService {\n    private TpjTmfSyncJob row = new TpjTmfSyncJob();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobRepository tpjTmfSyncJobRepository;\n\n    public String pValue(TpjTmfSyncJob iRow) {\n        CodePlaceHolder\n    }\n}",
         "node_type": "FUNCTION",
         "procedure_name": "p_VALUE"
       },
@@ -280,7 +314,7 @@
         "method_skeleton_name": "pInsert",
         "method_skeleton_code": "    public void pInsert(TpjTmfSyncJob iRow) {\n        CodePlaceHolder\n    }",
         "method_signature": "void pInsert(TpjTmfSyncJob iRow)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJob;\nimport com.example.demo.repository.TpjTmfSyncJobRepository;\nimport com.example.demo.command.tpxTmfSyncJob.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobService {\n    private TpjTmfSyncJob row = new TpjTmfSyncJob();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobRepository tpjTmfSyncJobRepository;\n\n    public void pInsert(TpjTmfSyncJob iRow) {\n        CodePlaceHolder\n    }\n}",
+        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJob;\nimport com.example.demo.repository.TpjTmfSyncJobRepository;\nimport com.example.demo.command.tpxTmfSyncJob.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\npublic class TpxTmfSyncJobService {\n    private TpjTmfSyncJob row = new TpjTmfSyncJob();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobRepository tpjTmfSyncJobRepository;\n\n    public void pInsert(TpjTmfSyncJob iRow) {\n        CodePlaceHolder\n    }\n}",
         "node_type": "PROCEDURE",
         "procedure_name": "p_INSERT"
       },
@@ -292,7 +326,7 @@
         "method_skeleton_name": "pUpdate",
         "method_skeleton_code": "    public void pUpdate(TpjTmfSyncJob iRow) {\n        CodePlaceHolder\n    }",
         "method_signature": "void pUpdate(TpjTmfSyncJob iRow)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJob;\nimport com.example.demo.repository.TpjTmfSyncJobRepository;\nimport com.example.demo.command.tpxTmfSyncJob.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobService {\n    private TpjTmfSyncJob row = new TpjTmfSyncJob();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobRepository tpjTmfSyncJobRepository;\n\n    public void pUpdate(TpjTmfSyncJob iRow) {\n        CodePlaceHolder\n    }\n}",
+        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJob;\nimport com.example.demo.repository.TpjTmfSyncJobRepository;\nimport com.example.demo.command.tpxTmfSyncJob.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\npublic class TpxTmfSyncJobService {\n    private TpjTmfSyncJob row = new TpjTmfSyncJob();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobRepository tpjTmfSyncJobRepository;\n\n    public void pUpdate(TpjTmfSyncJob iRow) {\n        CodePlaceHolder\n    }\n}",
         "node_type": "PROCEDURE",
         "procedure_name": "p_UPDATE"
       },
@@ -302,7 +336,7 @@
         "method_skeleton_name": "pGetRow",
         "method_skeleton_code": "    public TpjTmfSyncJob pGetRow(Long iTmfSyncJobKey) {\n        TpjTmfSyncJob vRow = new TpjTmfSyncJob();\n\n        CodePlaceHolder\n    }",
         "method_signature": "TpjTmfSyncJob pGetRow(Long iTmfSyncJobKey)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJob;\nimport com.example.demo.repository.TpjTmfSyncJobRepository;\nimport com.example.demo.command.tpxTmfSyncJob.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobService {\n    private TpjTmfSyncJob row = new TpjTmfSyncJob();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobRepository tpjTmfSyncJobRepository;\n\n    public TpjTmfSyncJob pGetRow(Long iTmfSyncJobKey) {\n        TpjTmfSyncJob vRow = new TpjTmfSyncJob();\n\n        CodePlaceHolder\n    }\n}",
+        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJob;\nimport com.example.demo.repository.TpjTmfSyncJobRepository;\nimport com.example.demo.command.tpxTmfSyncJob.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\npublic class TpxTmfSyncJobService {\n    private TpjTmfSyncJob row = new TpjTmfSyncJob();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobRepository tpjTmfSyncJobRepository;\n\n    public TpjTmfSyncJob pGetRow(Long iTmfSyncJobKey) {\n        TpjTmfSyncJob vRow = new TpjTmfSyncJob();\n\n        CodePlaceHolder\n    }\n}",
         "node_type": "FUNCTION",
         "procedure_name": "p_GET_ROW"
       },
@@ -314,7 +348,7 @@
         "method_skeleton_name": "setKey",
         "method_skeleton_code": "    public void setKey(Long iTmfSyncJobKey) {\n        CodePlaceHolder\n    }",
         "method_signature": "void setKey(Long iTmfSyncJobKey)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJob;\nimport com.example.demo.repository.TpjTmfSyncJobRepository;\nimport com.example.demo.command.tpxTmfSyncJob.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobService {\n    private TpjTmfSyncJob row = new TpjTmfSyncJob();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobRepository tpjTmfSyncJobRepository;\n\n    public void setKey(Long iTmfSyncJobKey) {\n        CodePlaceHolder\n    }\n}",
+        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJob;\nimport com.example.demo.repository.TpjTmfSyncJobRepository;\nimport com.example.demo.command.tpxTmfSyncJob.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\npublic class TpxTmfSyncJobService {\n    private TpjTmfSyncJob row = new TpjTmfSyncJob();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobRepository tpjTmfSyncJobRepository;\n\n    public void setKey(Long iTmfSyncJobKey) {\n        CodePlaceHolder\n    }\n}",
         "node_type": "PROCEDURE",
         "procedure_name": "SET_KEY"
       },
@@ -326,7 +360,7 @@
         "method_skeleton_name": "input",
         "method_skeleton_code": "    public void input(TpjTmfSyncJob iRow) {\n        TpjTmfSyncJob vRow = new TpjTmfSyncJob();\n\n        CodePlaceHolder\n    }",
         "method_signature": "void input(TpjTmfSyncJob iRow)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJob;\nimport com.example.demo.repository.TpjTmfSyncJobRepository;\nimport com.example.demo.command.tpxTmfSyncJob.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobService {\n    private TpjTmfSyncJob row = new TpjTmfSyncJob();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobRepository tpjTmfSyncJobRepository;\n\n    public void input(TpjTmfSyncJob iRow) {\n        TpjTmfSyncJob vRow = new TpjTmfSyncJob();\n\n        CodePlaceHolder\n    }\n}",
+        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJob;\nimport com.example.demo.repository.TpjTmfSyncJobRepository;\nimport com.example.demo.command.tpxTmfSyncJob.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\npublic class TpxTmfSyncJobService {\n    private TpjTmfSyncJob row = new TpjTmfSyncJob();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobRepository tpjTmfSyncJobRepository;\n\n    public void input(TpjTmfSyncJob iRow) {\n        TpjTmfSyncJob vRow = new TpjTmfSyncJob();\n\n        CodePlaceHolder\n    }\n}",
         "node_type": "PROCEDURE",
         "procedure_name": "INPUT"
       },
@@ -344,32 +378,32 @@
         "method_skeleton_name": "insRow",
         "method_skeleton_code": "    public Long insRow(Long iTmfSyncJobKey, String iTmfSyncMvrType, String iStatus, Long iProjKey, Long iUserKey, Long iSiteKey) {\n        TpjTmfSyncJob vRow = new TpjTmfSyncJob();\n\n        CodePlaceHolder\n    }",
         "method_signature": "Long insRow(Long iTmfSyncJobKey, String iTmfSyncMvrType, String iStatus, Long iProjKey, Long iUserKey, Long iSiteKey)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJob;\nimport com.example.demo.repository.TpjTmfSyncJobRepository;\nimport com.example.demo.command.tpxTmfSyncJob.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobService {\n    private TpjTmfSyncJob row = new TpjTmfSyncJob();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobRepository tpjTmfSyncJobRepository;\n\n    public Long insRow(Long iTmfSyncJobKey, String iTmfSyncMvrType, String iStatus, Long iProjKey, Long iUserKey, Long iSiteKey) {\n        TpjTmfSyncJob vRow = new TpjTmfSyncJob();\n\n        CodePlaceHolder\n    }\n}",
+        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJob;\nimport com.example.demo.repository.TpjTmfSyncJobRepository;\nimport com.example.demo.command.tpxTmfSyncJob.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\npublic class TpxTmfSyncJobService {\n    private TpjTmfSyncJob row = new TpjTmfSyncJob();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobRepository tpjTmfSyncJobRepository;\n\n    public Long insRow(Long iTmfSyncJobKey, String iTmfSyncMvrType, String iStatus, Long iProjKey, Long iUserKey, Long iSiteKey) {\n        TpjTmfSyncJob vRow = new TpjTmfSyncJob();\n\n        CodePlaceHolder\n    }\n}",
         "node_type": "PROCEDURE",
         "procedure_name": "INS_ROW"
       },
       {
         "command_class_variable": [
-          "Long:tmfSyncJobKey",
-          "String:status",
           "Long:projKey",
           "Long:userKey",
-          "Long:siteKey"
+          "Long:siteKey",
+          "Long:tmfSyncJobKey",
+          "String:status"
         ],
         "command_class_name": "UpdStatusCommand",
         "method_skeleton_name": "updStatus",
         "method_skeleton_code": "    public void updStatus(Long iTmfSyncJobKey, String iStatus, Long iProjKey, Long iUserKey, Long iSiteKey) {\n        TpjTmfSyncJob vRow = new TpjTmfSyncJob();\n\n        CodePlaceHolder\n    }",
         "method_signature": "void updStatus(Long iTmfSyncJobKey, String iStatus, Long iProjKey, Long iUserKey, Long iSiteKey)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJob;\nimport com.example.demo.repository.TpjTmfSyncJobRepository;\nimport com.example.demo.command.tpxTmfSyncJob.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobService {\n    private TpjTmfSyncJob row = new TpjTmfSyncJob();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobRepository tpjTmfSyncJobRepository;\n\n    public void updStatus(Long iTmfSyncJobKey, String iStatus, Long iProjKey, Long iUserKey, Long iSiteKey) {\n        TpjTmfSyncJob vRow = new TpjTmfSyncJob();\n\n        CodePlaceHolder\n    }\n}",
+        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJob;\nimport com.example.demo.repository.TpjTmfSyncJobRepository;\nimport com.example.demo.command.tpxTmfSyncJob.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\npublic class TpxTmfSyncJobService {\n    private TpjTmfSyncJob row = new TpjTmfSyncJob();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobRepository tpjTmfSyncJobRepository;\n\n    public void updStatus(Long iTmfSyncJobKey, String iStatus, Long iProjKey, Long iUserKey, Long iSiteKey) {\n        TpjTmfSyncJob vRow = new TpjTmfSyncJob();\n\n        CodePlaceHolder\n    }\n}",
         "node_type": "PROCEDURE",
         "procedure_name": "UPD_STATUS"
       }
     ]
   },
   "service_skeleton": {
-    "TPX_PROJECT": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjProject;\nimport com.example.demo.repository.TpjProjectRepository;\nimport com.example.demo.command.tpxProject.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxProjectService {\n    private TpjProject row = new TpjProject();\n\n    @Autowired\n    private TpjProjectRepository tpjProjectRepository;\n\nCodePlaceHolder\n}",
-    "TPX_TMF_SYNC_JOB_STATUS": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJobStatus;\nimport com.example.demo.repository.TpjTmfSyncJobStatusRepository;\nimport com.example.demo.command.tpxTmfSyncJobStatus.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n    private TpjTmfSyncJobStatus row = new TpjTmfSyncJobStatus();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\n    @Autowired\n    private TpxProjectService tpxProjectService;\n\nCodePlaceHolder\n}",
-    "TPX_TMF_SYNC_JOB": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJob;\nimport com.example.demo.repository.TpjTmfSyncJobRepository;\nimport com.example.demo.command.tpxTmfSyncJob.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@RestController\n@Transactional\npublic class TpxTmfSyncJobService {\n    private TpjTmfSyncJob row = new TpjTmfSyncJob();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobRepository tpjTmfSyncJobRepository;\n\nCodePlaceHolder\n}"
+    "TPX_PROJECT": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjProject;\nimport com.example.demo.repository.TpjProjectRepository;\nimport com.example.demo.command.tpxProject.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\npublic class TpxProjectService {\n    private TpjProject row = new TpjProject();\n\n    @Autowired\n    private TpjProjectRepository tpjProjectRepository;\n\nCodePlaceHolder\n}",
+    "TPX_TMF_SYNC_JOB_STATUS": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJobStatus;\nimport com.example.demo.repository.TpjTmfSyncJobStatusRepository;\nimport com.example.demo.command.tpxTmfSyncJobStatus.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\npublic class TpxTmfSyncJobStatusService {\n    private TpjTmfSyncJobStatus row = new TpjTmfSyncJobStatus();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobStatusRepository tpjTmfSyncJobStatusRepository;\n\n    @Autowired\n    private TpxProjectService tpxProjectService;\n\nCodePlaceHolder\n}",
+    "TPX_TMF_SYNC_JOB": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjTmfSyncJob;\nimport com.example.demo.repository.TpjTmfSyncJobRepository;\nimport com.example.demo.command.tpxTmfSyncJob.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\npublic class TpxTmfSyncJobService {\n    private TpjTmfSyncJob row = new TpjTmfSyncJob();\n    private String flag = \"N\";\n\n    @Autowired\n    private TpjTmfSyncJobRepository tpjTmfSyncJobRepository;\n\nCodePlaceHolder\n}"
   },
   "service_class_name": {
     "TPX_PROJECT": "TpxProjectService",
@@ -389,7 +423,7 @@
             "73_73": "Used",
             "procedure_name": "p_GET_ROW",
             "role": "변수 선언및 초기화",
-            "value_tracking": "초기값 null -> TPJ_PROJECT 조회결과 할당 -> return 값으로 사용",
+            "value_tracking": "초기값 null -> findByProjKey 조회결과 할당 -> return 값으로 사용",
             "object_name": "TPX_PROJECT",
             "scope": "Local",
             "name": "vRow",
@@ -408,7 +442,7 @@
             "procedure_name": "p_EQUAL",
             "role": "변수 선언및 초기화",
             "152_160": "Used",
-            "value_tracking": "boolean type variable for storing comparison result between row and iRow objects",
+            "value_tracking": "boolean comparison result -> final return value",
             "object_name": "TPX_TMF_SYNC_JOB_STATUS",
             "scope": "Local",
             "name": "vBool",
@@ -428,7 +462,7 @@
             "254_254": "Used",
             "role": "변수 선언및 초기화",
             "249_252": "Used",
-            "value_tracking": "초기값 null -> TpjTmfSyncJobStatus 조회결과 할당 -> 리턴값으로 사용",
+            "value_tracking": "초기값 new TpjTmfSyncJobStatus() -> findByTmfSyncJobKeyAndTscKey 조회결과 할당 -> return 값으로 사용",
             "object_name": "TPX_TMF_SYNC_JOB_STATUS",
             "scope": "Local",
             "name": "vRow",
@@ -445,7 +479,7 @@
             "284_284": "Used",
             "role": "변수 선언및 초기화",
             "294_299": "Used",
-            "value_tracking": "초기값 null -> iRow 데이터 복사 -> setKey/pInsert/pUpdate 메서드에서 사용",
+            "value_tracking": "초기값 null -> iRow 복사 -> setKey 호출시 사용 -> insert/update 대상",
             "object_name": "TPX_TMF_SYNC_JOB_STATUS",
             "scope": "Local",
             "name": "vRow",
@@ -470,7 +504,7 @@
             "procedure_name": "INS_ROW",
             "330_330": "Used",
             "332_332": "Used",
-            "value_tracking": "new TpjTmfSyncJobStatus() -> 각 필드값이 순차적으로 설정된 후 저장됨",
+            "value_tracking": "초기값 new TpjTmfSyncJobStatus() -> 각 필드값 설정 -> input 메서드 파라미터로 사용",
             "object_name": "TPX_TMF_SYNC_JOB_STATUS",
             "scope": "Local",
             "name": "vRow",
@@ -485,7 +519,7 @@
             "procedure_name": "INS_ROW",
             "327_327": "Used",
             "role": "변수 선언및 초기화",
-            "value_tracking": "LocalDateTime.now() -> 현재 시스템 시간으로 초기화되어 엔티티의 시간 필드들에 사용",
+            "value_tracking": "초기값 NULL -> LocalDateTime.now() 할당 -> 여러 필드 설정에 사용",
             "object_name": "TPX_TMF_SYNC_JOB_STATUS",
             "scope": "Local",
             "name": "vCurrentTime",
@@ -511,7 +545,7 @@
             "378_378": "Used",
             "procedure_name": "UPD_STATUS",
             "381_381": "Used",
-            "value_tracking": "초기값 new TpjTmfSyncJobStatus() -> 각 필드값 설정 -> pUpdate 메서드 파라미터로 사용",
+            "value_tracking": "새로운 TpjTmfSyncJobStatus 객체 -> 각 필드값 설정 -> pUpdate 메서드 파라미터로 사용",
             "object_name": "TPX_TMF_SYNC_JOB_STATUS",
             "scope": "Local",
             "name": "vRow",
@@ -525,7 +559,7 @@
             "procedure_name": "UPD_STATUS",
             "381_381": "Used",
             "role": "변수 선언및 초기화",
-            "value_tracking": "초기값 NULL -> LocalDateTime.now() 할당 -> endTime, inputTime 설정에 사용",
+            "value_tracking": "LocalDateTime.now() -> 현재 시간 저장",
             "object_name": "TPX_TMF_SYNC_JOB_STATUS",
             "scope": "Local",
             "name": "vCurrentTime",
@@ -551,7 +585,7 @@
             "429_429": "Used",
             "421_421": "Used",
             "418_418": "Used",
-            "value_tracking": "초기값 new TpjTmfSyncJobStatus() -> 각 필드값 설정 -> 최종 저장",
+            "value_tracking": "초기값 new TpjTmfSyncJobStatus() -> 각 필드값 설정 -> input 메서드 파라미터로 사용",
             "object_name": "TPX_TMF_SYNC_JOB_STATUS",
             "scope": "Local",
             "name": "vRow",
@@ -566,7 +600,7 @@
             "425_425": "Used",
             "role": "변수 선언및 초기화",
             "416_416": "Used",
-            "value_tracking": "초기값 NULL -> LocalDateTime.now() 할당 -> 여러 필드 설정에 사용",
+            "value_tracking": "초기값 NULL -> LocalDateTime.now() 할당 -> 여러 시간 필드에 사용",
             "object_name": "TPX_TMF_SYNC_JOB_STATUS",
             "scope": "Local",
             "name": "vCurrentTime",
@@ -591,7 +625,7 @@
             "procedure_name": "UPD_TMF_JOB_KEY",
             "472_472": "Used",
             "470_470": "Used",
-            "value_tracking": "초기값 new TpjTmfSyncJobStatus() -> 각 필드값 설정 -> pUpdate()에서 사용",
+            "value_tracking": "초기값 new TpjTmfSyncJobStatus() -> 각 필드값 설정 -> pUpdate() 메서드에서 사용",
             "object_name": "TPX_TMF_SYNC_JOB_STATUS",
             "scope": "Local",
             "464_464": "Used",
@@ -624,7 +658,7 @@
             "procedure_name": "p_EQUAL",
             "role": "변수 선언및 초기화",
             "125_125": "Used",
-            "value_tracking": "초기값 null -> 엔티티 필드값 비교 결과 할당 -> 리턴값으로 사용",
+            "value_tracking": "초기값 null -> 비교 연산 결과 할당 -> return 값으로 사용",
             "119_122": "Used",
             "object_name": "TPX_TMF_SYNC_JOB",
             "scope": "Local",
@@ -642,7 +676,7 @@
           "v": {
             "procedure_name": "p_GET_ROW",
             "role": "변수 선언및 초기화",
-            "value_tracking": "초기값 null -> TpjTmfSyncJob 조회결과 할당 -> return으로 반환",
+            "value_tracking": "초기값 null -> findByTmfSyncJobKey 조회결과 할당 -> return 값으로 사용",
             "206_208": "Used",
             "210_210": "Used",
             "object_name": "TPX_TMF_SYNC_JOB",
@@ -663,7 +697,7 @@
             "252_252": "Used",
             "type": "TPJ_TMF_SYNC_JOB",
             "procedure_name": "INPUT",
-            "value_tracking": "초기값 NULL -> iRow 데이터 복사 -> 키 설정 및 처리 대상으로 사용",
+            "value_tracking": "초기값 null -> iRow 복사 -> setKey/pInsert/pUpdate 메서드에서 사용",
             "object_name": "TPX_TMF_SYNC_JOB",
             "scope": "Local",
             "name": "vRow",
@@ -687,7 +721,7 @@
             "288_288": "Used",
             "procedure_name": "INS_ROW",
             "284_284": "Used",
-            "value_tracking": "TpjTmfSyncJob 엔티티 객체 -> 필드값 설정 -> 저장 후 ID 반환",
+            "value_tracking": "TpjTmfSyncJob 객체 생성 -> 필드값 설정 -> input 메서드 호출 -> 키값 반환",
             "object_name": "TPX_TMF_SYNC_JOB",
             "scope": "Local",
             "name": "vRow",
@@ -711,7 +745,7 @@
             "type": "TPJ_TMF_SYNC_JOB",
             "316_316": "Used",
             "procedure_name": "UPD_STATUS",
-            "value_tracking": "초기값 new TpjTmfSyncJob() -> 필드값 설정 -> pUpdate 메서드 파라미터로 전달",
+            "value_tracking": "초기값 new TpjTmfSyncJob() -> 필드값 순차적 설정 -> pUpdate 메서드 파라미터로 전달",
             "object_name": "TPX_TMF_SYNC_JOB",
             "scope": "Local",
             "name": "vRow",
@@ -723,7 +757,5 @@
         }
       ]
     }
-  },
-  "controller_skeleton": {},
-  "controller_class_name": {}
+  }
 }

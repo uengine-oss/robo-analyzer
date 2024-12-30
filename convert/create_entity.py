@@ -4,7 +4,7 @@ import tiktoken
 from prompt.convert_entity_prompt import convert_entity_code
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError, EntityCreationError, ProcessResultError, SaveFileError, TokenCountError
-from util.file_utils import read_sequence_file, save_file
+from util.file_utils import save_file
 from util.token_utils import calculate_code_token
 
 MAX_TOKENS = 1000
@@ -16,16 +16,48 @@ encoder = tiktoken.get_encoding("cl100k_base")
 # 
 # 매개변수: 
 #   table_data_list (list):  Neo4j 데이터베이스에서 가져온 테이블 정보 목록
-#   sequence_data (str): 시퀀스 정보
 #
 # 반환값:
 #   entity_name_list (list): 생성된 Java 엔티티 클래스의 이름 목록
-async def process_table_by_token_limit(table_data_list: list, sequence_data: str) -> list[str]:
+async def process_table_by_token_limit(table_data_list: list, orm_type: str) -> list[str]:
  
     try:
         current_tokens = 0
         table_data_chunk = []
         entity_name_list = []
+        entity_code_dict = {}
+
+        # 역할: 테이블 데이터를 LLM에게 전달하여 Entity 클래스 생성 정보를 받습니다.
+        async def process_entity_class_code() -> None:
+            nonlocal entity_name_list, entity_code_dict, current_tokens, table_data_chunk
+
+            try:
+                # * 테이블 데이터를 LLM에게 전달하여 Entity 클래스 생성 정보를 받음
+                analysis_data = convert_entity_code(table_data_chunk, orm_type)
+                
+                # * 각 엔티티별로 파일 생성
+                for entity in analysis_data['analysis']:
+                    entity_name = entity['entityName']
+                    entity_code = entity['code']
+                    
+                    await generate_entity_class(entity_name, entity_code)
+                    entity_name_list.append(entity_name)
+                    entity_code_dict[entity_name] = entity_code
+                
+
+                # * 다음 사이클을 위한 상태 초기화
+                table_data_chunk = []
+                current_tokens = 0
+                
+            
+            except ConvertingError:
+                raise
+            except Exception:
+                err_msg = "LLM을 통한 엔티티 분석 중 오류가 발생"
+                logging.error(err_msg)
+                raise ProcessResultError(err_msg)
+
+    
 
         # * 테이블 데이터 처리
         for table in table_data_list:
@@ -34,12 +66,7 @@ async def process_table_by_token_limit(table_data_list: list, sequence_data: str
 
             # * 토큰 제한 초과시 처리
             if table_data_chunk and total_tokens >= MAX_TOKENS:
-                entity_names = await process_entity_class_code(table_data_chunk, sequence_data)
-                entity_name_list.extend(entity_names)
-                
-                # * 상태 초기화
-                table_data_chunk = []
-                current_tokens = 0
+                await process_entity_class_code()
             
             # * 현재 테이블 추가
             table_data_chunk.append(table)
@@ -47,10 +74,10 @@ async def process_table_by_token_limit(table_data_list: list, sequence_data: str
 
         # * 남은 데이터 처리
         if table_data_chunk:
-            entity_names = await process_entity_class_code(table_data_chunk, sequence_data)
-            entity_name_list.extend(entity_names)
+            await process_entity_class_code()
 
-        return entity_name_list
+
+        return entity_name_list, entity_code_dict
 
     except ConvertingError:
         raise
@@ -58,39 +85,6 @@ async def process_table_by_token_limit(table_data_list: list, sequence_data: str
         err_msg = "테이블 데이터 처리 중 토큰 계산 오류가 발생했습니다."
         logging.error(err_msg)
         raise TokenCountError(err_msg)
-
-
-# 역할: 테이블 데이터를 LLM에게 전달하여 Entity 클래스 생성 정보를 받습니다.
-#
-# 매개변수:
-#   table_data_group (list): 처리할 테이블 정보 그룹
-#   sequence_data (str): 시퀀스 정보
-#
-# 반환값:
-#   entity_name_list (list): 생성된 엔티티 클래스의 이름 목록
-async def process_entity_class_code(table_data_group: list, sequence_data: str) -> list[str]:
-    try:
-        # * 테이블 데이터를 LLM에게 전달하여 Entity 클래스 생성 정보를 받음
-        analysis_data = convert_entity_code(table_data_group, sequence_data)
-        entity_name_list = []
-        
-        # * 각 엔티티별로 파일 생성
-        for entity in analysis_data['analysis']:
-            entity_name = entity['entityName']
-            entity_code = entity['code']
-            
-            await generate_entity_class(entity_name, entity_code)
-            entity_name_list.append(entity_name)
-        
-        return entity_name_list
-    
-    except ConvertingError:
-        raise
-    except Exception:
-        err_msg = "LLM을 통한 엔티티 분석 중 오류가 발생"
-        logging.error(err_msg)
-        raise ProcessResultError(err_msg)
-    
 
 
 # 역할: LLM을 사용하여 테이블 정보를 분석하고, 이를 바탕으로 Java 엔티티 클래스 파일을 생성합니다.
@@ -127,10 +121,11 @@ async def generate_entity_class(entity_name: str, entity_code: str) -> None:
 #
 # 매개변수:
 #   object_name (str): 처리할 객체(패키지/프로시저)의 이름
+#   orm_type (str): 사용할 ORM 유형 (JPA, MyBatis 등)
 #
 # 반환값:
 #   entity_name_list (list): 생성된 모든 Java 엔티티 클래스의 이름 목록
-async def start_entity_processing(object_name: str) -> list[str]:
+async def start_entity_processing(object_name: str, orm_type: str) -> list[str]:
 
     connection = Neo4jConnection()
     logging.info(f"[{object_name}] 엔티티 생성을 시작합니다.")
@@ -144,10 +139,6 @@ async def start_entity_processing(object_name: str) -> list[str]:
         METADATA_FIELDS = {'name', 'object_name', 'id', 'primary_keys', 
                           'foreign_keys', 'description', 'reference_tables'}
         table_data_list = []
-
-
-        # * 시퀀스 파일을 읽어 시퀀스 목록을 반환합니다
-        sequence_data = await read_sequence_file(object_name)
 
 
         # * 테이블 데이터의 구조를 사용하기 쉽게 구조를 변경합니다
@@ -169,12 +160,12 @@ async def start_entity_processing(object_name: str) -> list[str]:
         
 
         # * 엔티티 클래스 생성을 시작합니다.
-        entity_name_list = await process_table_by_token_limit(table_data_list, sequence_data)
+        entity_name_list, entity_code_dict = await process_table_by_token_limit(table_data_list, orm_type)
 
         logging.info(f"[{object_name}] 엔티티가 생성되었습니다.\n")
-        return entity_name_list
+        return entity_name_list, entity_code_dict
     
-    except (ConvertingError):
+    except ConvertingError:
         raise
     except Exception:
         err_msg = f"[{object_name}] 엔티티 클래스를 생성하는 도중 오류가 발생했습니다."

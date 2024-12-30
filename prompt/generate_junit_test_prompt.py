@@ -57,7 +57,7 @@ prompt = PromptTemplate.from_template(
 {then_log}
 - 이 데이터를 기반으로 테스트의 검증 로직 구성
 
-4. Jpa 쿼리 메서드 :
+4. 쿼리 메서드 :
 @Query("SELECT COUNT(s) FROM TpjSalary s WHERE s.empKey = :empKey AND s.payDate = :payDate")
 Long countByEmpKeyAndPayDate(@Param("empKey") String empKey, @Param("payDate") LocalDate payDate);
 
@@ -225,5 +225,5 @@ def generate_test_code(table_names: list, package_name: str, procedure_name: str
         return result
     except Exception:
         err_msg = "테스트 코드 생성 중 오류가 발생했습니다."
-        logging.error(err_msg, exc_info=True)
+        logging.error(err_msg)
         raise Exception(err_msg)

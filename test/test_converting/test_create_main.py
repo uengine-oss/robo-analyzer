@@ -37,7 +37,7 @@ class TestMainGeneration(unittest.IsolatedAsyncioTestCase):
 
         try:
             # * Main 클래스 생성 테스트 시작
-            await start_main_processing()
+            await start_main_processing(orm_type="mybatis")
             self.assertTrue(True, "Main 클래스 프로세스가 성공적으로 완료되었습니다.")
         except Exception:
             self.fail(f"Main 클래스 생성 테스트 중 예외 발생")

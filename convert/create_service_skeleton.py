@@ -76,7 +76,6 @@ import java.time.temporal.TemporalAdjusters;
 import java.time.*;
 import java.util.*;
 
-@RestController
 @Transactional
 public class {service_class_name} {{
     {class_content}
@@ -269,6 +268,7 @@ async def get_procedure_groups(connection: Neo4jConnection, object_name: str) ->
 #   - service_components: 생성된 서비스 구성요소 목록 (커맨드 클래스, 메서드 등)
 #   - service_template: 서비스 클래스의 기본 템플릿 코드
 #   - service_class_name: 생성된 서비스 클래스명
+#   - exist_command_class: 커맨드 클래스가 존재하는지 여부
 async def start_service_skeleton_processing(entity_name_list: list, object_name: str, global_variables: list) -> tuple[list, str, str, bool]:
 
     connection = Neo4jConnection()

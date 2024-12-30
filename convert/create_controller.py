@@ -17,8 +17,6 @@ CONTROLLER_PATH = 'java/demo/src/main/java/com/example/demo/controller'
 #   - controller_skeleton : 전체 컨트롤러 클래스의 기본 구조 템플릿
 #   - controller_class_name : 생성할 컨트롤러 클래스의 이름
 #   - merge_controller_method_code : 컨트롤러 클래스에 추가될 메서드 코드
-# 
-# 반환값: 없음
 async def generate_controller_class(controller_skeleton: str, controller_class_name: str, merge_controller_method_code: str):
     try:
         # * 컨트롤러 코드 생성
