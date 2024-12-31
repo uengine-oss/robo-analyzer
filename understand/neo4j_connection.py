@@ -101,14 +101,14 @@ class Neo4jConnection:
     #   - limit: 반환할 최대 결과 수 (기본값: 5)
     # 반환값:
     #   - 유사도가 높은 순으로 정렬된 노드 목록
-    async def search_similar_nodes(self, search_vector, similarity_threshold=0.5, limit=5):
+    async def search_similar_nodes(self, search_vector, similarity_threshold=0.5, limit=10):
         try:
             query = """
             MATCH (n)
             WHERE n.summary_vector IS NOT NULL
             WITH n, gds.similarity.cosine(n.summary_vector, $search_vector) AS similarity
             WHERE similarity >= $threshold
-            RETURN n.summary as summary, n.name as name, similarity
+            RETURN n.node_code as node_code, n.java_code as java_code, n.summary as summary, n.name as name, similarity
             ORDER BY similarity DESC
             LIMIT $limit
             """
@@ -118,7 +118,25 @@ class Neo4jConnection:
                                             search_vector=search_vector.tolist(),
                                             threshold=similarity_threshold,
                                             limit=limit)
-                return await result.data()
+                nodes = await result.data()
+                
+                # 결과가 없는 경우 임계값을 낮춰서 다시 검색
+                if not nodes:
+                    query = """
+                    MATCH (n)
+                    WHERE n.summary_vector IS NOT NULL
+                    WITH n, gds.similarity.cosine(n.summary_vector, $search_vector) AS similarity
+                    RETURN n.node_code as node_code, n.java_code as java_code, n.summary as summary, n.name as name, similarity
+                    ORDER BY similarity DESC
+                    LIMIT $limit
+                    """
+                    
+                    result = await session.run(query,
+                                             search_vector=search_vector.tolist(),
+                                             limit=limit)
+                    nodes = await result.data()
+
+                return nodes
 
         except Exception as e:
             error_msg = f"유사도 검색 중 오류 발생: {str(e)}"

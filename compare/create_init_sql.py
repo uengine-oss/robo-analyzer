@@ -166,27 +166,27 @@ def generate_insert_sql(table_fields: dict) -> list:
         for table_name, fields in table_fields.items():
             columns = []
             values = []
-        
-        for field_name, field_info in fields.items():
-            columns.append(field_name)
             
-
-            # * 필드 타입에 따른 값 포맷팅
-            if field_info['type'].startswith(('VARCHAR2', 'CHAR')):
-                values.append(f"'{field_info['value']}'")
-            elif field_info['type'].startswith('NUMBER'):
-                values.append(field_info['value'])
-            elif field_info['type'].startswith('DATE'):
-                values.append(f"TO_DATE('{field_info['value']}', 'YYYY-MM-DD')")
-            else:
-                values.append(f"'{field_info['value']}'")
+            # * 각 필드에 대해 처리
+            for field_name, field_info in fields.items():
+                columns.append(field_name)
                 
-
-            # * INSERT 문 생성
-            insert_sql = f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES ({', '.join(values)})"
-            insert_statements.append(insert_sql)
+                # * 필드 타입에 따른 값 포맷팅
+                if field_info['type'].startswith(('VARCHAR2', 'CHAR')):
+                    values.append(f"'{field_info['value']}'")
+                elif field_info['type'].startswith('NUMBER'):
+                    values.append(field_info['value'])
+                elif field_info['type'].startswith('DATE'):
+                    values.append(f"TO_DATE('{field_info['value']}', 'YYYY-MM-DD')")
+                else:
+                    values.append(f"'{field_info['value']}'")
             
-            return insert_statements
+            # * INSERT 문 생성 (테이블별로 한 번만)
+            insert_sql = f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES ({', '.join(values)})"
+            print(f"생성된 INSERT문: {insert_sql}") 
+            insert_statements.append(insert_sql)
+        
+        return insert_statements
     
     except Exception as e:
         err_msg = f"INSERT 문 생성 중 오류 발생: {str(e)}"
@@ -206,25 +206,29 @@ def extract_procedure_params(procedure: dict) -> dict:
     params = {}
 
     try:
+        # * 각 변수에 대해 처리
         for var_name, var_info in procedure['variables'].items():
             value = var_info['value']
             param_type = var_info['type']
         
-        # * DATE 타입인 경우 date 객체로 변환
-        if param_type == 'DATE':
-            year, month, day = map(int, value.split('-'))
-            value = date(year, month, day)
-            
-        # * NUMBER 타입인 경우 정수로 변환
-        elif param_type == 'NUMBER':
-            value = int(value) if value.isdigit() else value
-            
-        # * VARCHAR2, CHAR 등 문자열 타입은 그대로 사용
-        else:
-            value = value
+            # * DATE 타입인 경우 date 객체로 변환
+            if param_type == 'DATE':
+                year, month, day = map(int, value.split('-'))
+                value = date(year, month, day)
                 
+            # * NUMBER 타입인 경우 정수로 변환
+            elif param_type == 'NUMBER':
+                value = int(value) if value.isdigit() else value
+                
+            # * VARCHAR2, CHAR 등 문자열 타입은 그대로 사용
+            else:
+                value = value
+                
+            # * 파라미터 딕셔너리에 추가
             params[var_name] = value
             
+        # * 디버깅을 위한 로그 추가
+        logging.info(f"추출된 프로시저 파라미터: {params}")
         return params
     
     except Exception as e:

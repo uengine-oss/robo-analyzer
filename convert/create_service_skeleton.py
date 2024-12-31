@@ -72,11 +72,13 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.beans.BeanUtils;
 import java.time.format.DateTimeFormatter;
+import org.springframework.stereotype.Service;
 import java.time.temporal.TemporalAdjusters;
 import java.time.*;
 import java.util.*;
 
 @Transactional
+@Service
 public class {service_class_name} {{
     {class_content}
 

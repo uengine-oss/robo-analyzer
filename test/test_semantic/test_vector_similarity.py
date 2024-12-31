@@ -33,8 +33,8 @@ class TestVectorSimilarity(unittest.IsolatedAsyncioTestCase):
         
         for node in nodes:
             print(f"유사도: {node['similarity']:.4f}")
-            print(f"노드 이름: {node['name']}")
-            print(f"요약: {node['summary']}\n")
+            print(f"노드 이름: {node['node_code']}")
+            print(f"요약: {node['java_code']}\n")
 
         self.assertTrue(len(nodes) > 0, "검색 결과가 없습니다")
 

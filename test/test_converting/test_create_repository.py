@@ -38,13 +38,13 @@ class TestRepositoryGeneration(unittest.IsolatedAsyncioTestCase):
     async def test_create_repository(self):
         # * 테스트할 객체 이름들을 설정
         object_names = [
-            # "TPX_MAIN",
-            # "TPX_EMPLOYEE",
-            # "TPX_SALARY",
-            # "TPX_ATTENDANCE",
-            "TPX_PROJECT",
-            "TPX_TMF_SYNC_JOB_STATUS",
-            "TPX_TMF_SYNC_JOB",
+            "TPX_UPDATE_SALARY",
+            "TPX_EMPLOYEE",
+            "TPX_SALARY",
+            "TPX_ATTENDANCE",
+            # "TPX_PROJECT",
+            # "TPX_TMF_SYNC_JOB_STATUS",
+            # "TPX_TMF_SYNC_JOB",
             # "TPX_ALARM",
             # "TPX_ALARM_CONTENT",
             # "TPX_ALARM_FILE",
@@ -65,7 +65,7 @@ class TestRepositoryGeneration(unittest.IsolatedAsyncioTestCase):
             global_variables = {}
             all_methods_dict = {}
             sequence_methods_dict = {}
-            orm_type = "mybatis"  # ? 원하는 모델로 수정
+            orm_type = "jpa"  # ? 원하는 모델로 수정
 
             for object_name in object_names:
                 seq_data = await read_sequence_file(object_name)

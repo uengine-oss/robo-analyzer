@@ -11,6 +11,9 @@ from util.exception import StringConversionError
 #   - 파스칼 케이스로 변환된 문자열 (예: snake_case_input이 'employee_payroll'인 경우 -> 'EmployeePayroll')
 def convert_to_pascal_case(snake_str: str) -> str:
     try:
+        if '_' not in snake_str:
+            return snake_str
+        
         return ''.join(word.capitalize() for word in snake_str.split('_'))
     except Exception as e:
         err_msg = f"파스칼 케이스 변환 중 오류 발생: {str(e)}"

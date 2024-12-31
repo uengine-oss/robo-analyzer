@@ -41,13 +41,13 @@ class TestEntityGeneration(unittest.IsolatedAsyncioTestCase):
 
         # * 테스트할 객체 이름들을 설정
         object_names = [
-            # "TPX_MAIN",
-            # "TPX_EMPLOYEE",
-            # "TPX_SALARY",
-            # "TPX_ATTENDANCE",
-            "TPX_PROJECT",
-            "TPX_TMF_SYNC_JOB_STATUS",
-            "TPX_TMF_SYNC_JOB",
+            "TPX_UPDATE_SALARY",
+            "TPX_EMPLOYEE",
+            "TPX_SALARY",
+            "TPX_ATTENDANCE",
+            # "TPX_PROJECT",
+            # "TPX_TMF_SYNC_JOB_STATUS",
+            # "TPX_TMF_SYNC_JOB",
             # "TPX_ALARM",
             # "TPX_ALARM_CONTENT",
             # "TPX_ALARM_FILE",
@@ -70,7 +70,7 @@ class TestEntityGeneration(unittest.IsolatedAsyncioTestCase):
             for object_name in object_names:
                 entity_names, code_dict = await start_entity_processing(
                     object_name,
-                    orm_type="mybatis"
+                    orm_type="jpa"
                 )
                 entity_results[object_name] = entity_names
                 entity_codes[object_name] = code_dict

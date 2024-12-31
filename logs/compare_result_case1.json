@@ -1,5 +1,14 @@
 {
-    "status": "identical",
-    "message": "모든 결과가 동일합니다.",
-    "procedure_name": "TPX_UPDATE_SALARY"
+    "u_TPJ_SALARY": {
+        "status": "different",
+        "procedure_name": "TPX_UPDATE_SALARY",
+        "differences": {
+            "after": {
+                "AMOUNT": {
+                    "java": "500000",
+                    "plsql": "900000"
+                }
+            }
+        }
+    }
 }

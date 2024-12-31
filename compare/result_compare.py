@@ -7,6 +7,8 @@ from openai import OpenAI
 import difflib
 
 from compare.extract_log_info import clear_log_file, compare_then_results, extract_java_given_when_then
+from semantic.vectorizer import vectorize_text
+from understand.neo4j_connection import Neo4jConnection
 
 encoder = tiktoken.get_encoding("cl100k_base")
 JAVA_PATH = 'target/java/demo/src/main/java/com/example/demo'
@@ -117,6 +119,7 @@ async def execute_maven_commands(test_class_names: list):
     failed_test_index = []
     maven_project_root = os.path.join(base_directory, 'target', 'java', 'demo')
     logging.info(f"Maven 프로젝트 경로: {maven_project_root}")
+    conn = Neo4jConnection()
         
 
     try:
@@ -151,12 +154,15 @@ async def execute_maven_commands(test_class_names: list):
             )
 
             if test_result.returncode != 0:
-                error_output = test_result.stderr
-                logging.error(f"오류 내용: {error_output}")
+                error_output = ""
 
                 if "COMPILATION ERROR" in error_output or "Exception" in error_output:
+                    error_output = test_result.stderr
+                    logging.error(f"오류 내용: {error_output}")
                     java_files = get_all_files_in_directory(os.path.join(base_directory, 'target'))
-                    update_code(java_files, error_output)
+                    
+                    async for update_result in update_code(java_files, error_output):
+                        yield update_result
                     return
 
                 else:
@@ -165,13 +171,14 @@ async def execute_maven_commands(test_class_names: list):
             
             logging.info(f"{test_class_name} 테스트 클래스 실행 완료")
             given_when_then_log = await extract_java_given_when_then(i)
-            await compare_then_results(i)
+            compare_log, difference_text = await compare_then_results(i)
             await clear_log_file('java')
 
             yield json.dumps({
                 "type": "java",
                 "log": given_when_then_log
             }, ensure_ascii=False).encode('utf-8') + b"send_stream"
+            
 
         if test_failed:
             plsql_directory_path = 'data/plsql'
@@ -189,18 +196,36 @@ async def execute_maven_commands(test_class_names: list):
                 "message": f"실패한 테스트 케이스 {case_ids_str} 처리 중"
             }, ensure_ascii=False).encode('utf-8') + b"send_stream"
 
+            # 차이점 벡터화 
+            plsql_java_pairs = []
+            vector_log = vectorize_text(difference_text)
+            similar_node = await conn.search_similar_nodes(vector_log)
+            for node in similar_node:
+                plsql_java_pairs.append({
+                    'plsql': node['node_code'],
+                    'java': node['java_code']
+                })
+
+
             for index in failed_test_index:
                 plsql_log_files.extend(read_single_log_file(logs_directory, f'result_plsql_given_when_then_case{index}.json'))
                 java_log_files.extend(read_single_log_file(logs_directory, f'result_java_given_when_then_case{index}.json'))
                 compare_result_files.extend(read_single_log_file(logs_directory, f'compare_result_case{index}.json'))
 
-            update_code(java_files, error_output, plsql_files, plsql_log_files, java_log_files, compare_result_files, test_class_names)
+            # await update_code(java_files, error_output, plsql_files, plsql_log_files, java_log_files, compare_result_files, test_class_names, plsql_java_pairs)
+            async for update_result in update_code(java_files, error_output, plsql_files, 
+                                         plsql_log_files, java_log_files, 
+                                         compare_result_files, test_class_names, 
+                                         plsql_java_pairs):
+                yield update_result
         else:
             logging.info("테스트 실행 결과: 성공")
 
     except Exception as e:
         logging.error(f"Maven 명령 실행 중 오류 발생: {str(e)}")
         raise
+    finally:
+        await conn.close()
 
 
 def read_single_log_file(directory_path, file_name):
@@ -325,10 +350,10 @@ def summarize_code(code_content):
     
     return '\n'.join(cleaned_lines)
 
-def generate_prompt(plsql_files, java_files, plsql_log_files, java_log_files, compare_result_files):
+def generate_prompt(plsql_files, java_files, plsql_log_files, java_log_files, compare_result_files, plsql_java_pairs):
     
     global modification_history
-    summarized_plsql = prepare_code_for_prompt(plsql_files, plsql_log_files)
+    # summarized_plsql = prepare_code_for_prompt(plsql_files, plsql_log_files)
     
     return f"""
     PL/SQL 파일과 해당 PL/SQL 파일이 Java 변환된 파일의 실행 결과가 다릅니다.
@@ -340,11 +365,8 @@ def generate_prompt(plsql_files, java_files, plsql_log_files, java_log_files, co
 
     각 case 별 when 에서 사용된 procedure 내용을 추출하여 프롬프트에 사용합니다.
 
-    PL/SQL 파일 내용중 when 에서 사용된 procedure 핵심 내용:
-    {summarized_plsql}
-
-    변환된 Java 파일중 java 파일 내용:
-    {java_files}
+    테스트 실패에 가장 원인이 되는 java 코드 목록들과 해당 자바 코드의 원본 plsql 코드 목록들:
+    {plsql_java_pairs}
 
     여러 case 별 PL/SQL 실행 결과:
     {plsql_log_files}
@@ -355,13 +377,14 @@ def generate_prompt(plsql_files, java_files, plsql_log_files, java_log_files, co
     PL/SQL, Java 실행 결과 비교:
     {compare_result_files}
 
-    이전 수정내용에 대한 기록:
-    {modification_history}
 
     Java 파일을 어떻게 수정해야 PL/SQL 파일과 동일한 실행 결과를 얻을 수 있을지 제안해 주세요.
     이전 수정 내용들을 참고하여 수정 내용을 제안해 주세요. 동일한 수정 내용은 제안하지 않아도 됩니다.
     또한 동일한 파일에 대한 수정 내용은 여러번 나눠서 제안하는것이 아니라 한번에 합쳐서 제안해 주세요. 이런 경우에는 수정 이유가 여러개가 될 수 있습니다.
     수정 이유는 보다 상세하고 명확하게 작성해 주세요.
+
+    테스트 파일에 대한 수정은 절대 이루워져서는 안됩니다.
+
     답변은 항상 아래의 JSON 형식으로 출력해주세요.
     JSON 형식: [
         {{
@@ -396,7 +419,7 @@ def generate_error_fix_prompt(java_files, error):
     
     """
 
-def update_code(java_files, error=None, plsql_files=None, plsql_log_files=None, java_log_files=None, compare_result_files=None, test_class_names=None):
+async def update_code(java_files, error=None, plsql_files=None, plsql_log_files=None, java_log_files=None, compare_result_files=None, test_class_names=None, plsql_java_pairs=None):
     global modification_history
     logging.info("코드 업데이트 시작")
     try:
@@ -404,7 +427,7 @@ def update_code(java_files, error=None, plsql_files=None, plsql_log_files=None, 
             # 컴파일 또는 런타임 오류가 발생한 경우
             prompt = generate_error_fix_prompt(java_files, error)
         else:
-            prompt = generate_prompt(plsql_files, java_files, plsql_log_files, java_log_files, compare_result_files)
+            prompt = generate_prompt(plsql_files, java_files, plsql_log_files, java_log_files, compare_result_files, plsql_java_pairs)
 
         client = OpenAI(
             api_key=os.environ.get("OPENAI_API_KEY")

@@ -12,20 +12,28 @@ from compare.create_init_sql import generate_init_sql
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')
 
 class TestDockerComposeYml(unittest.IsolatedAsyncioTestCase):
+    
     async def test_generate_docker_compose_yml(self):
         try:
             # 테스트용 테이블 이름 리스트 및 패키지 이름 리스트
             table_names = ["TPJ_EMPLOYEE", "TPJ_SALARY", "TPJ_ATTENDANCE"]
             package_names = ["TPX_EMPLOYEE", "TPX_SALARY", "TPX_ATTENDANCE", "TPX_MAIN"]
 
-            # ! 패키지간의 의존성 확인이 필요합니다.
-            # result = await generate_init_sql(table_names, package_names)
-            # self.assertTrue(result)
+            logging.info("docker-compose.yml 생성 시작")
+            
+            # process_docker_compose_yml 함수 실행 전 상태 로깅
+            logging.info(f"처리할 테이블: {table_names}")
             
             result = await process_docker_compose_yml(table_names)
-            self.assertTrue(result)
             
+            # 결과 상태 로깅
+            logging.info(f"process_docker_compose_yml 결과: {result}")
+            
+            self.assertTrue(result, "docker-compose.yml 생성에 실패했습니다")
+                
         except Exception as e:
+            logging.error(f"상세 오류 내용: {str(e)}")
+            logging.error(f"오류 타입: {type(e)}")
             self.fail(f"docker-compose.yml 파일 생성 중 예외 발생: {str(e)}")
 
 if __name__ == '__main__':

@@ -35,6 +35,7 @@ async def get_nodes_without_java_code(connection: Neo4jConnection, object_name: 
         AND NOT n:SPEC
         AND NOT n:DECLARE
         AND NOT n:PROCEDURE
+        AND NOT n:CREATE_PROCEDURE_BODY
         RETURN n
         """]
 
@@ -178,7 +179,8 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
             current_code += f"\n{sp_code}"  # 개행 추가
             current_token += token + variable_token
             used_query_method_dict = await extract_used_query_methods(start_line, end_line, query_method_list, used_query_method_dict)
-            context_range = [{"startLine": start_line, "endLine": end_line}]
+            context_range.append({"startLine": start_line, "endLine": end_line})
+
 
         # * 남은 코드 처리
         if current_code and context_range:

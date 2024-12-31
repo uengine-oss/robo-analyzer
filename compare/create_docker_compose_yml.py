@@ -66,7 +66,7 @@ services:
      - ORACLE_CHARACTERSET=AL32UTF8
     volumes:
      - ./01_init_database_config.sql:/opt/oracle/scripts/startup/01_init_database_config.sql
-     - ../../ddl/create/:/opt/oracle/scripts/sql/ddl/
+     - ../../data/ddl/:/opt/oracle/scripts/sql/ddl/
      - ../../src/:/opt/oracle/scripts/sql/procedure/
      - ./healthcheck.sql:/opt/oracle/healthcheck.sql
     command: ["/bin/sh", "-c", "exec /opt/oracle/runOracle.sh"]
@@ -286,7 +286,7 @@ async def start_docker_compose_yml():
         return True
         
     except subprocess.CalledProcessError as e:
-        err_msg = f"Docker Compose 실행 실패: {str(e)}"
+        err_msg = f"Docker Compose 실행 실패: {str(e.stderr)}"
         logging.error(err_msg)
         raise DockerRunError(err_msg)
     except Exception as e:
