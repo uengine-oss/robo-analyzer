@@ -6,6 +6,7 @@ from prompt.convert_summarized_service_skeleton_prompt import convert_summarized
 from understand.neo4j_connection import Neo4jConnection
 from util.converting_utlis import extract_used_query_methods
 from util.exception import ConvertingError, HandleResultError, LLMCallError, Neo4jError, ProcessResultError, ServiceCreationError, TraverseCodeError, VariableNodeError
+from util.string_utils import convert_to_pascal_case
 
 
 
@@ -170,10 +171,13 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
             for key, service_code in code_info.items():
                 start_line, end_line = map(int, key.replace('-','~').split('~'))
                 escaped_code = service_code.replace('\n', '\\n').replace("'", "\\'")
+                pascal_object_name = convert_to_pascal_case(object_name)
+                java_file_name = f"{pascal_object_name}Service.java"
                 node_update_query.append(
                     f"MATCH (n) WHERE n.startLine = {start_line} "
                     f"AND n.object_name = '{object_name}' AND n.endLine = {end_line} "
-                    f"SET n.java_code = '{escaped_code}'"
+                    f"SET n.java_code = '{escaped_code}', "
+                    f"n.java_file = '{java_file_name}'"
                 )    
 
 
