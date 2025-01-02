@@ -37,9 +37,17 @@ class TestValidateServicePreprocessing(unittest.IsolatedAsyncioTestCase):
     async def test_validate_service_preprocessing(self):
         
         object_names = [
-            "TPX_PROJECT",
-            "TPX_TMF_SYNC_JOB_STATUS",
-            "TPX_TMF_SYNC_JOB",
+            "TPX_UPDATE_SALARY",
+            "TPX_EMPLOYEE",
+            "TPX_SALARY",
+            "TPX_ATTENDANCE",
+            # "TPX_PROJECT",
+            # "TPX_TMF_SYNC_JOB_STATUS",
+            # "TPX_TMF_SYNC_JOB",
+            # "TPX_ALARM",
+            # "TPX_ALARM_CONTENT",
+            # "TPX_ALARM_FILE",
+            # "TPX_ALARM_RECIPIENT"
         ]
 
         try:
@@ -50,6 +58,11 @@ class TestValidateServicePreprocessing(unittest.IsolatedAsyncioTestCase):
                     test_data = json.load(f)
             else:
                 test_data = {}
+
+
+            # * 사용할 ORM 유형 설정
+            orm_type = "jpa"
+
 
             # * 검증 프로세스 시작
             for object_name in object_names:
@@ -73,8 +86,8 @@ class TestValidateServicePreprocessing(unittest.IsolatedAsyncioTestCase):
                         procedure_name,
                         repository_methods,
                         object_name,
-                        sequence_methods,
-                        orm_type = "jpa" # ? 원하는 모델로 수정
+                        orm_type,
+                        sequence_methods
                     )
 
             self.assertTrue(True, "서비스 검증 프로세스가 성공적으로 완료되었습니다.")

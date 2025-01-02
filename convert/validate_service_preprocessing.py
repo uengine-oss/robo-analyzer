@@ -4,7 +4,8 @@ from convert.create_repository import extract_used_variable_nodes
 from understand.neo4j_connection import Neo4jConnection
 from util.converting_utlis import extract_used_query_methods
 from util.exception import ConvertingError, HandleResultError, Neo4jError, PrepareDataError, ProcessResultError, ServiceCreationError
-from prompt.convert_service_prompt import convert_service_code 
+from prompt.convert_service_prompt import convert_service_code
+from util.string_utils import convert_to_pascal_case 
 
 
 # 역할 : java_code가 없는 노드들을 조회합니다.
@@ -123,18 +124,27 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
             # * 분석 결과에서 코드 정보를 추출
             code_info = analysis_result['analysis'].get('code', {})
             
+            
             # * 코드 정보를 추출하고, 자바 코드 업데이트를 위한 사이퍼 쿼리 생성
             for key, service_code in code_info.items():
                 start_line, end_line = map(int, key.replace('-','~').split('~'))
                 escaped_code = service_code.replace('\n', '\\n').replace("'", "\\'")
-                
+
+
+                # * 파스칼 케이스로 변환하여 자바 파일 이름을 생성합니다.
+                pascal_object_name = convert_to_pascal_case(object_name)
+                java_file_name = f"{pascal_object_name}Service.java"
+
+            
                 node_update_query.append(
                     f"MATCH (n) WHERE n.startLine = {start_line} "
                     f"AND n.object_name = '{object_name}' "
                     f"AND n.procedure_name = '{procedure_name}' "
                     f"AND n.endLine = {end_line} "
-                    f"SET n.java_code = '{escaped_code}'"
-                )    
+                    f"SET n.java_code = '{escaped_code}', "
+                    f"n.java_file = '{java_file_name}'" 
+                )  
+
 
             # * 노드 업데이트 쿼리 실행
             await connection.execute_queries(node_update_query)
@@ -147,12 +157,13 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
             raise HandleResultError(err_msg)
         
 
-    # ! 메인 로직
+    # ! 메인 로직 
+    # TODO 자식의 바로 위 부모 노드를 찾아서 전달하는 방법도 고려
     try:
         # * java_code가 없는 노드 확인
         has_nodes, nodes = await get_nodes_without_java_code(connection, object_name, procedure_name)
         if not has_nodes:
-            logging.info(f"[{object_name}]의 {procedure_name}의 모든 노드가 java_code 속성을 가지고 있습니다.")
+            logging.info(f"[{object_name}]의 {procedure_name}의 모든 노드가 java_code 속성을 가지고 있습니다.\n")
             return
 
 

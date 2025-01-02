@@ -166,13 +166,16 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
             code_info = analysis_result['analysis'].get('code', {})
             variables_info = analysis_result['analysis'].get('variables', {})
             
+            
+            # * 파스칼 케이스로 변환하여 자바 파일 이름을 생성합니다.
+            pascal_object_name = convert_to_pascal_case(object_name)
+            java_file_name = f"{pascal_object_name}Service.java"
+            
 
             # * 코드 정보를 추출하고, 자바 속성 추가를 위한 사이퍼쿼리를 생성합니다.
             for key, service_code in code_info.items():
                 start_line, end_line = map(int, key.replace('-','~').split('~'))
                 escaped_code = service_code.replace('\n', '\\n').replace("'", "\\'")
-                pascal_object_name = convert_to_pascal_case(object_name)
-                java_file_name = f"{pascal_object_name}Service.java"
                 node_update_query.append(
                     f"MATCH (n) WHERE n.startLine = {start_line} "
                     f"AND n.object_name = '{object_name}' AND n.endLine = {end_line} "
