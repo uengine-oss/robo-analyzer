@@ -2,20 +2,20 @@
     "given": [
         {
             "operation": "c",
-            "table": "TPJ_EMPLOYEE",
+            "table": "TPJ_ATTENDANCE",
             "data": {
+                "STATUS": "AB",
+                "WORKDATE": "2024-12-11",
                 "ID": 1,
-                "DEPTCODE": "DEV001",
                 "EMPKEY": "EMP001",
-                "EMPNAME": "이정규",
-                "REGULARYN": "Y"
+                "ATTKEY": "ATT001"
             }
         },
         {
             "operation": "c",
             "table": "TPJ_SALARY",
             "data": {
-                "PAYDATE": "2024-12-13",
+                "PAYDATE": "2024-12-31",
                 "AMOUNT": 1000000,
                 "ID": 1,
                 "EMPKEY": "EMP001",
@@ -24,13 +24,13 @@
         },
         {
             "operation": "c",
-            "table": "TPJ_ATTENDANCE",
+            "table": "TPJ_EMPLOYEE",
             "data": {
-                "STATUS": "AB",
-                "WORKDATE": "2024-12-03",
                 "ID": 1,
+                "DEPTCODE": "DEV001",
                 "EMPKEY": "EMP001",
-                "ATTKEY": "ATT001"
+                "EMPNAME": "김정규",
+                "REGULARYN": "Y"
             }
         }
     ],
@@ -38,10 +38,10 @@
         "procedure": "TPX_UPDATE_SALARY.TPX_UPDATE_SALARY",
         "parameters": {
             "pEmpKey": "EMP001",
-            "pEmpName": "이정규",
+            "pEmpName": "김정규",
             "pDeptCode": "DEV001",
             "pBaseAmount": 1000000,
-            "pPayDate": "2024-12-13",
+            "pPayDate": "2024-12-31",
             "pRegularYn": "Y"
         }
     },
@@ -50,7 +50,7 @@
             "operation": "u",
             "table": "TPJ_SALARY",
             "data": {
-                "PAYDATE": "2024-12-13",
+                "PAYDATE": "2024-12-31",
                 "AMOUNT": 500000,
                 "ID": 1,
                 "EMPKEY": "EMP001",
