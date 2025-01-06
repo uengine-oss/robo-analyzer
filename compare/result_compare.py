@@ -16,30 +16,6 @@ JAVA_TEST_PATH = 'target/java/demo/src/test/java/com/example/demo'
 base_directory = os.path.abspath(os.path.join(os.path.dirname(__file__), '../../'))
 modification_history = []
 
-def read_files_in_directory(directory_path):
-    logging.info(f"디렉토리 '{directory_path}'의 파일 읽기 시작")
-    files_data = []
-    try:
-        for root, _, files in os.walk(directory_path):
-            for file in files:
-                file_path = os.path.join(root, file)
-                try:
-                    with open(file_path, 'r', encoding='utf-8') as f:
-                        content = f.read()
-                except UnicodeDecodeError:
-                    # If UTF-8 fails, try reading with a different encoding
-                    with open(file_path, 'r', encoding='latin-1') as f:
-                        content = f.read()
-                files_data.append({
-                    "name": file,
-                    "content": content
-                })
-        logging.info(f"디렉토리 '{directory_path}'에서 {len(files_data)}개 파일을 성공적으로 읽음")
-        return files_data
-    except Exception as e:
-        logging.error(f"디렉토리 '{directory_path}' 파일 읽기 중 오류 발생: {str(e)}")
-        raise
-
 def get_all_java_files_in_directory(directory):
     logging.info(f"디렉토리 '{directory}'에서 Java 파일 검색 시작")
     code_list = []
@@ -64,7 +40,7 @@ def get_all_java_files_in_directory(directory):
     except Exception as e:
         logging.error(f"Java 파일 읽기 중 오류 발생: {str(e)}")
         raise
-
+    
 def get_all_files_in_directory(directory):
     logging.info(f"디렉토리 '{directory}'에서 모든 파일 검색 시작")
     code_list = []
@@ -89,28 +65,28 @@ def get_all_files_in_directory(directory):
         logging.error(f"파일 읽기 중 오류 발생: {str(e)}")
         raise
 
-def read_log_files_in_directory(directory_path, prefix):
-    logging.info(f"'{directory_path}' 디렉토리에서 '{prefix}' 접두사를 가진 로그 파일 읽기 시작")
-    files_data = []
+def read_single_log_file(directory_path, file_name):
+    logging.info(f"'{directory_path}' 디렉토리에서 '{file_name}' 파일 읽기 시작")
     try:
-        for root, _, files in os.walk(directory_path):
-            for file in files:
-                if file.startswith(prefix):
-                    file_path = os.path.join(root, file)
-                    try:
-                        with open(file_path, 'r', encoding='utf-8') as f:
-                            content = f.read()
-                    except UnicodeDecodeError:
-                        with open(file_path, 'r', encoding='latin-1') as f:
-                            content = f.read()
-                    files_data.append({
-                        "name": file,
-                        "content": content
-                    })
-        logging.info(f"'{prefix}' 접두사를 가진 {len(files_data)}개의 로그 파일을 성공적으로 읽음")
-        return files_data
+        file_path = os.path.join(directory_path, file_name)
+        if not os.path.exists(file_path):
+            logging.error(f"파일을 찾을 수 없음: {file_path}")
+            return None
+            
+        try:
+            with open(file_path, 'r', encoding='utf-8') as f:
+                content = f.read()
+        except UnicodeDecodeError:
+            with open(file_path, 'r', encoding='latin-1') as f:
+                content = f.read()
+                
+        logging.info(f"'{file_name}' 파일을 성공적으로 읽음")
+        return {
+            "name": file_name,
+            "content": content
+        }
     except Exception as e:
-        logging.error(f"로그 파일 읽기 중 오류 발생: {str(e)}")
+        logging.error(f"파일 읽기 중 오류 발생: {str(e)}")
         raise
 
 async def execute_maven_commands(test_class_names: list):
@@ -121,7 +97,6 @@ async def execute_maven_commands(test_class_names: list):
     logging.info(f"Maven 프로젝트 경로: {maven_project_root}")
     conn = Neo4jConnection()
         
-
     try:
         # base_directory = os.getenv('DOCKER_COMPOSE_CONTEXT')
         #  if base_directory:
@@ -178,13 +153,13 @@ async def execute_maven_commands(test_class_names: list):
                 "type": "java",
                 "log": given_when_then_log
             }, ensure_ascii=False).encode('utf-8') + b"send_stream"
-            
+        
+        yield json.dumps({
+            "type": "compare_complete",
+        }, ensure_ascii=False).encode('utf-8') + b"send_stream"
 
         if test_failed:
-            plsql_directory_path = 'data/plsql'
-            plsql_files = read_files_in_directory(plsql_directory_path)
             java_files = get_all_java_files_in_directory(os.path.join(base_directory, 'target'))
-
             logs_directory = 'logs'
             plsql_log_files = []
             java_log_files = []
@@ -200,20 +175,27 @@ async def execute_maven_commands(test_class_names: list):
             plsql_java_pairs = []
             vector_log = vectorize_text(difference_text)
             similar_node = await conn.search_similar_nodes(vector_log)
+            
+            matching_file = next(
+                (file for file in java_files if os.path.basename(file['filePath']) == node['java_file']), 
+                None
+            )
+            file_path = matching_file['filePath'] if matching_file else node['java_file']
             for node in similar_node:
                 plsql_java_pairs.append({
                     'plsql': node['node_code'],
-                    'java': node['java_code']
+                    'java': node['java_code'],
+                    'filePath': file_path,
+                    'java_range': node['java_range']
                 })
-
 
             for index in failed_test_index:
                 plsql_log_files.extend(read_single_log_file(logs_directory, f'result_plsql_given_when_then_case{index}.json'))
                 java_log_files.extend(read_single_log_file(logs_directory, f'result_java_given_when_then_case{index}.json'))
                 compare_result_files.extend(read_single_log_file(logs_directory, f'compare_result_case{index}.json'))
 
-            # await update_code(java_files, error_output, plsql_files, plsql_log_files, java_log_files, compare_result_files, test_class_names, plsql_java_pairs)
-            async for update_result in update_code(java_files, error_output, plsql_files, 
+            # await update_code(error_output, plsql_log_files, java_log_files, compare_result_files, test_class_names, plsql_java_pairs)
+            async for update_result in update_code(java_files, error_output, 
                                          plsql_log_files, java_log_files, 
                                          compare_result_files, test_class_names, 
                                          plsql_java_pairs):
@@ -227,130 +209,7 @@ async def execute_maven_commands(test_class_names: list):
     finally:
         await conn.close()
 
-
-def read_single_log_file(directory_path, file_name):
-    logging.info(f"'{directory_path}' 디렉토리에서 '{file_name}' 파일 읽기 시작")
-    try:
-        file_path = os.path.join(directory_path, file_name)
-        if not os.path.exists(file_path):
-            logging.error(f"파일을 찾을 수 없음: {file_path}")
-            return None
-            
-        try:
-            with open(file_path, 'r', encoding='utf-8') as f:
-                content = f.read()
-        except UnicodeDecodeError:
-            with open(file_path, 'r', encoding='latin-1') as f:
-                content = f.read()
-                
-        logging.info(f"'{file_name}' 파일을 성공적으로 읽음")
-        return {
-            "name": file_name,
-            "content": content
-        }
-    except Exception as e:
-        logging.error(f"파일 읽기 중 오류 발생: {str(e)}")
-        raise
-
-
-def extract_procedure_names_from_logs(log_files):
-    """로그 파일에서 'when' 섹션의 프로시저 이름을 추출"""
-    procedure_names = set()
-    for log_file in log_files:
-        log_content = json.loads(log_file['content'])
-        if 'when' in log_content and 'procedure' in log_content['when']:
-            procedure_names.add(log_content['when']['procedure'])
-    return procedure_names
-
-def filter_relevant_code(plsql_files, procedure_names):
-    """프로시저 이름을 기반으로 관련된 코드 부분만 추출"""
-    relevant_files = []
-    
-    for file in plsql_files:
-        relevant_sections = extract_relevant_sections(file['content'], procedure_names)
-        if relevant_sections:
-            relevant_files.append({
-                "name": file['name'],
-                "content": relevant_sections
-            })
-    
-    return relevant_files
-
-def extract_relevant_sections(file_content, procedure_names):
-    """파일에서 프로시저 이름과 관련된 코드 섹션만 추출"""
-    relevant_sections = []
-    current_section = []
-    in_relevant_block = False
-    
-    lines = file_content.split('\n')
-    
-    for line in lines:
-        if line.strip().upper().startswith(('CREATE', 'BEGIN', 'PROCEDURE', 'FUNCTION')):
-            if current_section:
-                section_content = '\n'.join(current_section)
-                if in_relevant_block or any(proc_name.lower() in section_content.lower() for proc_name in procedure_names):
-                    relevant_sections.append(section_content)
-            current_section = []
-            in_relevant_block = any(proc_name.lower() in line.lower() for proc_name in procedure_names)
-        
-        current_section.append(line)
-        
-        if not in_relevant_block and any(proc_name.lower() in line.lower() for proc_name in procedure_names):
-            in_relevant_block = True
-    
-    if current_section:
-        section_content = '\n'.join(current_section)
-        if in_relevant_block or any(proc_name.lower() in section_content.lower() for proc_name in procedure_names):
-            relevant_sections.append(section_content)
-    
-    return '\n\n'.join(relevant_sections)
-
-def prepare_code_for_prompt(plsql_files, log_files):
-    """코드를 프롬프트용으로 준비"""
-    # 로그 파일에서 프로시저 이름 추출
-    procedure_names = extract_procedure_names_from_logs(log_files)
-    
-    # 관련 있는 코드만 필터링
-    relevant_files = filter_relevant_code(plsql_files, procedure_names)
-    
-    # 필터링된 코드에서 주석과 빈 줄 제거
-    summarized_files = []
-    for file in relevant_files:
-        summarized_content = summarize_code(file['content'])
-        summarized_files.append({
-            "name": file['name'],
-            "content": summarized_content
-        })
-    
-    return summarized_files
-
-def summarize_code(code_content):
-    """코드에서 중요한 부분만 추출하여 요약"""
-    lines = code_content.split('\n')
-    cleaned_lines = []
-    in_multiline_comment = False
-    
-    for line in lines:
-        # 멀티라인 주석 처리
-        if '/*' in line:
-            in_multiline_comment = True
-            continue
-        if '*/' in line:
-            in_multiline_comment = False
-            continue
-        if in_multiline_comment:
-            continue
-            
-        # 빈 줄과 한 줄 주석 제거
-        line = line.strip()
-        if line and not line.startswith('--'):
-            # 들여쓰기 제거 및 연속된 공백 제거
-            cleaned_line = ' '.join(line.split())
-            cleaned_lines.append(cleaned_line)
-    
-    return '\n'.join(cleaned_lines)
-
-def generate_prompt(plsql_files, java_files, plsql_log_files, java_log_files, compare_result_files, plsql_java_pairs):
+def generate_prompt(plsql_log_files, java_log_files, compare_result_files, plsql_java_pairs):
     
     global modification_history
     # summarized_plsql = prepare_code_for_prompt(plsql_files, plsql_log_files)
@@ -390,7 +249,8 @@ def generate_prompt(plsql_files, java_files, plsql_log_files, java_log_files, co
         {{
             "filePath": "수정된 Java 파일 경로", 
             "code": "수정된 Java 코드",
-            "reason": "수정 이유(보다 상세하고 명확하게 작성)"
+            "reason": "수정 이유(보다 상세하고 명확하게 작성)",
+            "java_range": "수정된 자바 코드의 범위(기존 제공된 범위)"
         }}
     ]
     
@@ -418,8 +278,15 @@ def generate_error_fix_prompt(java_files, error):
     ]
     
     """
+def merge_code(original_code, updated_code, java_range):
+    start_line, end_line = map(int, java_range.split('-'))
+    original_lines = original_code.splitlines()
+    updated_lines = updated_code.splitlines()
+    original_lines[start_line-1:end_line] = updated_lines
 
-async def update_code(java_files, error=None, plsql_files=None, plsql_log_files=None, java_log_files=None, compare_result_files=None, test_class_names=None, plsql_java_pairs=None):
+    return '\n'.join(original_lines)
+
+async def update_code(java_files=None, error=None, plsql_log_files=None, java_log_files=None, compare_result_files=None, test_class_names=None, plsql_java_pairs=None):
     global modification_history
     logging.info("코드 업데이트 시작")
     try:
@@ -427,7 +294,7 @@ async def update_code(java_files, error=None, plsql_files=None, plsql_log_files=
             # 컴파일 또는 런타임 오류가 발생한 경우
             prompt = generate_error_fix_prompt(java_files, error)
         else:
-            prompt = generate_prompt(plsql_files, java_files, plsql_log_files, java_log_files, compare_result_files, plsql_java_pairs)
+            prompt = generate_prompt(plsql_log_files, java_log_files, compare_result_files, plsql_java_pairs)
 
         client = OpenAI(
             api_key=os.environ.get("OPENAI_API_KEY")
@@ -452,7 +319,14 @@ async def update_code(java_files, error=None, plsql_files=None, plsql_log_files=
             file_path = update['filePath']
             originalCode = next((file['content'] for file in java_files if file['filePath'] == file_path), None)
             logging.info(f"파일 업데이트 중: {file_path}")
-            modifiedCode = update['code'].replace("\\n", "\n")
+
+            java_range = next((pair['java_range'] for pair in plsql_java_pairs if pair['filePath'] == file_path), None)
+            
+            if not java_range:
+                java_range = update['java_range']
+            
+            modifiedCode = merge_code(originalCode, update['code'], java_range)
+
             reason = update['reason']
 
             diff = difflib.unified_diff(
