@@ -160,7 +160,7 @@ async def generate_service_class(service_skeleton: str, service_class_name: str,
 
         # * 저장 경로 설정
         if os.getenv('DOCKER_COMPOSE_CONTEXT'):
-            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), SERVICE_PATH)
+            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', SERVICE_PATH)
         else:
             current_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             save_path = os.path.join(current_dir, 'target', SERVICE_PATH)

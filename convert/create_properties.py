@@ -49,7 +49,7 @@ async def start_APLproperties_processing(orm_type: str):
 
         # * 저장 경로 설정
         if os.getenv('DOCKER_COMPOSE_CONTEXT'):
-            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), PROPERTIES_PATH)
+            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', PROPERTIES_PATH)
         else:
             parent_workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             save_path = os.path.join(parent_workspace_dir, 'target', PROPERTIES_PATH)

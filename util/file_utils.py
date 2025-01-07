@@ -46,15 +46,26 @@ async def save_file(content: str, filename: str, base_path: Optional[str] = None
 async def read_sequence_file(object_name: str) -> str:
     try:
         seq_file_name = object_name.replace('TPX_', 'SEQ_')
-        current_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        seq_file_path = os.path.join(current_dir, 'data', 'sequence', f'{seq_file_name}.sql')
-        logging.info(f"현재 디렉토리: {current_dir}")
+
+        # * 환경에 따라 저장 경로  설정
+        if os.getenv('DOCKER_COMPOSE_CONTEXT'):
+            base_dir = os.getenv('DOCKER_COMPOSE_CONTEXT')
+        else:
+            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        
+        # * 시퀀스 파일 경로
+        seq_file_path = os.path.join(base_dir, 'data', 'sequence', f'{seq_file_name}.sql')
+        logging.info(f"현재 디렉토리: {base_dir}")
         logging.info(f"시퀀스 파일 경로: {seq_file_path}")
+        
+        # * 시퀀스 파일 존재 여부 확인
         if os.path.exists(seq_file_path):
             logging.info(f"시퀀스 파일명: {seq_file_name} 시퀀스 파일 읽기 성공")
             async with aiofiles.open(seq_file_path, 'r', encoding='utf-8') as f:
                 return await f.read()
+            
         return ''
+    
     except Exception as e:
         err_msg = f"시퀀스 파일을 읽는 도중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
@@ -72,10 +83,17 @@ async def read_sequence_file(object_name: str) -> str:
 def read_target_file(class_name: str, component_type: str) -> str:
 
     try:
-        current_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+        # * 환경에 따라 저장 경로 설정
+        if os.getenv('DOCKER_COMPOSE_CONTEXT'):
+            base_dir = os.getenv('DOCKER_COMPOSE_CONTEXT')
+        else:
+            base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            
+        # * 파일 경로
         base_path = 'java/demo/src/main/java/com/example/demo'
-        file_path = os.path.join(current_dir, 'target', base_path, component_type, f'{class_name}.java')
+        file_path = os.path.join(base_dir, 'target', base_path, component_type, f'{class_name}.java')
         
+        # * 파일 읽기
         with open(file_path, 'r', encoding='utf-8') as file:
             return file.read()
         

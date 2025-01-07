@@ -58,14 +58,7 @@ prompt = PromptTemplate.from_template(
 - 이 데이터를 기반으로 테스트의 검증 로직 구성
 
 4. 쿼리 메서드 :
-@Query("SELECT COUNT(s) FROM TpjSalary s WHERE s.empKey = :empKey AND s.payDate = :payDate")
-Long countByEmpKeyAndPayDate(@Param("empKey") String empKey, @Param("payDate") LocalDate payDate);
-
-@Query("SELECT s FROM TpjSalary s WHERE s.empKey = :empKey AND s.payDate = :payDate")
-TpjSalary findByEmpKeyAndPayDate(@Param("empKey") String empKey, @Param("payDate") LocalDate payDate);
-
-@Query("SELECT s FROM TpjSalary s WHERE s.empKey = :empKey AND s.payDate = :payDate")
-TpjSalary findSalaryForUpdate(@Param("empKey") String empKey, @Param("payDate") LocalDate payDate);
+{repository_codes}
 - 이 데이터를 기반으로 테스트의 검증 로직 구성
 
 
@@ -204,7 +197,7 @@ Then 로그: {{
 )
 
 
-def generate_test_code(table_names: list, package_name: str, procedure_name: str, procedure_info: dict, given_log: dict, then_log: dict) -> str:
+def generate_test_code(table_names: list, package_name: str, procedure_name: str, repository_codes: dict, procedure_info: dict, given_log: dict, then_log: dict) -> str:
     try:
         chain = (
             RunnablePassthrough()
@@ -217,6 +210,7 @@ def generate_test_code(table_names: list, package_name: str, procedure_name: str
             "table_names": table_names,
             "package_name": package_name,
             "procedure_name": procedure_name,
+            "repository_codes": json.dumps(repository_codes, indent=2, ensure_ascii=False),
             "procedure_info": json.dumps(procedure_info, indent=2, ensure_ascii=False),
             "given_log": json.dumps(given_log, indent=2, ensure_ascii=False),
             "then_log": json.dumps(then_log, indent=2, ensure_ascii=False)

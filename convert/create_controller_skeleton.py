@@ -1,6 +1,6 @@
 import logging
 import tiktoken
-from util.exception import ConvertingError, SkeletonCreationError, StringConversionError, TemplateGenerationError
+from util.exception import SkeletonCreationError, StringConversionError, TemplateGenerationError
 from util.string_utils import convert_to_camel_case, convert_to_pascal_case
 
 encoder = tiktoken.get_encoding("cl100k_base")

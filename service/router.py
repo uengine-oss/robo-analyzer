@@ -111,16 +111,24 @@ async def covnert_spring_project(request: Request):
 @router.post("/downloadJava/")
 async def download_spring_project():
     try:
-        parent_dir = os.path.dirname(os.getcwd())
+        # * 환경에 따라 저장 경로 설정
+        if os.getenv('DOCKER_COMPOSE_CONTEXT'):
+            base_dir = os.getenv('DOCKER_COMPOSE_CONTEXT')
+            target_path = os.path.join(base_dir, 'target')
+            zipfile_dir = os.path.join(base_dir, 'data', 'zipfile')
+        else:
+            parent_dir = os.path.dirname(os.getcwd())
+            target_path = os.path.join(parent_dir, 'target')
+            zipfile_dir = os.path.join(parent_dir, 'data', 'zipfile')
         
-        target_path = os.path.join(parent_dir, 'target')
-        zipfile_dir = os.path.join(parent_dir, 'data', 'zipfile')
-        
+        # * 디렉토리 존재 여부 확인 및 생성
         if not os.path.exists(zipfile_dir):
             os.makedirs(zipfile_dir)
-            
+
+        # * 압축 파일 경로
         output_zip_path = os.path.join(zipfile_dir, 'project.zip')
         
+        # * 프로젝트 압축
         await process_project_zipping(target_path, output_zip_path)
         
         return FileResponse(
@@ -128,6 +136,7 @@ async def download_spring_project():
             filename="project.zip", 
             media_type='application/octet-stream'
         )
+    
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"스프링 부트 프로젝트를 Zip 파일로 압축하는데 실패했습니다: {str(e)}")
     
@@ -142,18 +151,20 @@ async def delete_all_data():
     try:
         docker_context = os.getenv('DOCKER_COMPOSE_CONTEXT')
         
+        # * 환경에 따라 저장 경로 설정
         if docker_context:
             delete_paths = {
                 'target_dir': os.path.join(docker_context, 'target'),
-                'zip_dir': os.path.join(docker_context, 'zipfile')
+                'zip_dir': os.path.join(docker_context, 'data', 'zipfile')
             }
         else:
             parent_dir = os.path.dirname(os.getcwd())
             delete_paths = {
                 'target_dir': os.path.join(parent_dir, 'target'),
-                'zip_dir': os.path.join(parent_dir, 'zipfile')
+                'zip_dir': os.path.join(parent_dir, 'data', 'zipfile')
             }
 
+        # * 임시 파일 삭제
         await delete_all_temp_data(delete_paths)
         return {"message": "모든 임시 파일이 삭제되었습니다."}
         

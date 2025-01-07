@@ -1,8 +1,8 @@
 from datetime import date
 import logging
 from pathlib import Path
-
-from util.exception import ExtractParameterError, GenerateSqlError, InitOracleDBError
+from understand.neo4j_connection import Neo4jConnection
+from util.exception import DependencyProcedureError, ExtractParameterError, GenerateSqlError, InitOracleDBError, Neo4jError
 
 
 # 역할 : 01_init_database_config.sql 파일을 생성하는 함수
@@ -150,6 +150,58 @@ EXIT;'''
         logging.error(err_msg)
         raise InitOracleDBError(err_msg)
     
+
+# 역할 : 패키지 의존성 분석 함수
+#
+# 매개변수 : 없음
+#
+# 반환값 : 
+#   - list : 패키지 의존성 리스트
+async def get_package_dependencies():
+    try:
+        neo4j = Neo4jConnection()
+        query =["""
+        MATCH (caller)-[r:EXT_CALL|INT_CALL]->(callee)
+        WHERE caller.object_name <> callee.object_name
+        RETURN DISTINCT caller.object_name as caller, 
+                        callee.object_name as callee
+        """]
+        
+        results = await neo4j.execute_queries(query)
+        
+        # 1. 모든 패키지와 그들이 호출하는 패키지 목록
+        calls = {}
+        all_packages = set()
+        
+        for record in results[0]:
+            caller, callee = record['caller'], record['callee']
+            if caller not in calls:
+                calls[caller] = set()
+            calls[caller].add(callee)
+            all_packages.add(caller)
+            all_packages.add(callee)
+            
+        # 2. 순서대로 처리
+        ordered = []
+        while all_packages:
+            # 아무것도 호출하지 않거나, 이미 처리된 패키지만 호출하는 패키지 찾기
+            next_packages = {
+                pkg for pkg in all_packages 
+                if pkg not in calls or calls[pkg].issubset(set(ordered))
+            }
+            ordered.extend(next_packages)
+            all_packages -= next_packages
+            
+        return ordered
+    
+    except Neo4jError as e:
+        raise e
+    except Exception as e:
+        err_msg = f"패키지 의존성 분석 중 오류 발생: {str(e)}"
+        logging.error(err_msg)
+        raise DependencyProcedureError(err_msg)
+    finally:
+        await neo4j.close()
 
 
 # 역할 : 테이블 데이터 삽입을 위한 INSERT 문 생성 함수

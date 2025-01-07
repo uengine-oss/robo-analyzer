@@ -96,7 +96,7 @@ async def generate_entity_class(entity_name: str, entity_code: str) -> None:
     try:
         # * 저장 경로 설정
         if os.getenv('DOCKER_COMPOSE_CONTEXT'):
-            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), ENTITY_PATH)
+            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', ENTITY_PATH)
         else:
             parent_workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             save_path = os.path.join(parent_workspace_dir, 'target', ENTITY_PATH)

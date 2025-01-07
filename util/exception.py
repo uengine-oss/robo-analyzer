@@ -213,3 +213,7 @@ class ExecutePlsqlError(FeedbackLoopError):
 class DecodeLogError(FeedbackLoopError):
     def __init__(self, message="로그 데이터 디코딩 중 오류가 발생했습니다."):
         super().__init__(message)
+
+class DependencyProcedureError(FeedbackLoopError):
+    def __init__(self, message="패키지 의존성 분석 중 오류가 발생했습니다."):
+        super().__init__(message)

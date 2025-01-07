@@ -7,7 +7,7 @@ from typing import Any, AsyncGenerator
 import zipfile
 import aiofiles
 import os
-from compare.create_init_sql import extract_procedure_params, generate_insert_sql
+from compare.create_init_sql import extract_procedure_params, generate_init_sql, generate_insert_sql, get_package_dependencies
 from compare.extract_log_info import clear_log_file, generate_given_when_then
 from compare.create_docker_compose_yml import generate_docker_compose_yml, process_docker_compose_yml, start_docker_compose_yml
 # from compare.create_init_sql import generate_init_sql
@@ -36,11 +36,19 @@ from util.file_utils import read_sequence_file
 from util.string_utils import add_line_numbers
 
 
-BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-PLSQL_DIR = os.path.join(BASE_DIR, "src")
-ANALYSIS_DIR = os.path.join(BASE_DIR, "analysis")
+# 환경에 따라 저장 경로 설정
+if os.getenv('DOCKER_COMPOSE_CONTEXT'):
+    BASE_DIR = os.getenv('DOCKER_COMPOSE_CONTEXT')
+else:
+    BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+# 공통 디렉토리 설정
+PLSQL_DIR = os.path.join(BASE_DIR, 'data',"src")
+ANALYSIS_DIR = os.path.join(BASE_DIR, 'data', "analysis")
 DDL_DIR = os.path.join(BASE_DIR, "data", "ddl")
 TARGET_DIR = os.path.join(BASE_DIR, 'target', 'java', 'demo', 'src', 'main', 'java', 'com', 'example', 'demo', 'command')
+
+# 디렉토리 생성
 os.makedirs(PLSQL_DIR, exist_ok=True)
 os.makedirs(ANALYSIS_DIR, exist_ok=True)
 os.makedirs(DDL_DIR, exist_ok=True)
@@ -445,9 +453,9 @@ async def process_comparison_result(test_cases: list):
         }, ensure_ascii=False).encode('utf-8') + b"send_stream"
 
         # * 테이블 이름을 기반으로 초기 데이터 삽입 SQL 생성과 docker-compose.yml 파일 생성 및 실행
-        # ! 패키지 간의 의존 관계 파악 필요
-        # await generate_init_sql(table_names, package_names)
-        # await process_docker_compose_yml(table_names)
+        package_names = await get_package_dependencies()
+        await generate_init_sql(table_names, package_names)
+        await process_docker_compose_yml(table_names)
 
         # * 각 테스트 케이스에 처리 진행 
         for test_case in test_cases:

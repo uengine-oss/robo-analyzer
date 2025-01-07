@@ -25,7 +25,7 @@ async def generate_controller_class(controller_skeleton: str, controller_class_n
 
         # * 저장 경로 설정
         if os.getenv('DOCKER_COMPOSE_CONTEXT'):
-            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), CONTROLLER_PATH)
+            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', CONTROLLER_PATH)
         else:
             project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             save_path = os.path.join(project_root, 'target', CONTROLLER_PATH)
