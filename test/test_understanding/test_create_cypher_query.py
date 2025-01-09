@@ -15,7 +15,8 @@ logging.getLogger('asyncio').setLevel(logging.ERROR)
 class TestCypherQueryGeneration(unittest.IsolatedAsyncioTestCase):
     async def test_generate_and_execute_cypher(self):
         
-        # * 테스트할 파일 이름과 프로시저 이름을 설정
+        # * 테스트할 파일 이름 및 유저 id와 프로시저 이름을 설정
+        user_id = "test_user_123"  # 임의의 user_id 값
         file_names = [
             ("TPX_UPDATE_SALARY.sql", "TPX_UPDATE_SALARY"),
             ("TPX_EMPLOYEE.sql", "TPX_EMPLOYEE"),
@@ -32,7 +33,7 @@ class TestCypherQueryGeneration(unittest.IsolatedAsyncioTestCase):
         ]
 
         # * 검증 로직 없이 함수 실행만 확인
-        async for _ in generate_and_execute_cypherQuery(file_names):
+        async for _ in generate_and_execute_cypherQuery(file_names, user_id):
             pass  
 
 if __name__ == '__main__':

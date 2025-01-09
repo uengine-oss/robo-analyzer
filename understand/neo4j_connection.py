@@ -1,6 +1,8 @@
 import logging
 from neo4j import AsyncGraphDatabase
 import os
+
+import numpy as np
 from util.exception import Neo4jError
 
 class Neo4jConnection:
@@ -8,6 +10,7 @@ class Neo4jConnection:
     database_name = "note"
 
     # 역할 : Neo4j 데이터베이스와의 연결을 초기화합니다. 환경변수를 통해 연결 정보를 설정하며, 설정되지 않은 경우 기본값을 사용합니다.
+    #
     # 매개변수:
     #   - uri: 데이터베이스 URI (기본값: "bolt://localhost:실제 포트 번호")
     #   - user: 데이터베이스 사용자 이름 (기본값: "neo4j")
@@ -26,11 +29,13 @@ class Neo4jConnection:
 
 
     # 역할: 여러 개의 사이퍼 쿼리를 순차적으로 실행하고 결과를 수집합니다.
+    #
     # 매개변수: 
     #   - queries: 실행할 사이퍼 쿼리 문자열의 리스트
+    #
     # 반환값: 
     #   - results: 각 쿼리의 실행 결과를 담은 리스트
-    async def execute_queries(self, queries):
+    async def execute_queries(self, queries: list) -> list:
         try:
             results = [] 
             async with self.__driver.session(database=self.database_name) as session:
@@ -46,22 +51,35 @@ class Neo4jConnection:
     
     
     # 역할: 그래프 데이터베이스의 노드와 관계를 시각화 가능한 형태로 조회합니다.
-    #      Variable 라벨을 가진 노드는 제외하고 조회합니다.
+    #
     # 매개변수: 
+    #   - package_names: 패키지 이름 목록
+    #   - user_id: 사용자 ID
     #   - custom_query: 사용자가 정의한 조회 쿼리 (선택적)
+    #
     # 반환값: 
     #   - graph_data: 노드와 관계 정보를 포함하는 그래프 데이터 딕셔너리
-    async def execute_query_and_return_graph(self, custom_query=None):
+    async def execute_query_and_return_graph(self, user_id: str, package_names: list, custom_query=None) -> dict:
         try:
-            default_query = custom_query or """
+            # * 패키지 별 노드를 가져오기 위한 정보를 추출
+            default_query = custom_query or f"""
             MATCH (n)-[r]->(m) 
             WHERE NOT n:Variable AND NOT n:PACKAGE_SPEC AND NOT n:FUNCTION_SPEC AND NOT n:PROCEDURE_SPEC AND NOT n:PACKAGE_VARIABLE
             AND NOT m:Variable AND NOT m:PACKAGE_SPEC AND NOT m:FUNCTION_SPEC AND NOT m:PROCEDURE_SPEC AND NOT m:PACKAGE_VARIABLE
+            AND n.object_name IN $package_names
+            AND m.object_name IN $package_names
+            AND n.userId = $user_id
+            AND m.userId = $user_id
             RETURN n, r, m
             """
-            
+
+            params = {
+                "package_names": package_names,
+                "user_id": user_id
+            }
+
             async with self.__driver.session(database=self.database_name) as session:
-                result = await session.run(default_query)
+                result = await session.run(default_query, params)
                 graph = await result.graph()
 
                 nodes_data = [
@@ -95,13 +113,15 @@ class Neo4jConnection:
 
 
     # 역할: 텍스트 유사도 기반으로 노드를 검색합니다.
+    #
     # 매개변수: 
     #   - search_text: 검색할 텍스트
     #   - similarity_threshold: 유사도 임계값 (기본값: 0.5)
     #   - limit: 반환할 최대 결과 수 (기본값: 5)
+    #
     # 반환값:
     #   - 유사도가 높은 순으로 정렬된 노드 목록
-    async def search_similar_nodes(self, search_vector, similarity_threshold=0.3, limit=15):
+    async def search_similar_nodes(self, search_vector: np.ndarray, similarity_threshold: float = 0.3, limit: int = 15) -> list:
         try:
             query = """
             MATCH (n)
@@ -140,5 +160,37 @@ class Neo4jConnection:
 
         except Exception as e:
             error_msg = f"유사도 검색 중 오류 발생: {str(e)}"
+            logging.exception(error_msg)
+            raise Neo4jError(error_msg)
+        
+
+    # 역할: 이전에 사용자가 생성한 노드 존재 여부를 확인합니다.
+    #
+    # 매개변수:
+    #   - user_id: 사용자 ID
+    #   - object_names: 객체 이름
+    #
+    # 반환값:
+    #   - node_exists: 노드 존재 여부 (True 또는 False)
+    async def node_exists(self, user_id: str, package_names: list) -> bool:
+        try:
+            query = """
+            MATCH (n:Node)
+            WHERE n.objectName IN $package_names
+            AND n.userId = $user_id
+            RETURN COUNT(n) > 0 AS exists
+            """
+
+            params = {
+                "package_names": package_names,
+                "user_id": user_id
+            }
+
+            async with self.__driver.session(database=self.database_name) as session:
+                result = await session.run(query, params)
+                record = await result.single()
+                return record["exists"]
+        except Exception as e:
+            error_msg = f"노드 존재 여부 확인 중 오류 발생: {str(e)}"
             logging.exception(error_msg)
             raise Neo4jError(error_msg)

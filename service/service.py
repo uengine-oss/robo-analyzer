@@ -58,16 +58,29 @@ os.makedirs(DDL_DIR, exist_ok=True)
 #
 # 매개변수:
 #   - file_names : 분석할 파일 이름과 객체 이름 튜플의 리스트
+#   - user_id : 사용자 ID
 #
 # 반환값: 
 #   - 스트림 : 그래프 데이터 (노드, 관계, 분석 진행률 등)
-# TODO 어떤 파일을 understanding 중인지 표시가 필요, ddl 처리 또한 표시 필요 
-async def generate_and_execute_cypherQuery(file_names):
+# TODO : type에 맞게 데이터 yield를 보내고, 프론트에서 처리가 필요 
+async def generate_and_execute_cypherQuery(file_names: list, user_id: str) -> AsyncGenerator[Any, None]:
     connection = Neo4jConnection()
     receive_queue = asyncio.Queue()
     send_queue = asyncio.Queue()
 
     try:
+        # * 패키지 별 노드를 가져오기 위한 정보를 추출
+        object_names = [name[1] for name in file_names]
+
+        # * 이전에 사용자가 생성한 노드 존재 여부를 확인
+        node_exists = await connection.node_exists(user_id, object_names)
+        if not node_exists:
+            graph_data = await connection.execute_query_and_return_graph(user_id, object_names)
+            stream_data = {"type": "DATA", "graph": graph_data, "line_number": 0, "analysis_progress": 100, "current_file": "Already Analyzed"}
+            yield json.dumps(stream_data).encode('utf-8') + b"send_stream"
+            return
+        
+
         # * 각 패키지 및 프로시저에 대한 understanding 시작
         for file_name, object_name in file_names:
             plsql_file_path = os.path.join(PLSQL_DIR, file_name)
@@ -78,22 +91,26 @@ async def generate_and_execute_cypherQuery(file_names):
             has_ddl_info = False
             ddl_results = None
 
+
             # * DDL 파일 존재 확인 및 처리
             if os.path.exists(ddl_file_path):
-                ddl_start = {"type": "DDL", "MESSAGE" : "START DDL PROCESSING", "file": ddl_file_name}
+                ddl_start = {"type": "ALARM", "MESSAGE" : "START DDL PROCESSING", "file": ddl_file_name}
                 yield json.dumps(ddl_start).encode('utf-8') + b"send_stream"
                 logging.info(f"DDL 파일 처리 시작: {ddl_file_name}")
                 ddl_results = await process_ddl_and_table_nodes(ddl_file_path, connection, object_name)  # DDL 파일 처리
                 has_ddl_info = True
 
+
             # * 스토어드 프로시저 파일과, ANTLR 구문 분석 파일 읽기 작업을 병렬로 처리
             async with aiofiles.open(antlr_file_path, 'r', encoding='utf-8') as antlr_file, aiofiles.open(plsql_file_path, 'r', encoding='utf-8') as plsql_file:
                 antlr_data, plsql_content = await asyncio.gather(antlr_file.read(), plsql_file.readlines())
+
 
                 # * PLSQL, Antlr 데이터 전처리
                 antlr_data = json.loads(antlr_data)
                 last_line = len(plsql_content)
                 plsql_content = add_line_numbers(plsql_content)
+
 
             # * 사이퍼쿼리를 생성 및 실행을 처리하는 메서드
             async def process_analysis_code():
@@ -117,22 +134,22 @@ async def generate_and_execute_cypherQuery(file_names):
 
                     # * 전달된 사이퍼쿼리를 실행하여, 노드와 관계를 생성하고, 그래프 객체형태로 가져옵니다
                     await connection.execute_queries(cypher_queries)
-                    graph_result = await connection.execute_query_and_return_graph()
+                    graph_result = await connection.execute_query_and_return_graph(user_id, object_names)
 
 
                     # * 그래프 객체, 다음 분석될 라인 번호, 분석 진행 상태를 묶어서 스트림 형태로 전달할 수 있게 처리합니다
-                    stream_data = {"graph": graph_result, "line_number": next_analysis_line, "analysis_progress": analysis_progress, "current_file": object_name}
+                    stream_data = {"type": "DATA", "graph": graph_result, "line_number": next_analysis_line, "analysis_progress": analysis_progress, "current_file": object_name}
                     encoded_stream_data = json.dumps(stream_data).encode('utf-8') + b"send_stream"
                     await send_queue.put({'type': 'process_completed'})
                     logging.info(f"Send Response for {file_name}")
                     yield encoded_stream_data
+
 
             # * understanding 과정을 비동기 태스크로 실행하고, 데이터 스트림 생성하여 전달
             analysis_task = asyncio.create_task(analysis(antlr_data, plsql_content, receive_queue, send_queue, last_line, object_name, ddl_results, has_ddl_info))
             async for stream_data_chunk in process_analysis_code():
                 yield stream_data_chunk
             await analysis_task
-        yield "end_of_stream" # * 스트림 종료 신호
 
     except UnderstandingError as e:
         yield json.dumps({"error": str(e)}).encode('utf-8') + b"send_stream"

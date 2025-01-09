@@ -13,31 +13,39 @@ router = APIRouter()
 
 
 # 역할: 전달받은 파일들을 분석하여 Neo4j 사이퍼 쿼리를 생성하고 실행합니다
+#
 # 매개변수:
 #   - request: 분석할 파일 정보가 담긴 요청 객체 (fileInfos: [{fileName, objectName}, ...])
+#
 # 반환값: 
 #   - StreamingResponse: Neo4j 그래프 데이터 스트림
 @router.post("/cypherQuery/")
 async def understand_data(request: Request):    
     try:
+        user_id = request.headers.get('User-ID')
+        if not user_id:
+            raise HTTPException(status_code=400, detail="사용자 ID가 없습니다.")
+
         file_data = await request.json()
-        logging.info("Received Files Info: %s", file_data)
+        if not file_data:
+            raise HTTPException(status_code=400, detail="파일 정보가 없습니다.")
 
         file_names = [(item['fileName'], item['objectName']) for item in file_data['fileInfos']]
+        logging.info("User ID: %s, File Infos: %s", user_id, file_names)
         
-        if not file_names:
-            raise HTTPException(status_code=400, detail="파일 정보가 없습니다.")
-        
+        return StreamingResponse(generate_and_execute_cypherQuery(file_names, user_id))
+    
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Understanding에 실패했습니다: {str(e)}")
 
-    return StreamingResponse(generate_and_execute_cypherQuery(file_names))
 
 
 
 # 역할: 선택된 테이블 노드를 중심으로 2단계 깊이까지의 연관 노드들을 조회하여 자바 코드로 변환합니다
+#
 # 매개변수: 
 #   - request: 선택된 테이블 노드 정보가 담긴 요청 객체
+#
 # 반환값: 
 #   - StreamingResponse: 생성된 자바 코드 스트림
 # TODO FRONT에서 값이 전달이 제대로 안되고 있습니다.
@@ -48,11 +56,11 @@ async def convert_simple_java(request: Request):
         node_info = await request.json()
         logging.info("Received Node Info for Java: %s", node_info)  
         cypher_query_for_java = await generate_two_depth_match(node_info)
+        return StreamingResponse(generate_simple_java_code(cypher_query_for_java))
 
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"테이블 노드 기준으로 자바 코드 생성에 실패했습니다: {str(e)}")
 
-    return StreamingResponse(generate_simple_java_code(cypher_query_for_java))
     
 
 
