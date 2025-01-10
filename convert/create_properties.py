@@ -4,7 +4,7 @@ from util.exception import AplPropertiesCreationError, SaveFileError
 from util.file_utils import save_file
 
 PROPERTIES_FILE_NAME = "application.properties"
-PROPERTIES_PATH = 'java/demo/src/main/resources'
+PROPERTIES_PATH = 'demo/src/main/resources'
 
 # JPA 템플릿
 JPA_PROPERTIES_TEMPLATE = """spring.application.name=demo
@@ -40,19 +40,22 @@ logging.level.com.example.demo.mapper=TRACE"""
 #     
 # 매개변수:
 #   - orm_type : 사용할 ORM 유형 (jpa, mybatis)
-async def start_APLproperties_processing(orm_type: str):
+#   - user_id : 사용자 ID
+async def start_APLproperties_processing(orm_type: str, user_id:str):
     logging.info("application.properties 생성을 시작합니다.")
 
     try:
         # * 템플릿 선택
         properties_template = JPA_PROPERTIES_TEMPLATE if orm_type == 'jpa' else MYBATIS_PROPERTIES_TEMPLATE
 
+
         # * 저장 경로 설정
         if os.getenv('DOCKER_COMPOSE_CONTEXT'):
-            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', PROPERTIES_PATH)
+            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', 'java', user_id, PROPERTIES_PATH)
         else:
             parent_workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            save_path = os.path.join(parent_workspace_dir, 'target', PROPERTIES_PATH)
+            save_path = os.path.join(parent_workspace_dir, 'target', 'java', user_id, PROPERTIES_PATH)
+
 
         # * application.properties 파일 생성
         await save_file(

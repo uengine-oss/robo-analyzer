@@ -11,7 +11,7 @@ from util.file_utils import save_file
 from util.string_utils import convert_to_camel_case, convert_to_pascal_case
 
 encoder = tiktoken.get_encoding("cl100k_base")
-JAVA_PATH = 'java/demo/src/main/java/com/example/demo'
+JAVA_PATH = 'demo/src/main/java/com/example/demo'
 
 
 # 역할: 스프링부트 서비스 클래스의 기본 골격을 생성합니다.
@@ -32,18 +32,18 @@ async def generate_service_skeleton(object_name: str, entity_name_list: list, co
         global_fields = []
         sections = []
 
-        # * 1. 서비스 클래스명 생성 및 전역 변수를 클래스 필드로 전환 
+        # * 서비스 클래스명 생성 및 전역 변수를 클래스 필드로 전환 
         service_class_name = convert_to_pascal_case(object_name) + "Service"
 
 
-        # * 2. 글로벌 변수를 클래스 필드로 변환
+        # * 글로벌 변수를 클래스 필드로 변환
         if converted_global_variables:
             for var in converted_global_variables["variables"]:
                 field = f"    private {var['javaType']} {var['javaName']} = {var['value']};"
                 global_fields.append(field)
 
 
-        # * 3. Autowired 주입 로직 및 필드 생성
+        # * Autowired 주입 로직 및 필드 생성
         if global_fields:
             sections.append('\n'.join(global_fields))
         if entity_name_list:
@@ -52,13 +52,15 @@ async def generate_service_skeleton(object_name: str, entity_name_list: list, co
             sections.append('\n'.join(f'    @Autowired\n    private {convert_to_pascal_case(package_name)}Service {convert_to_camel_case(package_name)}Service;' for package_name in external_call_package_names))
 
 
-        # * 4 섹션들을 하나의 줄바꿈으로 연결하고, strip()으로 양쪽 공백 제거
+        # * 섹션들을 하나의 줄바꿈으로 연결하고, strip()으로 양쪽 공백 제거
         class_content = "\n\n".join(sections).strip()
         
-        # * 5 파라미터가 있는 경우 커맨드 패키지 임포트 추가
+
+        # * 파라미터가 있는 경우 커맨드 패키지 임포트 추가
         command_import = f"import com.example.demo.command.{dir_name}.*;\n" if exist_command_class else ""
 
-        # * 6. 서비스 클래스 템플릿 생성
+
+        # * 서비스 클래스 템플릿 생성
         service_class_template = f"""package com.example.demo.service;
 
 {chr(10).join(f'import com.example.demo.entity.{entity};' for entity in entity_name_list)}
@@ -102,6 +104,7 @@ CodePlaceHolder
 #   - parameter_data: 입력 매개변수 관련 정보
 #   - node_type: 대상 노드의 유형
 #   - dir_name: 커맨드 클래스가 저장될 디렉토리 이름
+#   - user_id : 사용자 ID
 #
 # 반환값: 
 #   - command_class_variable: 커맨드 클래스에 정의된 필드 정보 (함수인 경우 None)
@@ -109,19 +112,18 @@ CodePlaceHolder
 #   - method_skeleton_name: 생성된 서비스 메서드명
 #   - method_skeleton_code: 생성된 메서드 구현 코드
 #   - method_signature: 생성된 메서드 시그니처
-async def process_method_and_command_code(method_skeleton_data: dict, parameter_data: dict, node_type: str, dir_name: str) -> tuple:
-
+async def process_method_and_command_code(method_skeleton_data: dict, parameter_data: dict, node_type: str, dir_name: str, user_id: str) -> tuple:
+    command_class_variable = None
+    command_class_name = None
+    
     try:
-        command_class_variable = None
-        command_class_name = None
-        
         # * 파라미터가 있는 프로시저인 경우 커맨드 클래스 생성
         if node_type != 'FUNCTION' and parameter_data['parameters']:
             analysis_command = convert_command_code(parameter_data, dir_name)  
             command_class_name = analysis_command['commandName']
             command_class_code = analysis_command['command']
             command_class_variable = analysis_command['command_class_variable']              
-            await generate_command_class(command_class_name, command_class_code, dir_name)
+            await generate_command_class(command_class_name, command_class_code, dir_name, user_id)
 
 
         # * 메서드 틀 생성에 필요한 정보를 받습니다.
@@ -129,6 +131,7 @@ async def process_method_and_command_code(method_skeleton_data: dict, parameter_
         method_skeleton_name = analysis_method['methodName']
         method_skeleton_code = analysis_method['method']
         method_signature = analysis_method['methodSignature']
+
 
         return (
             command_class_variable,
@@ -152,19 +155,21 @@ async def process_method_and_command_code(method_skeleton_data: dict, parameter_
 #   - class_name: 저장할 자바 클래스명 (확장자 제외)
 #   - source_code: 저장할 자바 소스 코드 내용
 #   - dir_name: 커맨드 클래스가 저장될 디렉토리 이름
-async def generate_command_class(class_name: str, source_code: str, dir_name: str) -> None:
+#   - user_id : 사용자 ID
+async def generate_command_class(class_name: str, source_code: str, dir_name: str, user_id: str) -> None:
 
     try:
         # * 저장 경로 설정
         if os.getenv('DOCKER_COMPOSE_CONTEXT'):
-            base_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', JAVA_PATH, 'command', dir_name)
+            base_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', 'java', user_id, JAVA_PATH, 'command', dir_name)
         else:
             parent_workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            base_path = os.path.join(parent_workspace_dir, 'target', JAVA_PATH, 'command', dir_name)
+            base_path = os.path.join(parent_workspace_dir, 'target', 'java', user_id, JAVA_PATH, 'command', dir_name)
+
 
         # * 커맨드 클래스 파일로 생성합니다.
         await save_file(content=source_code, filename=f"{class_name}.java", base_path=base_path)
-            
+
     except SaveFileError:
         raise
     except Exception as e:
@@ -211,8 +216,10 @@ async def get_procedure_groups(connection: Neo4jConnection, object_name: str) ->
             RETURN ext"""
         ]
         
+
         # * 쿼리 실행 및 결과 할당
         procedure_nodes, external_call_nodes = await connection.execute_queries(query)
+        
         
         # * 프로시저 데이터 구조화
         procedure_groups = {}
@@ -267,13 +274,14 @@ async def get_procedure_groups(connection: Neo4jConnection, object_name: str) ->
 #   - required_entities: 서비스에서 사용할 엔티티 클래스명 목록
 #   - service_base_name: 서비스 클래스명의 기반이 될 객체 이름
 #   - global_variables: 전역 변수 목록
+#   - user_id : 사용자 ID
 #
 # 반환값: 
 #   - service_components: 생성된 서비스 구성요소 목록 (커맨드 클래스, 메서드 등)
 #   - service_template: 서비스 클래스의 기본 템플릿 코드
 #   - service_class_name: 생성된 서비스 클래스명
 #   - exist_command_class: 커맨드 클래스가 존재하는지 여부
-async def start_service_skeleton_processing(entity_name_list: list, object_name: str, global_variables: list) -> tuple[list, str, str, bool]:
+async def start_service_skeleton_processing(entity_name_list: list, object_name: str, global_variables: list, user_id: str) -> tuple[list, str, str, bool]:
 
     connection = Neo4jConnection()
     dir_name = convert_to_camel_case(object_name)
@@ -313,6 +321,7 @@ async def start_service_skeleton_processing(entity_name_list: list, object_name:
                 'declaration': proc_data['declaration']
             }
             
+            # * 파라미터 데이터 준비
             parameter_data = {
                 'parameters': proc_data['parameters'],
                 'procedure_name': proc_name
@@ -323,7 +332,8 @@ async def start_service_skeleton_processing(entity_name_list: list, object_name:
                 method_skeleton_data,
                 parameter_data,
                 proc_data['node_type'],
-                dir_name
+                dir_name,
+                user_id
             )
 
 

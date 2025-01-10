@@ -42,35 +42,42 @@ if os.getenv('DOCKER_COMPOSE_CONTEXT'):
 else:
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-# 공통 디렉토리 설정
-PLSQL_DIR = os.path.join(BASE_DIR, 'data',"src")
-ANALYSIS_DIR = os.path.join(BASE_DIR, 'data', "analysis")
-DDL_DIR = os.path.join(BASE_DIR, "data", "ddl")
-TARGET_DIR = os.path.join(BASE_DIR, 'target', 'java', 'demo', 'src', 'main', 'java', 'com', 'example', 'demo', 'command')
 
-# 디렉토리 생성
-os.makedirs(PLSQL_DIR, exist_ok=True)
-os.makedirs(ANALYSIS_DIR, exist_ok=True)
-os.makedirs(DDL_DIR, exist_ok=True)
-
-
-# 역할: Neo4j에서 노드와 관계를 조회하여 그래프 데이터를 스트림 형태로 반환합니다.
+# 역할: 사용자 ID를 기반으로 디렉토리 경로를 반환합니다.
 #
 # 매개변수:
-#   - file_names : 분석할 파일 이름과 객체 이름 튜플의 리스트
+#   - user_id: 사용자 ID
+#
+# 반환값:
+#   - 디렉토리 경로 딕셔너리
+def get_user_directories(user_id: str):
+    user_base = os.path.join(BASE_DIR, 'data', user_id)
+    return {
+        'plsql': os.path.join(user_base, "src"),
+        'analysis': os.path.join(user_base, "analysis"),
+        'ddl': os.path.join(user_base, "ddl"),
+        'target': os.path.join(BASE_DIR, 'target', 'java', user_id, 'demo', 'src', 'main', 'java', 'com', 'example', 'demo', 'command')
+    }
+
+
+# 역할: Understanding 과정에서 생성된 사이퍼쿼리를 실행한 결과를 그래프 데이터를 스트림 형태로 반환합니다.
+#
+# 매개변수:
+#   - file_names : 분석할 파일 이름과 객체 이름
 #   - user_id : 사용자 ID
 #
 # 반환값: 
 #   - 스트림 : 그래프 데이터 (노드, 관계, 분석 진행률 등)
-# TODO : type에 맞게 데이터 yield를 보내고, 프론트에서 처리가 필요 
 async def generate_and_execute_cypherQuery(file_names: list, user_id: str) -> AsyncGenerator[Any, None]:
     connection = Neo4jConnection()
     receive_queue = asyncio.Queue()
     send_queue = asyncio.Queue()
+    dirs = get_user_directories(user_id)
 
     try:
         # * 패키지 별 노드를 가져오기 위한 정보를 추출
         object_names = [name[1] for name in file_names]
+
 
         # * 이전에 사용자가 생성한 노드 존재 여부를 확인
         node_exists = await connection.node_exists(user_id, object_names)
@@ -83,26 +90,26 @@ async def generate_and_execute_cypherQuery(file_names: list, user_id: str) -> As
 
         # * 각 패키지 및 프로시저에 대한 understanding 시작
         for file_name, object_name in file_names:
-            plsql_file_path = os.path.join(PLSQL_DIR, file_name)
+            plsql_file_path = os.path.join(dirs['plsql'], file_name)
             base_name = os.path.splitext(file_name)[0]
-            antlr_file_path = os.path.join(ANALYSIS_DIR, f"{base_name}.json")
+            analysis_file_path = os.path.join(dirs['analysis'], f"{base_name}.json")
             ddl_file_name = file_name.replace('TPX_', 'TPJ_')
-            ddl_file_path = os.path.join(DDL_DIR, ddl_file_name)
+            ddl_file_path = os.path.join(dirs['ddl'], ddl_file_name)
             has_ddl_info = False
             ddl_results = None
 
 
-            # * DDL 파일 존재 확인 및 처리
+            # * 처리할 DDL 파일 존재 확인 및 처리
             if os.path.exists(ddl_file_path):
                 ddl_start = {"type": "ALARM", "MESSAGE" : "START DDL PROCESSING", "file": ddl_file_name}
                 yield json.dumps(ddl_start).encode('utf-8') + b"send_stream"
                 logging.info(f"DDL 파일 처리 시작: {ddl_file_name}")
-                ddl_results = await process_ddl_and_table_nodes(ddl_file_path, connection, object_name)  # DDL 파일 처리
+                ddl_results = await process_ddl_and_table_nodes(ddl_file_path, connection, object_name, user_id)  # DDL 파일 처리
                 has_ddl_info = True
 
 
             # * 스토어드 프로시저 파일과, ANTLR 구문 분석 파일 읽기 작업을 병렬로 처리
-            async with aiofiles.open(antlr_file_path, 'r', encoding='utf-8') as antlr_file, aiofiles.open(plsql_file_path, 'r', encoding='utf-8') as plsql_file:
+            async with aiofiles.open(analysis_file_path, 'r', encoding='utf-8') as antlr_file, aiofiles.open(plsql_file_path, 'r', encoding='utf-8') as plsql_file:
                 antlr_data, plsql_content = await asyncio.gather(antlr_file.read(), plsql_file.readlines())
 
 
@@ -146,7 +153,7 @@ async def generate_and_execute_cypherQuery(file_names: list, user_id: str) -> As
 
 
             # * understanding 과정을 비동기 태스크로 실행하고, 데이터 스트림 생성하여 전달
-            analysis_task = asyncio.create_task(analysis(antlr_data, plsql_content, receive_queue, send_queue, last_line, object_name, ddl_results, has_ddl_info))
+            analysis_task = asyncio.create_task(analysis(antlr_data, plsql_content, receive_queue, send_queue, last_line, object_name, ddl_results, has_ddl_info, user_id))
             async for stream_data_chunk in process_analysis_code():
                 yield stream_data_chunk
             await analysis_task
@@ -161,23 +168,27 @@ async def generate_and_execute_cypherQuery(file_names: list, user_id: str) -> As
         await connection.close()
 
 
-# 역할: DDL 파일을 읽어서 테이블 구조를 분석하고 Neo4j 그래프 데이터베이스에 저장합니다
+# 역할: 처리할 DDL 파일을 읽어서 테이블 구조를 분석하고 Neo4j 그래프 데이터베이스에 저장합니다
 #
 # 매개변수:
 #   - ddl_file_path: DDL 파일의 경로
 #   - connection: Neo4j 데이터베이스 연결 객체
-#   - object_name: 프로시저 이름
+#   - object_name: 패키지 이름
+#   - user_id: 사용자 ID
 #
 # 반환값:
 #   - ddl_result: 분석된 테이블 구조 정보 (테이블명, 컬럼, 키 정보 등)
-async def process_ddl_and_table_nodes(ddl_file_path, connection: Neo4jConnection, object_name):
+async def process_ddl_and_table_nodes(ddl_file_path: str, connection: Neo4jConnection, object_name: str, user_id: str):
     
     try:
+        # * 처리할 DDL 파일 읽기
         async with aiofiles.open(ddl_file_path, 'r', encoding='utf-8') as ddl_file:
             ddl_content = await ddl_file.read()
             ddl_result = understand_ddl(ddl_content)
             cypher_queries = []
             
+            
+            # * 테이블 구조 분석 결과를 반복하여 각 테이블에 대한 사이퍼쿼리 생성
             for table in ddl_result['analysis']:
 
                 # * 테이블의 기본 정보 추출 (이름, 컬럼, 키 정보)
@@ -185,10 +196,10 @@ async def process_ddl_and_table_nodes(ddl_file_path, connection: Neo4jConnection
                 columns = table['columns']
                 keys = table['keys']
             
-                
                 # * 테이블의 메타 정보를 Neo4j 노드 속성으로 구성
                 props = {
                     'name': table_info['name'],
+                    'user_id': user_id,
                     'primary_keys': ','.join(key for key in keys['primary']),
                     'foreign_keys': ','.join(fk['column'] for fk in keys['foreign']),
                     'reference_tables': ','.join(
@@ -202,13 +213,13 @@ async def process_ddl_and_table_nodes(ddl_file_path, connection: Neo4jConnection
                 for col in columns:
                     col_name = col['name']
                     props[col_name] = f"{col_name}§{col['type']}§nullable:{str(col['nullable']).lower()}"
-
-                                
+        
                 # * Neo4j 테이블 노드 생성 쿼리 구성
                 props_str = ', '.join(f"`{k}`: '{v}'" for k, v in props.items())
                 query = f"CREATE (t:Table {{{props_str}}})"
                 cypher_queries.append(query)
             
+
             # * 생성된 모든 테이블 노드 쿼리를 실행
             await connection.execute_queries(cypher_queries)
             logging.info(f"DDL 파일 처리 완료: {object_name}")
@@ -226,17 +237,17 @@ async def process_ddl_and_table_nodes(ddl_file_path, connection: Neo4jConnection
 #
 # 매개변수: 
 #   - node_info : 중심이 되는 노드의 식별 정보
+#   - user_id : 사용자 ID
 #
 # 반환값: 
 #   - graph_object_result : 2단계 깊이까지의 서브그래프 데이터
-async def generate_two_depth_match(node_info):
+async def generate_two_depth_match(node_info: str, user_id: str):
+    connection = Neo4jConnection()
+    
     try:
-        connection = Neo4jConnection()
-        
-
         # * 주어진 노드 ID로부터 두 단계 깊이의 노드와 관계를 조회하는 사이퍼쿼리를 준비합니다
         query = f"""
-        MATCH path = (n {{name: '{node_info}'}})-[*1..2]-(related)
+        MATCH path = (n {{name: '{node_info}', user_id: '{user_id}'}})-[*1..2]-(related)
         RETURN n, relationships(path), related
         """
 
@@ -283,11 +294,13 @@ async def generate_simple_java_code(cypher_query=None, previous_history=None, re
 # 매개변수: 
 #   - file_names : 변환할 파일 이름과 객체 이름 튜플의 리스트
 #   - orm_type : 사용할 ORM 유형 (JPA, MyBatis 등)
+#   - user_id : 사용자 ID
 #
 # 반환값: 
 #   - 스트림 : 각 변환 단계의 진행 상태 메시지
-async def generate_spring_boot_project(file_names: list, orm_type: str) -> AsyncGenerator[Any, None]:
+async def generate_spring_boot_project(file_names: list, orm_type: str, user_id: str) -> AsyncGenerator[Any, None]:
     try:
+        # * 패키지 이름 별로, 각 단계를 처리합니다
         for file_name, object_name in file_names:
             merge_method_code = ""
             merge_controller_method_code = ""
@@ -298,26 +311,26 @@ async def generate_spring_boot_project(file_names: list, orm_type: str) -> Async
 
 
             # * 시퀀스 파일을 읽어 시퀀스 목록을 반환합니다
-            sequence_data = await read_sequence_file(object_name)
+            sequence_data = await read_sequence_file(object_name, user_id)
 
 
             # * 1 단계 : 엔티티 클래스 생성
-            entity_name_list, entity_code_dict = await start_entity_processing(object_name, orm_type) 
+            entity_name_list, entity_code_dict = await start_entity_processing(object_name, orm_type, user_id) 
             yield f"{file_name}-Step1 completed\n"
             
 
             # * 2 단계 : 리포지토리 인터페이스 생성
-            used_query_methods, global_variables, all_query_methods, sequence_methods = await start_repository_processing(object_name, sequence_data, orm_type) 
+            used_query_methods, global_variables, all_query_methods, sequence_methods = await start_repository_processing(object_name, sequence_data, orm_type, user_id) 
             yield f"{file_name}-Step2 completed\n"
             
 
             # * 2.5 단계 : MyBatis XML 매퍼 생성 (MyBatis 전용)
             if orm_type == 'mybatis':
-                await start_mybatis_mapper_processing(entity_code_dict, all_query_methods)
+                await start_mybatis_mapper_processing(entity_code_dict, all_query_methods, user_id)
 
 
             # * 3 단계 : 서비스, 컨트롤러 스켈레톤 생성
-            service_creation_info, service_skeleton, service_class_name, exist_command_class = await start_service_skeleton_processing(entity_name_list, object_name, global_variables)
+            service_creation_info, service_skeleton, service_class_name, exist_command_class = await start_service_skeleton_processing(entity_name_list, object_name, global_variables, user_id)
             controller_skeleton, controller_class_name = await start_controller_skeleton_processing(object_name, exist_command_class)
             yield f"{file_name}-Step3 completed\n"
 
@@ -332,7 +345,8 @@ async def generate_spring_boot_project(file_names: list, orm_type: str) -> Async
                     used_query_methods, 
                     object_name,
                     sequence_methods,
-                    orm_type
+                    orm_type,
+                    user_id
                 )
 
                 await start_validate_service_preprocessing(
@@ -343,14 +357,16 @@ async def generate_spring_boot_project(file_names: list, orm_type: str) -> Async
                     used_query_methods, 
                     object_name,
                     sequence_methods,
-                    orm_type
+                    orm_type,
+                    user_id
                 )
 
                 merge_method_code = await start_service_postprocessing(
                     service_data['method_skeleton_code'],
                     service_data['procedure_name'],
                     object_name,
-                    merge_method_code
+                    merge_method_code,
+                    user_id
                 )
 
                 merge_controller_method_code = await start_controller_processing(
@@ -366,26 +382,27 @@ async def generate_spring_boot_project(file_names: list, orm_type: str) -> Async
 
 
             # * 서비스 및 컨트롤러 클래스 생성
-            await generate_service_class(service_skeleton, service_class_name, merge_method_code)            
-            await generate_controller_class(controller_skeleton, controller_class_name, merge_controller_method_code)            
+            await generate_service_class(service_skeleton, service_class_name, merge_method_code, user_id)            
+            await generate_controller_class(controller_skeleton, controller_class_name, merge_controller_method_code, user_id)            
+            
             
             # * 서비스 클래스 라인 범위 추출하여 노드에 할당
-            await find_service_line_ranges(object_name, service_class_name)
+            await find_service_line_ranges(object_name, service_class_name, user_id)
             yield f"{file_name}-Step4 completed\n"
 
 
         # * 5 단계 : pom.xml 생성
-        await start_pomxml_processing(orm_type)
+        await start_pomxml_processing(orm_type, user_id)
         yield f"{file_name}-Step5 completed\n"
         
 
         # * 6 단계 : application.properties 생성
-        await start_APLproperties_processing(orm_type)
+        await start_APLproperties_processing(orm_type, user_id)
         yield f"Step6 completed\n"
 
 
         # * 7 단계 : StartApplication.java 생성
-        await start_main_processing(orm_type)
+        await start_main_processing(orm_type, user_id)
         yield f"Step7 completed\n"
         yield f"Completed Converting {file_name}.\n\n"
 
@@ -400,11 +417,10 @@ async def generate_spring_boot_project(file_names: list, orm_type: str) -> Async
 
 
 # 역할: 생성된 스프링 부트 프로젝트를 ZIP 파일로 압축합니다.
-#      프로젝트의 전체 구조를 유지하면서 압축 파일을 생성합니다.
+#
 # 매개변수: 
 #   - source_directory : 압축할 프로젝트 디렉토리 경로
 #   - output_zip_path : 생성될 ZIP 파일 경로
-# 반환값: 없음
 async def process_project_zipping(source_directory, output_zip_path):
     try:
         # * zipfile 모듈을 사용하여 ZIP 파일 생성
@@ -425,23 +441,36 @@ async def process_project_zipping(source_directory, output_zip_path):
     
 
 # 역할: 임시 생성된 모든 파일과 Neo4j 데이터를 정리합니다.
-#      다음 변환 작업을 위해 작업 환경을 초기화합니다.
+#
 # 매개변수: 
 #   - delete_paths : 삭제할 디렉토리 경로들이 담긴 딕셔너리
 #       - docker 환경: {'java_dir': 경로, 'zip_dir': 경로}
 #       - 로컬 환경: {'target_dir': 경로, 'zip_dir': 경로}
-async def delete_all_temp_data(delete_paths: dict):
+async def delete_all_temp_data(delete_paths: dict, user_id:str):
+    neo4j = Neo4jConnection()
+    
     try:
-        neo4j = Neo4jConnection()
-        for dir_path in delete_paths.values():
+        # * 삭제할 사용자 기본 디렉토리 경로 설정
+        user_base_dir = os.path.join(BASE_DIR, 'data', user_id)
+        user_target_dir = os.path.join(BASE_DIR, 'target', 'java', user_id)
+        
+        
+        # * 삭제할 디렉토리 목록
+        dirs_to_delete = [user_base_dir, user_target_dir]
+
+
+        # * 디렉토리 삭제 및 재생성
+        for dir_path in dirs_to_delete:
             if os.path.exists(dir_path):
                 shutil.rmtree(dir_path)
                 os.makedirs(dir_path)
                 logging.info(f"디렉토리 삭제 및 재생성 완료: {dir_path}")
         
-        delete_query = ["MATCH (n) DETACH DELETE n"] 
+        
+        # * Neo4j 데이터 삭제 (해당 사용자의 데이터만 삭제)
+        delete_query = [f"MATCH (n {{user_id: '{user_id}'}}) DETACH DELETE n"]
         await neo4j.execute_queries(delete_query)
-        logging.info(f"Neo4J 데이터 초기화 완료")
+        logging.info(f"Neo4J 데이터 초기화 완료 - User ID: {user_id}")
     
     except Neo4jError:
         raise
@@ -452,16 +481,18 @@ async def delete_all_temp_data(delete_paths: dict):
     
 
 # 역할: 주어진 PL/SQL 파일을 기반으로 JUnit 테스트 코드를 생성하고, 필요한 데이터를 Neo4j에서 가져옵니다.
+#
 # 매개변수:
-#   - main_file_name: 처리할 메인 파일의 이름 (예: "TPX_UPDATE_SALARY.sql")
-# 반환값: 없음
+#   - test_cases: 테스트 케이스 목록
+#   - user_id: 사용자 ID
 # TODO 리팩토링 필요 
-async def process_comparison_result(test_cases: list):
+async def process_comparison_result(test_cases: list, user_id: str):
     try:
         # * 모든 테스트 케이스에서 사용된 테이블 이름을 추출하여 집합으로 저장
         table_names = list({table for case in test_cases for table in case['tableFields'].keys()})
         delete_statements = [f"DELETE FROM {table_name}" for table_name in table_names]
         test_class_names = []
+
 
         # * docker-compose.yml 파일 생성 및 실행 상태 전송
         yield json.dumps({
@@ -469,10 +500,12 @@ async def process_comparison_result(test_cases: list):
             "message": "Docker 환경 구성 시작"
         }, ensure_ascii=False).encode('utf-8') + b"send_stream"
 
+
         # * 테이블 이름을 기반으로 초기 데이터 삽입 SQL 생성과 docker-compose.yml 파일 생성 및 실행
-        package_names = await get_package_dependencies()
+        package_names = await get_package_dependencies(user_id)
         await generate_init_sql(table_names, package_names)
         await process_docker_compose_yml(table_names)
+
 
         # * 각 테스트 케이스에 처리 진행 
         for test_case in test_cases:
@@ -518,7 +551,7 @@ async def process_comparison_result(test_cases: list):
             await execute_sql(delete_statements)
 
         # * 테스트 코드 실행하는 메서드 호출
-        async for result in execute_maven_commands(test_class_names, given_when_then_log):
+        async for result in execute_maven_commands(test_class_names, given_when_then_log, user_id):
             yield result
 
     except FeedbackLoopError as e:
@@ -530,16 +563,20 @@ async def process_comparison_result(test_cases: list):
 
 
 # 역할 : Neo4j에서 테스트 검증을 위한 초기 노드 정보를 조회하여 반환합니다
-# 매개변수 : 없음
+#
+# 매개변수 :
+#   - user_id : 사용자 ID
+#
 # 반환값 : 노드 정보 데이터
-async def get_node_info_from_neo4j():
+async def get_node_info_from_neo4j(user_id: str):
+    neo4j = Neo4jConnection()
+    
     try:
-        neo4j = Neo4jConnection()
-        # 모든 쿼리를 리스트로 구성
+        # * 모든 쿼리를 리스트로 구성
         queries = [
-            """
-            MATCH (t:Table)
-            RETURN COLLECT({
+            f"""
+            MATCH (t:Table {{user_id: '{user_id}'}})
+            RETURN COLLECT({{
                 name: t.name,
                 fields: [key IN keys(t) 
                     WHERE key <> 'name' 
@@ -551,33 +588,38 @@ async def get_node_info_from_neo4j():
                     AND key <> 'reference_tables'
                     | t[key]
                 ] 
-            }) as tables
+            }}) as tables
             """,
-            """
-            MATCH (r:ROOT)
-            RETURN COLLECT({
+            f"""
+            MATCH (r:ROOT {{user_id: '{user_id}'}})
+            RETURN COLLECT({{
                 object_name: r.object_name
-            }) as roots
+            }}) as roots
             """,
-            """
+            f"""
             MATCH (n)-[:PARENT_OF]->(s:SPEC)-[:SCOPE]->(v:Variable)
             WHERE n:PROCEDURE OR n:FUNCTION OR n:CREATE_PROCEDURE_BODY
-            WITH n, collect({name: v.name, type: v.type}) as vars
-            RETURN COLLECT({
+            AND n.user_id = '{user_id}'
+            WITH n, collect({{name: v.name, type: v.type}}) as vars
+            RETURN COLLECT({{
                 procedure_name: n.procedure_name,
                 object_name: n.object_name,
                 variables: vars
-            }) as procedures
-            """
+            }}) as procedures
+            """,    
         ]
 
+
+        # * 테스트를 위한 노드를 가져오는 쿼리 실행
         results = await neo4j.execute_queries(queries)
         
+
         return {
             "table": results[0][0]['tables'],
             "root": results[1][0]['roots'],
             "procedure": results[2][0]['procedures']
         }
+    
     except Exception as e:
         err_msg = f"Neo4j에서 노드 정보를 가져오는데 실패했습니다: {str(e)}"
         logging.error(err_msg)

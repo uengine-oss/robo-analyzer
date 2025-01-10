@@ -7,7 +7,7 @@ from util.exception import ConvertingError, FilePathError, ProcessResultError, S
 from util.file_utils import save_file
 
 encoder = tiktoken.get_encoding("cl100k_base")
-SERVICE_PATH = 'java/demo/src/main/java/com/example/demo/service'
+SERVICE_PATH = 'demo/src/main/java/com/example/demo/service'
 
 
 # 역할: 토큰 수가 1700개 이상인 큰 부모 노드의 요약된 코드를 실제 자식 노드들의 코드로 대체하는 함수입니다.
@@ -17,35 +17,40 @@ SERVICE_PATH = 'java/demo/src/main/java/com/example/demo/service'
 #   - summarized_java_code : 자식 노드들이 "...code..."로 요약된 부모 노드의 Java 코드
 #   - connection : Neo4j 데이터베이스 연결 객체
 #   - object_name : 현재 처리 중인 패키지/프로시저의 식별자
+#   - user_id : 사용자 ID
 #
 # 반환값: 
 #   - summarized_java_code : 모든 자식 노드의 실제 코드로 대체된 완성된 Java 코드
 # TODO 프로시저 별 처리 필요 및 엄청 큰 TRY 노드 처리 필요(프롬포트 수정)
-async def process_big_size_node(node_startLine:int, summarized_java_code:str, connection:Neo4jConnection, object_name:str) -> str:
+async def process_big_size_node(node_startLine:int, summarized_java_code:str, connection:Neo4jConnection, object_name:str, user_id:str) -> str:
     try:
+        # * 자식 노드 조회 쿼리 생성
         query = [
             f"MATCH (n)-[r:PARENT_OF]->(m) "
             f"WHERE n.startLine = {node_startLine} "
             f"AND n.object_name = '{object_name}' "
             f"AND m.object_name = '{object_name}' "
+            f"AND n.user_id = '{user_id}' "
+            f"AND m.user_id = '{user_id}' "
             f"RETURN m"
         ]
         
+
+        # * 자식 노드 조회하는 쿼리 실행
         child_node_list = await connection.execute_queries(query)
+
 
         # * 각 자식 노드의 코드를 부모 코드에 병합
         for node in child_node_list[0]:
             child = node['m']
             
-
             # * 자식 노드가 큰 경우 재귀적으로 처리
             if child['token'] > 1700:
-                java_code = await process_big_size_node(child['startLine'], child['java_code'], connection, object_name)
+                java_code = await process_big_size_node(child['startLine'], child['java_code'], connection, object_name, user_id)
             else:
                 java_code = child['java_code']
             
-
-            # * 코드 병합
+            # * 부모 코드에 자식 코드 병합
             placeholder = f"{child['startLine']}: ...code..."
             indented_code = textwrap.indent(java_code, '    ')
             summarized_java_code = summarized_java_code.replace(placeholder, f"\n{indented_code}")
@@ -66,10 +71,11 @@ async def process_big_size_node(node_startLine:int, summarized_java_code:str, co
 #   - node_list : Neo4j에서 조회한 노드, 관계, 다음 노드 정보를 담은 리스트
 #   - connection : Neo4j 데이터베이스 연결 객체
 #   - object_name : 현재 처리 중인 패키지/프로시저의 식별자
+#   - user_id : 사용자 ID
 #
 # 반환값: 
 #   - all_java_code : 모든 노드의 Java 코드가 순서대로 결합된 최종 코드
-async def traverse_node_for_merging_service(node_list:list, connection:Neo4jConnection, object_name:str) -> str:
+async def traverse_node_for_merging_service(node_list:list, connection:Neo4jConnection, object_name:str, user_id:str) -> str:
 
     try:
         previous_node_endLine = 0
@@ -129,7 +135,7 @@ async def traverse_node_for_merging_service(node_list:list, connection:Neo4jConn
             # TODO 엄청 큰 TRY 노드 처리 필요(프롬포트 수정)
             if token > 1700:
                 logging.info("크기가 매우 큰 노드 처리를 시작합니다.")
-                java_code = await process_big_size_node(start_node['startLine'], java_code, connection, object_name)
+                java_code = await process_big_size_node(start_node['startLine'], java_code, connection, object_name, user_id)
 
 
             # * 변수 값 할당 및 Java 코드 추가
@@ -152,7 +158,8 @@ async def traverse_node_for_merging_service(node_list:list, connection:Neo4jConn
 #   - service_skeleton : 전체 서비스 클래스의 기본 구조 템플릿
 #   - service_class_name : 생성할 서비스 클래스의 이름
 #   - merge_method_code : 서비스 클래스에 추가될 메서드 코드
-async def generate_service_class(service_skeleton: str, service_class_name: str, merge_method_code: str) -> None:
+#   - user_id : 사용자 ID
+async def generate_service_class(service_skeleton: str, service_class_name: str, merge_method_code: str, user_id:str) -> None:
     try:
         # * 병합된 메서드 코드를 들여쓰기 처리
         service_skeleton = service_skeleton.replace("CodePlaceHolder", merge_method_code)
@@ -160,10 +167,10 @@ async def generate_service_class(service_skeleton: str, service_class_name: str,
 
         # * 저장 경로 설정
         if os.getenv('DOCKER_COMPOSE_CONTEXT'):
-            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', SERVICE_PATH)
+            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', 'java', user_id, SERVICE_PATH)
         else:
             current_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            save_path = os.path.join(current_dir, 'target', SERVICE_PATH)
+            save_path = os.path.join(current_dir, 'target', 'java', user_id, SERVICE_PATH)
 
 
         # * 서비스 클래스 파일 생성
@@ -190,35 +197,39 @@ async def generate_service_class(service_skeleton: str, service_class_name: str,
 #   - procedure_name : 처리할 프로시저의 이름
 #   - object_name : 현재 처리 중인 패키지/프로시저의 식별자
 #   - merge_method_code : 기존에 생성된 메서드 코드 (새로운 메서드가 추가될 기반 코드)
+#   - user_id : 사용자 ID   
 #
 # 반환값:
 #   - merge_method_code : 새로운 메서드가 추가된 최종 Java 코드
-async def start_service_postprocessing(method_skeleton_code: str, procedure_name: str, object_name: str, merge_method_code: str) -> str:
+async def start_service_postprocessing(method_skeleton_code: str, procedure_name: str, object_name: str, merge_method_code: str, user_id:str) -> str:
     
     connection = Neo4jConnection() 
     logging.info(f"[{object_name}] {procedure_name} 프로시저의 서비스 코드 병합을 시작합니다.")
     
     try:
-        # * 노드와 관계를 가져오는 쿼리 
+        # * 코드 병합에 필요한 노드와 관계를 가져오는 쿼리 
         query = [
             f"MATCH (p) "
             f"WHERE p.object_name = '{object_name}' "
             f"AND p.procedure_name = '{procedure_name}' "
+            f"AND p.user_id = '{user_id}' "
             f"AND (p:FUNCTION OR p:PROCEDURE OR p:CREATE_PROCEDURE_BODY) "
             f"MATCH (p)-[:PARENT_OF]->(n) "
             f"WHERE NOT (n:ROOT OR n:Variable OR n:DECLARE OR n:Table "
             f"OR n:PACKAGE_BODY OR n:PACKAGE_SPEC OR n:PROCEDURE_SPEC OR n:SPEC) "
             f"OPTIONAL MATCH (n)-[r:NEXT]->(m) "
             f"WHERE m.object_name = '{object_name}' "
+            f"AND m.user_id = '{user_id}' "
             f"AND NOT (m:ROOT OR m:Variable OR m:DECLARE OR m:Table "
             f"OR m:PACKAGE_BODY OR m:PACKAGE_SPEC OR m:PROCEDURE_SPEC OR m:SPEC) "
             f"RETURN n, labels(n) as nType, r, m, labels(m) as mType "
             f"ORDER BY n.startLine"
         ]
         
+
         # * 노드 조회 및 Java 코드 병합
         results = await connection.execute_queries(query)
-        all_java_code = await traverse_node_for_merging_service(results[0], connection, object_name)
+        all_java_code = await traverse_node_for_merging_service(results[0], connection, object_name, user_id)
 
 
         # * 메서드 코드 들여쓰기 및 완성

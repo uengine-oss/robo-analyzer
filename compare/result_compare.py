@@ -114,7 +114,7 @@ def read_log_files_in_directory(directory_path, prefix):
         logging.error(f"로그 파일 읽기 중 오류 발생: {str(e)}")
         raise
 
-async def execute_maven_commands(test_class_names: list, plsql_gwt_log: list):
+async def execute_maven_commands(test_class_names: list, plsql_gwt_log: list, user_id: str):
     logging.info(f"Maven 테스트 실행 시작")
     test_failed = False
     failed_test_index = []

@@ -4,7 +4,7 @@ from util.exception import PomXmlCreationError, SaveFileError
 from util.file_utils import save_file
 
 POM_FILE_NAME = "pom.xml"
-POM_PATH = 'java/demo'
+POM_PATH = 'demo'
 
 
 # JPA 템플릿
@@ -177,19 +177,22 @@ MYBATIS_POM_XML_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
 #
 # 매개변수: 
 #   - orm_type : 사용할 ORM 유형 (jpa, mybatis)
-async def start_pomxml_processing(orm_type: str):
+#   - user_id : 사용자 ID
+async def start_pomxml_processing(orm_type: str, user_id:str):
     logging.info("pom.xml 생성을 시작합니다.")
     
     try:       
         # * 템플릿 선택
         pom_xml_template = JPA_POM_XML_TEMPLATE if orm_type.lower() == 'jpa' else MYBATIS_POM_XML_TEMPLATE
 
+
         # * 저장 경로 설정
         if os.getenv('DOCKER_COMPOSE_CONTEXT'):
-            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', POM_PATH)
+            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', 'java', user_id, POM_PATH)
         else:
             parent_workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            save_path = os.path.join(parent_workspace_dir, 'target', POM_PATH)
+            save_path = os.path.join(parent_workspace_dir, 'target', 'java', user_id, POM_PATH)
+
 
         # * pom.xml 파일 생성
         await save_file(

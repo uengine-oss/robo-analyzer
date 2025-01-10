@@ -23,7 +23,8 @@ from util.string_utils import convert_to_pascal_case
 #   - procedure_name : 처리 중인 프로시저의 이름
 #   - sequence_methods : 사용 가능한 시퀀스 메서드 목록
 #   - orm_type : 사용할 ORM 유형 (jpa, mybatis)
-async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, connection:Neo4jConnection, command_class_variable:dict, service_skeleton:str, query_method_list:list, object_name:str, procedure_name:str, sequence_methods:list, orm_type:str):
+#   - user_id : 사용자 ID
+async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, connection:Neo4jConnection, command_class_variable:dict, service_skeleton:str, query_method_list:list, object_name:str, procedure_name:str, sequence_methods:list, orm_type:str, user_id:str):
 
     used_variables =  []                  # 사용된 변수 정보를 저장하는 리스트
     context_range = []                    # 분석할 컨텍스트 범위를 저장하는 리스트
@@ -34,7 +35,6 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
     another_big_parent_startLine = 0      # 부모안에 또 다른 부모의 시작라인
     used_query_method_dict = {}             # 사용된 query 쿼리 메서드를 관리할 사전
     tracking_variables = {}               # 변수 정보를 추적하기 위한 사전
-
 
 
     # 역할: 특정 노드 ID에 해당하는 범위 내에서 실제로 사용된 변수들을 식별하고 추출하는 함수입니다.
@@ -96,7 +96,7 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
 
             # * 노드의 속성에 Java 코드를 추가하는 쿼리 생성합니다.
             query = [f"MATCH (n) "
-                    f"WHERE n.startLine = {start_line} AND n.object_name = '{object_name}' "
+                    f"WHERE n.startLine = {start_line} AND n.object_name = '{object_name}' AND n.user_id = '{user_id}' "
                     f"SET n.java_code = '{escaped_code}'"]
 
 
@@ -120,6 +120,7 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
             context_range = [dict(t) for t in {tuple(d.items()) for d in context_range}]
             context_range.sort(key=lambda x: x['startLine'])
             range_count = len(context_range)
+
 
             # * 전달된 정보를 llm에게 전달하여 결과를 받고, 결과를 처리하는 함수를 호출합니다.
             analysis_result = convert_service_code(
@@ -178,7 +179,7 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
                 escaped_code = service_code.replace('\n', '\\n').replace("'", "\\'")
                 node_update_query.append(
                     f"MATCH (n) WHERE n.startLine = {start_line} "
-                    f"AND n.object_name = '{object_name}' AND n.endLine = {end_line} "
+                    f"AND n.object_name = '{object_name}' AND n.endLine = {end_line} AND n.user_id = '{user_id}' "
                     f"SET n.java_code = '{escaped_code}', "
                     f"n.java_file = '{java_file_name}'"
                 )    
@@ -192,6 +193,7 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
                     f"WHERE n.object_name = '{object_name}' "
                     f"AND n.procedure_name = '{procedure_name}' "
                     f"AND n.name = '{var_name}' "
+                    f"AND n.user_id = '{user_id}' "
                     f"SET n.value_tracking = {json.dumps(var_info)}"
                 )
 
@@ -364,7 +366,8 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
 #   - object_name : 처리 중인 패키지/프로시저의 식별자
 #   - sequence_methods : 사용 가능한 시퀀스 메서드 목록
 #   - orm_type : 사용할 ORM 유형 (jpa, mybatis)
-async def start_service_preprocessing(service_skeleton:str, command_class_variable:dict, procedure_name:str, query_method_list:list, object_name:str, sequence_methods:list, orm_type:str) -> None:
+#   - user_id : 사용자 ID
+async def start_service_preprocessing(service_skeleton:str, command_class_variable:dict, procedure_name:str, query_method_list:list, object_name:str, sequence_methods:list, orm_type:str, user_id:str) -> None:
     
     connection = Neo4jConnection() 
     logging.info(f"[{object_name}] {procedure_name} 프로시저의 서비스 코드 생성을 시작합니다.")
@@ -377,12 +380,14 @@ async def start_service_preprocessing(service_skeleton:str, command_class_variab
             MATCH (p)
             WHERE p.object_name = '{object_name}'
             AND p.procedure_name = '{procedure_name}'
+            AND p.user_id = '{user_id}'
             AND (p:FUNCTION OR p:PROCEDURE OR p:CREATE_PROCEDURE_BODY)
             MATCH (p)-[:PARENT_OF]->(n)
             WHERE NOT (n:ROOT OR n:Variable OR n:DECLARE OR n:Table 
                   OR n:PACKAGE_BODY OR n:PACKAGE_SPEC OR n:PROCEDURE_SPEC OR n:SPEC)
             OPTIONAL MATCH (n)-[r]->(m)
             WHERE m.object_name = '{object_name}'
+            AND m.user_id = '{user_id}'
             AND NOT (m:ROOT OR m:Variable OR m:DECLARE OR m:Table 
                 OR m:PACKAGE_BODY OR m:PACKAGE_SPEC OR m:PROCEDURE_SPEC OR m:SPEC)
             AND NOT type(r) CONTAINS 'EXT_CALL'
@@ -397,14 +402,17 @@ async def start_service_preprocessing(service_skeleton:str, command_class_variab
             MATCH (n)
             WHERE n.object_name = '{object_name}'
             AND n.procedure_name = '{procedure_name}'
+            AND n.user_id = '{user_id}'
             AND (n:DECLARE)
             MATCH (n)-[r:SCOPE]->(v:Variable)
             RETURN v
             """
         ]
 
+
         # * 쿼리 실행하여, 노드들을 가져옵니다.
         service_nodes, variable_nodes = await connection.execute_queries(node_query)        
+
 
         # * (전처리) 서비스 생성 함수 호출
         await traverse_node_for_service(
@@ -417,12 +425,12 @@ async def start_service_preprocessing(service_skeleton:str, command_class_variab
             object_name, 
             procedure_name,
             sequence_methods,
-            orm_type
+            orm_type,
+            user_id
         )
+
         logging.info(f"[{object_name}] {procedure_name} 프로시저의 서비스 코드 생성이 완료되었습니다.\n")
-
         return variable_nodes
-
 
     except ConvertingError: 
         raise

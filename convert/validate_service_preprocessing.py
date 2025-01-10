@@ -14,17 +14,20 @@ from util.string_utils import convert_to_pascal_case
 #   - connection : Neo4j 연결 객체
 #   - object_name : 처리할 패키지/프로시저의 식별자
 #   - procedure_name : 처리할 프로시저의 이름
+#   - user_id : 사용자 ID
 #
 # 반환값:
 #   - Tuple[bool, List[Dict]] : 조회 결과
-async def get_nodes_without_java_code(connection: Neo4jConnection, object_name: str, procedure_name: str) -> Tuple[bool, List[Dict]]:
+async def get_nodes_without_java_code(connection: Neo4jConnection, object_name: str, procedure_name: str, user_id:str) -> Tuple[bool, List[Dict]]:
 
     try:
+        # * 자바 코드가 없는 노드를 조회하는 쿼리 생성
         query = [f"""
         MATCH (n)
         WHERE n.java_code IS NULL
         AND n.object_name = '{object_name}'
         AND n.procedure_name = '{procedure_name}'
+        AND n.user_id = '{user_id}'
         AND NOT n:Table 
         AND NOT n:ROOT 
         AND NOT n:PACKAGE_SPEC
@@ -40,8 +43,12 @@ async def get_nodes_without_java_code(connection: Neo4jConnection, object_name: 
         RETURN n
         """]
 
+
+        # * 사이퍼 쿼리 실행
         non_java_code_nodes = (await connection.execute_queries(query))[0]
 
+
+        # * 자바 코드가 없는 노드 여부에 따라 결과 반환
         if non_java_code_nodes:
             logging.info(f"java_code가 없는 노드 {len(non_java_code_nodes)}개가 발견되었습니다.")
             return True, non_java_code_nodes
@@ -66,7 +73,8 @@ async def get_nodes_without_java_code(connection: Neo4jConnection, object_name: 
 #   - object_name : 처리 중인 패키지/프로시저의 식별자
 #   - orm_type : 사용할 ORM 유형 (jpa, mybatis)
 #   - sequence_methods : 사용할 시퀀스 메서드 목록
-async def start_validate_service_preprocessing(variable_nodes:list, service_skeleton: str, command_class_variable: dict, procedure_name: str, query_method_list: list, object_name: str, orm_type: str, sequence_methods:list) -> None:
+#   - user_id : 사용자 ID
+async def start_validate_service_preprocessing(variable_nodes:list, service_skeleton: str, command_class_variable: dict, procedure_name: str, query_method_list: list, object_name: str, orm_type: str, sequence_methods:list, user_id:str) -> None:
     
     connection = Neo4jConnection()
     used_query_method_dict = {}
@@ -75,13 +83,12 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
     current_token = 0
     current_code = ""
     MAX_TOKEN = 1700
-
     logging.info(f"[{object_name}]의 {procedure_name} 서비스 전처리 검증을 시작합니다.")
+
 
     # 역할 : 누적된 코드를 LLM으로 처리하고 결과를 DB에 업데이트
     async def process_validate_service_class_code():
         nonlocal current_code, current_token, used_variables, context_range, used_query_method_dict
-
 
         try:
             # * 범위 정보 처리
@@ -89,6 +96,7 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
             context_range.sort(key=lambda x: x['startLine'])
             range_count = len(context_range)
         
+
             # * LLM 분석 수행
             analysis_result = convert_service_code(
                 current_code,
@@ -101,6 +109,7 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
                 orm_type,
                 sequence_methods
             )
+
 
             # * 결과 처리 및 노드 업데이트
             await handle_convert_result(analysis_result)
@@ -130,17 +139,17 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
                 start_line, end_line = map(int, key.replace('-','~').split('~'))
                 escaped_code = service_code.replace('\n', '\\n').replace("'", "\\'")
 
-
                 # * 파스칼 케이스로 변환하여 자바 파일 이름을 생성합니다.
                 pascal_object_name = convert_to_pascal_case(object_name)
                 java_file_name = f"{pascal_object_name}Service.java"
 
-            
+                # * 노드 업데이트 쿼리 생성
                 node_update_query.append(
                     f"MATCH (n) WHERE n.startLine = {start_line} "
                     f"AND n.object_name = '{object_name}' "
                     f"AND n.procedure_name = '{procedure_name}' "
                     f"AND n.endLine = {end_line} "
+                    f"AND n.user_id = '{user_id}' "
                     f"SET n.java_code = '{escaped_code}', "
                     f"n.java_file = '{java_file_name}'" 
                 )  
@@ -161,7 +170,7 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
     # TODO 자식의 바로 위 부모 노드를 찾아서 전달하는 방법도 고려
     try:
         # * java_code가 없는 노드 확인
-        has_nodes, nodes = await get_nodes_without_java_code(connection, object_name, procedure_name)
+        has_nodes, nodes = await get_nodes_without_java_code(connection, object_name, procedure_name, user_id)
         if not has_nodes:
             logging.info(f"[{object_name}]의 {procedure_name}의 모든 노드가 java_code 속성을 가지고 있습니다.\n")
             return
@@ -187,7 +196,7 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
 
 
             # * 현재 코드, 범위, 토큰, query 메서드 정보 업데이트
-            current_code += f"\n{sp_code}"  # 개행 추가
+            current_code += f"\n{sp_code}"
             current_token += token + variable_token
             used_query_method_dict = await extract_used_query_methods(start_line, end_line, query_method_list, used_query_method_dict)
             context_range.append({"startLine": start_line, "endLine": end_line})
@@ -196,7 +205,6 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
         # * 남은 코드 처리
         if current_code and context_range:
             await process_validate_service_class_code()
-
         logging.info(f"[{object_name}]의 {procedure_name}의 전처리 검증이 완료되었습니다.\n")
 
     except ConvertingError:

@@ -4,7 +4,7 @@ from util.exception import MainCreationError, SaveFileError
 from util.file_utils import save_file
 
 MAIN_CLASS_NAME = "DemoApplication.java"
-MAIN_CLASS_PATH = 'java/demo/src/main/java/com/example/demo'
+MAIN_CLASS_PATH = 'demo/src/main/java/com/example/demo'
 
 # JPA용 메인 클래스 템플릿
 JPA_MAIN_CLASS_TEMPLATE = """
@@ -44,9 +44,10 @@ public class DemoApplication {
 
 # 역할: Spring Boot 애플리케이션의 시작점이 되는 메인 클래스 파일을 생성합니다.
 #
-# 매개변수: 없음
-# 반환값: 없음
-async def start_main_processing(orm_type: str):
+# 매개변수:
+#   - orm_type : ORM 유형 (jpa, mybatis)
+#   - user_id : 사용자 ID
+async def start_main_processing(orm_type: str, user_id:str):
     logging.info("메인 클래스 생성을 시작합니다.")
 
     try:
@@ -56,10 +57,11 @@ async def start_main_processing(orm_type: str):
 
         # * 저장 경로 설정
         if os.getenv('DOCKER_COMPOSE_CONTEXT'):
-            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', MAIN_CLASS_PATH)
+            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', 'java', user_id, MAIN_CLASS_PATH)
         else:
             parent_workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            save_path = os.path.join(parent_workspace_dir, 'target', MAIN_CLASS_PATH)
+            save_path = os.path.join(parent_workspace_dir, 'target', 'java', user_id, MAIN_CLASS_PATH)
+
 
         # * 메인 클래스 파일 생성
         await save_file(

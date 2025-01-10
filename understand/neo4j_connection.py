@@ -50,7 +50,7 @@ class Neo4jConnection:
             raise Neo4jError(error_msg)
     
     
-    # 역할: 그래프 데이터베이스의 노드와 관계를 시각화 가능한 형태로 조회합니다.
+    # 역할: 그래프 데이터베이스의 노드와 관계를 그래프 형태로 조회합니다.
     #
     # 매개변수: 
     #   - package_names: 패키지 이름 목록
@@ -73,15 +73,21 @@ class Neo4jConnection:
             RETURN n, r, m
             """
 
+
+            # * 파라미터 설정
             params = {
                 "package_names": package_names,
                 "user_id": user_id
             }
 
+
+            # * 쿼리 실행
             async with self.__driver.session(database=self.database_name) as session:
                 result = await session.run(default_query, params)
                 graph = await result.graph()
 
+
+                # * 노드 데이터 추출
                 nodes_data = [
                     {
                         "Node ID": node.element_id,
@@ -91,6 +97,8 @@ class Neo4jConnection:
                     for node in graph.nodes
                 ]
 
+
+                # * 관계 데이터 추출
                 relationships_data = [
                     {
                         "Relationship ID": relationship.element_id,
@@ -102,6 +110,8 @@ class Neo4jConnection:
                     for relationship in graph.relationships
                 ]
 
+
+                # * 쿼리 실행 결과 반환
                 logging.info("Queries executed successfully")
                 return {"Nodes": nodes_data, "Relationships": relationships_data}
             
@@ -168,28 +178,32 @@ class Neo4jConnection:
     #
     # 매개변수:
     #   - user_id: 사용자 ID
-    #   - object_names: 객체 이름
+    #   - object_names: 패키지 이름
     #
     # 반환값:
     #   - node_exists: 노드 존재 여부 (True 또는 False)
     async def node_exists(self, user_id: str, package_names: list) -> bool:
         try:
+            # * 패키지 이름이 존재하는 노드 조회
             query = """
             MATCH (n:Node)
             WHERE n.objectName IN $package_names
             AND n.userId = $user_id
             RETURN COUNT(n) > 0 AS exists
             """
-
+            
+            # * 파라미터 설정
             params = {
                 "package_names": package_names,
                 "user_id": user_id
             }
 
+            # * 쿼리 실행
             async with self.__driver.session(database=self.database_name) as session:
                 result = await session.run(query, params)
                 record = await result.single()
                 return record["exists"]
+            
         except Exception as e:
             error_msg = f"노드 존재 여부 확인 중 오류 발생: {str(e)}"
             logging.exception(error_msg)

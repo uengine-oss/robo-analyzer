@@ -153,26 +153,35 @@ EXIT;'''
 
 # 역할 : 패키지 의존성 분석 함수
 #
-# 매개변수 : 없음
+# 매개변수 :
+#   - user_id: 사용자 ID
 #
 # 반환값 : 
 #   - list : 패키지 의존성 리스트
-async def get_package_dependencies():
+async def get_package_dependencies(user_id: str):
+    neo4j = Neo4jConnection()
+    
     try:
-        neo4j = Neo4jConnection()
-        query =["""
+        # * 패키지 의존성을 알아내는 쿼리
+        query =[f"""
         MATCH (caller)-[r:EXT_CALL|INT_CALL]->(callee)
         WHERE caller.object_name <> callee.object_name
+        AND caller.user_id = '{user_id}'
         RETURN DISTINCT caller.object_name as caller, 
                         callee.object_name as callee
         """]
         
+
+        # * 쿼리 실행
         results = await neo4j.execute_queries(query)
         
-        # 1. 모든 패키지와 그들이 호출하는 패키지 목록
+
+        # * 패키지 의존성 분석을 위한 변수 초기화
         calls = {}
         all_packages = set()
         
+
+        # * 패키지 의존성 분석
         for record in results[0]:
             caller, callee = record['caller'], record['callee']
             if caller not in calls:
@@ -181,10 +190,12 @@ async def get_package_dependencies():
             all_packages.add(caller)
             all_packages.add(callee)
             
-        # 2. 순서대로 처리
+
+        # * 패키지 의존성 순서 정렬
         ordered = []
         while all_packages:
-            # 아무것도 호출하지 않거나, 이미 처리된 패키지만 호출하는 패키지 찾기
+            
+            # * 아무것도 호출하지 않거나, 이미 처리된 패키지만 호출하는 패키지 찾기
             next_packages = {
                 pkg for pkg in all_packages 
                 if pkg not in calls or calls[pkg].issubset(set(ordered))

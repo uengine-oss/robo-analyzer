@@ -8,7 +8,7 @@ from util.file_utils import save_file
 from util.token_utils import calculate_code_token
 
 MAX_TOKENS = 1000
-ENTITY_PATH = 'java/demo/src/main/java/com/example/demo/entity'
+ENTITY_PATH = 'demo/src/main/java/com/example/demo/entity'
 encoder = tiktoken.get_encoding("cl100k_base")
 
 
@@ -16,10 +16,12 @@ encoder = tiktoken.get_encoding("cl100k_base")
 # 
 # 매개변수: 
 #   table_data_list (list):  Neo4j 데이터베이스에서 가져온 테이블 정보 목록
+#   orm_type (str): 사용할 ORM 유형 (JPA, MyBatis 등)   
+#   user_id (str): 사용자 ID
 #
 # 반환값:
 #   entity_name_list (list): 생성된 Java 엔티티 클래스의 이름 목록
-async def process_table_by_token_limit(table_data_list: list, orm_type: str) -> list[str]:
+async def process_table_by_token_limit(table_data_list: list, orm_type: str, user_id: str) -> list[str]:
  
     try:
         current_tokens = 0
@@ -35,12 +37,13 @@ async def process_table_by_token_limit(table_data_list: list, orm_type: str) -> 
                 # * 테이블 데이터를 LLM에게 전달하여 Entity 클래스 생성 정보를 받음
                 analysis_data = convert_entity_code(table_data_chunk, orm_type)
                 
+                
                 # * 각 엔티티별로 파일 생성
                 for entity in analysis_data['analysis']:
                     entity_name = entity['entityName']
                     entity_code = entity['code']
                     
-                    await generate_entity_class(entity_name, entity_code)
+                    await generate_entity_class(entity_name, entity_code, user_id)
                     entity_name_list.append(entity_name)
                     entity_code_dict[entity_name] = entity_code
                 
@@ -56,8 +59,8 @@ async def process_table_by_token_limit(table_data_list: list, orm_type: str) -> 
                 err_msg = f"LLM을 통한 엔티티 분석 중 오류가 발생: {str(e)}"
                 logging.error(err_msg)
                 raise ProcessResultError(err_msg)
-
     
+
 
         # * 테이블 데이터 처리
         for table in table_data_list:
@@ -71,6 +74,7 @@ async def process_table_by_token_limit(table_data_list: list, orm_type: str) -> 
             # * 현재 테이블 추가
             table_data_chunk.append(table)
             current_tokens += table_tokens
+
 
         # * 남은 데이터 처리
         if table_data_chunk:
@@ -92,14 +96,16 @@ async def process_table_by_token_limit(table_data_list: list, orm_type: str) -> 
 # 매개변수:
 #   entity_name (str): 생성할 엔티티 클래스의 이름
 #   entity_code (str): 생성할 엔티티 클래스의 코드
-async def generate_entity_class(entity_name: str, entity_code: str) -> None:
+#   user_id (str): 사용자 ID
+async def generate_entity_class(entity_name: str, entity_code: str, user_id: str) -> None:
     try:
         # * 저장 경로 설정
         if os.getenv('DOCKER_COMPOSE_CONTEXT'):
-            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', ENTITY_PATH)
+            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', 'java', user_id, ENTITY_PATH)
         else:
             parent_workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            save_path = os.path.join(parent_workspace_dir, 'target', ENTITY_PATH)
+            save_path = os.path.join(parent_workspace_dir, 'target', 'java', user_id, ENTITY_PATH)
+
 
         # * Entity Class 파일 생성
         await save_file(
@@ -117,23 +123,24 @@ async def generate_entity_class(entity_name: str, entity_code: str) -> None:
 
 
 # 역할: 전체 엔티티 생성 프로세스를 관리하는 메인 함수입니다.
-#      Neo4j 데이터베이스 연결부터 엔티티 파일 생성까지 모든 과정을 조율합니다.
 #
 # 매개변수:
 #   object_name (str): 처리할 객체(패키지/프로시저)의 이름
 #   orm_type (str): 사용할 ORM 유형 (JPA, MyBatis 등)
+#   - user_id : 사용자 ID
 #
 # 반환값:
 #   entity_name_list (list): 생성된 모든 Java 엔티티 클래스의 이름 목록
-async def start_entity_processing(object_name: str, orm_type: str) -> list[str]:
+async def start_entity_processing(object_name: str, orm_type: str, user_id: str) -> list[str]:
 
     connection = Neo4jConnection()
     logging.info(f"[{object_name}] 엔티티 생성을 시작합니다.")
 
     try:
         # * 테이블 노드를 가져오기 위한 사이퍼쿼리 생성 및 실행합니다
-        query = [f"MATCH (n:Table {{object_name: '{object_name}'}}) RETURN n"]
+        query = [f"MATCH (n:Table {{object_name: '{object_name}', user_id: '{user_id}'}}) RETURN n"]
         table_nodes = (await connection.execute_queries(query))[0]
+
 
         # * 테이블 데이터 구조화
         METADATA_FIELDS = {'name', 'object_name', 'id', 'primary_keys', 
@@ -160,7 +167,7 @@ async def start_entity_processing(object_name: str, orm_type: str) -> list[str]:
         
 
         # * 엔티티 클래스 생성을 시작합니다.
-        entity_name_list, entity_code_dict = await process_table_by_token_limit(table_data_list, orm_type)
+        entity_name_list, entity_code_dict = await process_table_by_token_limit(table_data_list, orm_type, user_id)
 
         logging.info(f"[{object_name}] 엔티티가 생성되었습니다.\n")
         return entity_name_list, entity_code_dict

@@ -162,7 +162,7 @@ class CompareResultError(FeedbackLoopError):
     def __init__(self, message="결과 검증 및 비교하는 도중 오류가 발생했습니다."):
         super().__init__(message)
 
-class VectorizeError(FeedbackLoopError):
+class VectorizeError(FeedbackLoopError, UnderstandingError):
     def __init__(self, message="텍스트 벡터화 중 오류가 발생했습니다."):
         super().__init__(message)
 

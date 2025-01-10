@@ -40,12 +40,15 @@ async def save_file(content: str, filename: str, base_path: Optional[str] = None
 #
 # 매개변수:
 #   - object_name : 패키지 또는 프로시저 이름
+#   - user_id : 사용자 ID
 #
 # 반환값:
 #   - 시퀀스 목록
-async def read_sequence_file(object_name: str) -> str:
+async def read_sequence_file(object_name: str, user_id: str) -> str:
     try:
+        # * 시퀀스 파일명 생성
         seq_file_name = object_name.replace('TPX_', 'SEQ_')
+
 
         # * 환경에 따라 저장 경로  설정
         if os.getenv('DOCKER_COMPOSE_CONTEXT'):
@@ -53,11 +56,13 @@ async def read_sequence_file(object_name: str) -> str:
         else:
             base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
         
+
         # * 시퀀스 파일 경로
-        seq_file_path = os.path.join(base_dir, 'data', 'sequence', f'{seq_file_name}.sql')
+        seq_file_path = os.path.join(base_dir, 'data', user_id, 'sequence', f'{seq_file_name}.sql')
         logging.info(f"현재 디렉토리: {base_dir}")
         logging.info(f"시퀀스 파일 경로: {seq_file_path}")
         
+
         # * 시퀀스 파일 존재 여부 확인
         if os.path.exists(seq_file_path):
             logging.info(f"시퀀스 파일명: {seq_file_name} 시퀀스 파일 읽기 성공")
@@ -77,10 +82,11 @@ async def read_sequence_file(object_name: str) -> str:
 # 매개변수 :
 #   - class_name: 읽을 파일의 클래스 이름 (예: "UserService", "UserEntity")
 #   - component_type: 컴포넌트 타입 경로 (예: "service", "entity", "repository")
+#   - user_id : 사용자 ID
 #
 # 반환값 :
 #   - str: 파일의 내용
-def read_target_file(class_name: str, component_type: str) -> str:
+def read_target_file(class_name: str, component_type: str, user_id:str) -> str:
 
     try:
         # * 환경에 따라 저장 경로 설정
@@ -89,10 +95,12 @@ def read_target_file(class_name: str, component_type: str) -> str:
         else:
             base_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             
+            
         # * 파일 경로
-        base_path = 'java/demo/src/main/java/com/example/demo'
-        file_path = os.path.join(base_dir, 'target', base_path, component_type, f'{class_name}.java')
+        base_path = 'demo/src/main/java/com/example/demo'
+        file_path = os.path.join(base_dir, 'target', 'java', user_id, base_path, component_type, f'{class_name}.java')
         
+
         # * 파일 읽기
         with open(file_path, 'r', encoding='utf-8') as file:
             return file.read()

@@ -11,7 +11,7 @@ from util.string_utils import convert_to_camel_case, convert_to_pascal_case
 
 
 MAX_TOKENS = 1000
-REPOSITORY_PATH = 'java/demo/src/main/java/com/example/demo/repository'
+REPOSITORY_PATH = 'demo/src/main/java/com/example/demo/repository'
 
 MYBATIS_TEMPLATE = """package com.example.demo.repository;
 import java.util.List;
@@ -47,14 +47,15 @@ public interface {entity_pascal_name}Repository extends JpaRepository<{entity_pa
 #   - all_query_methods : {테이블명: [ 쿼리 메서드 정보]} 형식의 딕셔너리
 #   - orm_type : 사용할 ORM 유형
 #   - sequence_methods : 사용 가능한 시퀀스 메서드 목록
-async def generate_repository_interface(all_query_methods: dict, orm_type: str, sequence_methods: list) -> None:
+#   - user_id : 사용자 ID
+async def generate_repository_interface(all_query_methods: dict, orm_type: str, sequence_methods: list, user_id: str) -> None:
     try:
         # * 저장 경로 설정
         if os.getenv('DOCKER_COMPOSE_CONTEXT'):
-            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', REPOSITORY_PATH)
+            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', 'java', user_id, REPOSITORY_PATH)
         else:
             parent_workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            save_path = os.path.join(parent_workspace_dir, 'target', REPOSITORY_PATH)
+            save_path = os.path.join(parent_workspace_dir, 'target', 'java', user_id, REPOSITORY_PATH)
 
 
         # * 시퀀스 메서드 들여쓰기 처리
@@ -76,8 +77,7 @@ async def generate_repository_interface(all_query_methods: dict, orm_type: str, 
                 for method in query_method
             )
 
-
-            # * ORM 타입에 따른 템플릿 선택
+            # * ORM 타입에 따른 템플릿 선택 및 데이터 삽입
             template = JPA_TEMPLATE if orm_type == 'jpa' else MYBATIS_TEMPLATE
             repository_interface_template = template.format(
                 entity_pascal_name=entity_pascal_name,
@@ -109,10 +109,11 @@ async def generate_repository_interface(all_query_methods: dict, orm_type: str, 
 #   - global_variable_nodes : 모든 전역 변수 노드 정보 리스트
 #   - sequence_data : 시퀀스 정보
 #   - orm_type : 사용할 ORM 유형
+#   - user_id : 사용자 ID
 #
 # 반환값: 
 #   - used_repository_methodss_list : 생성된 쿼리 메서드들의 정보 리스트
-async def process_repository_by_token_limit(repository_nodes: list, local_variable_nodes: list, global_variable_nodes: list, sequence_data: str, orm_type: str) -> list:
+async def process_repository_by_token_limit(repository_nodes: list, local_variable_nodes: list, global_variable_nodes: list, sequence_data: str, orm_type: str, user_id: str) -> list:
     
     try:
         current_tokens = 0
@@ -143,12 +144,10 @@ async def process_repository_by_token_limit(repository_nodes: list, local_variab
                     table_name = method['tableName'].split('.')[-1]
                     entity_name = convert_to_pascal_case(table_name)
 
-
                     # * 테이블별 메서드 정보 저장
                     methods = all_query_methods.setdefault(entity_name, [])
                     methods.append(method['method'])
             
-                    
                     # * 사용된 메서드 범위 저장
                     for range in method['range']:
                         range_str = f"{range['startLine']}~{range['endLine']}"
@@ -181,17 +180,14 @@ async def process_repository_by_token_limit(repository_nodes: list, local_variab
             node_code = node['m'].get('summarized_code', node['m']['node_code'])
             node_start_line = node['m']['startLine']
             
-
             # * 변수 노드 처리
             var_nodes, var_tokens = await extract_used_variable_nodes(node_start_line, local_variable_nodes)
             total_tokens = current_tokens + node_tokens + var_tokens
-
 
             # * 토큰 제한 초과시 처리
             if repository_data_chunk and total_tokens >= MAX_TOKENS:
                 await prcoess_repository_interface_code()
                 
-
             # * 현재 노드 데이터 추가
             repository_data_chunk.append(node_code)
             [used_variable_nodes[key].extend(value) for key, value in var_nodes.items()]
@@ -204,7 +200,7 @@ async def process_repository_by_token_limit(repository_nodes: list, local_variab
 
 
         # * 리포지토리 인터페이스 생성
-        await generate_repository_interface(all_query_methods, orm_type, sequence_methods)
+        await generate_repository_interface(all_query_methods, orm_type, sequence_methods, user_id)
         return used_query_methods_list, all_query_methods, sequence_methods
 
     except ConvertingError:
@@ -221,28 +217,28 @@ async def process_repository_by_token_limit(repository_nodes: list, local_variab
 #   - object_name : 처리할 프로시저/패키지의 이름
 #   - sequence_data : 시퀀스 정보
 #   - orm_type : 사용할 ORM 유형
+#   - user_id : 사용자 ID
 #
 # 반환값: 
 #   - query_method_list : 생성된 모든 쿼리 메서드 정보 리스트
 #   - global_variables : 전역 변수 목록
-async def start_repository_processing(object_name, sequence_data, orm_type):
+async def start_repository_processing(object_name: str, sequence_data: str, orm_type: str, user_id: str):
     
     logging.info(f"[{object_name}] Repository Interface 생성을 시작합니다.")
+    connection = Neo4jConnection()
 
     try:
-        connection = Neo4jConnection()
-
         # * 테이블 노드와 직접적으로 연결된 노드와 모든 변수 노드들을 가지고오는 사이퍼쿼리를 준비하고 실행합니다.
         jpa_queries = [
-            f"MATCH (n:Table {{object_name: '{object_name}'}})--(m {{object_name: '{object_name}'}}) WHERE NOT m:Table AND NOT m:EXECUTE_IMMEDIATE AND NOT m:INSERT RETURN m ORDER BY m.startLine",
-            f"MATCH (v:Variable {{object_name: '{object_name}', scope: 'Local'}}) RETURN v",
-            f"MATCH (v:Variable {{object_name: '{object_name}', scope: 'Global'}}) RETURN v"
+            f"MATCH (n:Table {{object_name: '{object_name}', user_id: '{user_id}'}})--(m {{object_name: '{object_name}', user_id: '{user_id}'}}) WHERE NOT m:Table AND NOT m:EXECUTE_IMMEDIATE AND NOT m:INSERT RETURN m ORDER BY m.startLine",
+            f"MATCH (v:Variable {{object_name: '{object_name}', user_id: '{user_id}', scope: 'Local'}}) RETURN v",
+            f"MATCH (v:Variable {{object_name: '{object_name}', user_id: '{user_id}', scope: 'Global'}}) RETURN v"
         ]
 
         mybatis_queries = [
-            f"MATCH (n:Table {{object_name: '{object_name}'}})--(m {{object_name: '{object_name}'}}) WHERE NOT m:Table AND NOT m:EXECUTE_IMMEDIATE RETURN m ORDER BY m.startLine",
-            f"MATCH (v:Variable {{object_name: '{object_name}', scope: 'Local'}}) RETURN v",
-            f"MATCH (v:Variable {{object_name: '{object_name}', scope: 'Global'}}) RETURN v"
+            f"MATCH (n:Table {{object_name: '{object_name}', user_id: '{user_id}'}})--(m {{object_name: '{object_name}', user_id: '{user_id}'}}) WHERE NOT m:Table AND NOT m:EXECUTE_IMMEDIATE RETURN m ORDER BY m.startLine",
+            f"MATCH (v:Variable {{object_name: '{object_name}', user_id: '{user_id}', scope: 'Local'}}) RETURN v",
+            f"MATCH (v:Variable {{object_name: '{object_name}', user_id: '{user_id}', scope: 'Global'}}) RETURN v"
         ]
 
 
@@ -252,6 +248,7 @@ async def start_repository_processing(object_name, sequence_data, orm_type):
 
         # * 쿼리 실행 및 결과 할당
         dml_nodes, local_variables_nodes, global_variables = await connection.execute_queries(queries)
+
 
         # * 전역 변수 정보 가공
         global_variable_nodes = [{
@@ -269,7 +266,8 @@ async def start_repository_processing(object_name, sequence_data, orm_type):
             local_variables_nodes, 
             global_variable_nodes,
             sequence_data,
-            orm_type
+            orm_type,
+            user_id
         )
 
         logging.info(f"[{object_name}] Repository Interface를 생성했습니다.\n")

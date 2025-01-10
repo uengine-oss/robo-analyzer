@@ -7,7 +7,7 @@ from util.exception import ControllerCreationError, ConvertingError, FilePathErr
 from util.file_utils import save_file
 
 encoder = tiktoken.get_encoding("cl100k_base")
-CONTROLLER_PATH = 'java/demo/src/main/java/com/example/demo/controller'
+CONTROLLER_PATH = 'demo/src/main/java/com/example/demo/controller'
 
 
 # 역할: 생성된 컨트롤러 코드를 지정된 경로에 Java 파일로 저장하는 함수입니다.
@@ -17,18 +17,21 @@ CONTROLLER_PATH = 'java/demo/src/main/java/com/example/demo/controller'
 #   - controller_skeleton : 전체 컨트롤러 클래스의 기본 구조 템플릿
 #   - controller_class_name : 생성할 컨트롤러 클래스의 이름
 #   - merge_controller_method_code : 컨트롤러 클래스에 추가될 메서드 코드
-async def generate_controller_class(controller_skeleton: str, controller_class_name: str, merge_controller_method_code: str):
+#   - user_id : 사용자 ID
+async def generate_controller_class(controller_skeleton: str, controller_class_name: str, merge_controller_method_code: str, user_id:str):
     try:
         # * 컨트롤러 코드 생성
         merge_controller_method_code = textwrap.indent(merge_controller_method_code.strip(), '        ')
         controller_code = controller_skeleton.replace("CodePlaceHolder", merge_controller_method_code)
 
+
         # * 저장 경로 설정
         if os.getenv('DOCKER_COMPOSE_CONTEXT'):
-            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', CONTROLLER_PATH)
+            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', 'java', user_id, CONTROLLER_PATH)
         else:
             project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            save_path = os.path.join(project_root, 'target', CONTROLLER_PATH)
+            save_path = os.path.join(project_root, 'target', 'java', user_id, CONTROLLER_PATH)
+
 
         # * 파일 저장
         await save_file(content=controller_code, filename=f"{controller_class_name}.java", base_path=save_path)
@@ -65,6 +68,8 @@ async def process_controller_method_code(method_signature: str, procedure_name: 
             command_class_name,
             controller_skeleton
         )
+
+        # * 컨트롤러 메서드 코드 추출
         method_skeleton_code = analysis_method['method']
         return method_skeleton_code
 
@@ -107,8 +112,10 @@ async def start_controller_processing(method_signature: str, procedure_name: str
                 controller_skeleton
             )
 
-            logging.info(f"[{object_name}] {procedure_name} 프로시저의 컨트롤러 메서드 생성 완료\n")
+            # * 컨트롤러 메서드 코드 병합
             merge_controller_method_code = f"{merge_controller_method_code}\n\n{controller_method_code}"
+            logging.info(f"[{object_name}] {procedure_name} 프로시저의 컨트롤러 메서드 생성 완료\n")
+
 
         return merge_controller_method_code
 
