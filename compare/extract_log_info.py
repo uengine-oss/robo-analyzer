@@ -258,7 +258,17 @@ async def generate_given_when_then(case_number: int, procedure: dict, params: di
         async with aiofiles.open(PLSQL_LOG_PATH, encoding='utf-8') as f:
             content = await f.read()
             
-            json_entries = [json.loads(line) for line in content.split('\n') if line.strip()]
+            # Remove all occurrences of '\x00'
+            cleaned_content = content.replace('\x00', '')
+            
+            json_entries = []
+            for line in cleaned_content.split('\n'):
+                if line.strip():
+                    try:
+                        json_entries.append(json.loads(line))
+                    except json.JSONDecodeError as e:
+                        # Log the error or handle it as needed
+                        print(f"Error decoding JSON: {e} - Line: {line}")
             
             then_list = [
                 {

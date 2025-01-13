@@ -7,6 +7,7 @@ from service.service import generate_and_execute_cypherQuery
 from service.service import generate_two_depth_match
 from service.service import generate_simple_java_code
 from service.service import generate_spring_boot_project
+from compare.result_compare import stop_execution
 
 
 router = APIRouter()
@@ -181,6 +182,17 @@ async def get_compare_result(request: Request):
         return StreamingResponse(process_comparison_result(test_cases))
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"비교 결과를 가져오는데 실패했습니다: {str(e)}")
+    
+@router.post("/stop_feedback_loop/")
+async def stop_feedback_loop(request: Request):
+    try:
+        # 중지 이벤트 설정
+        stop_execution()
+        logging.info("Execution stop request received and processed.")
+        
+        return {"message": "Execution stopped successfully."}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Execution stop failed: {str(e)}")
 
 
 # 역할: Neo4j에서 모든 노드 정보를 조회하여 반환합니다
