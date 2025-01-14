@@ -107,7 +107,7 @@ Sequence Method List:
 4. 메서드명 규칙
    - 원본 프로시저명의 모든 접두어(i, p, o, v) 유지
    - 언더스코어를 카멜케이스로 변환
-   - 예시: p_get_data -> pGetData, i_user_key -> iUserKey
+   - 예시: p_CALCULATE_DEDUCTION -> pCalculateDeduction, i_USER_KEY-> iUserKey
 
 
 [SECTION 4] SQL 구문 처리 규칙
@@ -122,23 +122,23 @@ Sequence Method List:
    - 조회를 했지만 데이터를 찾지 못한 경우 EntityNotFoundException 발생시키는 로직을 추가하세요.
    - 조회 결과를 새로운 변수 및 객체를 생성해서 저장하지말고, 기존에 선언된 객체에 재할당하세요.
    * 예시: 
-      User user = userMapper.findById(id);
+      User user = userRepository.findById(id);
       if (user == null) {{
          throw new EntityNotFoundException("User not found with id: " + id);
       }}
 
 3. UPDATE/MERGE 구문 변환
    - Mapper Method List에서 적절한 수정 메서드 사용
-   * 예시: userMapper.updateUser(user);
+   * 예시: userRepository.updateUser(user);
    
 4. INSERT 구문 변환
    - SYS_GUID() 함수는 UUID.randomUUID().toString()으로 변환
    - Mapper Method List의 등록 메서드 사용
-   * 예시: userMapper.save(user);
+   * 예시: userRepository.insertUser(user);
   
 5. DELETE 구문
    - 삭제 전 데이터 존재 여부 확인
-   * 예시: userMapper.deleteById(id);
+   * 예시: userRepository.deleteUserById(id);
   
    
 [SECTION 5] 예외 처리 규칙
@@ -205,12 +205,12 @@ Sequence Method List:
          * 초기 할당
          User user = new User();
          * 재할당 필요시
-         user = userMapper.findById(iUserId);
+         user = userRepository.findById(iUserId);
       
       잘못된 예:
          * 이미 선언된 변수를 재선언 (금지)
          User user = new User();
-         User user = userMapper.findById(iUserId);
+         User user = userRepository.findById(iUserId);
 
    C. 기본 타입 변수 처리
       올바른 예:
@@ -246,7 +246,7 @@ Sequence Method List:
 
    * 예시:
    - 원본: SELECT SEQ_USER_KEY.NEXTVAL FROM DUAL
-   - 변환: Long nextVal = sequenceMapper.getNextUserKeySequence();
+   - 변환: Long nextVal = userRepository.getNextUserKeySequence();
 
                
 [SECTION 9] 자바 코드 생성시 JSON 문자열 처리 규칙

@@ -51,6 +51,11 @@ class TestPreServiceGeneration(unittest.IsolatedAsyncioTestCase):
             # "TPX_ALARM_RECIPIENT"
         ]
 
+        # * 테스트할 세션 및 orm 타입 설정
+        session_uuid = "test-session-123"
+        orm_type = "jpa"
+
+
         try:
             # * 파일이 존재하면 기존 데이터를 읽고, 없다면 새로 생성합니다.
             result_file_path = os.path.join('test', 'test_converting', 'test_results.json')
@@ -82,7 +87,8 @@ class TestPreServiceGeneration(unittest.IsolatedAsyncioTestCase):
                         repository_methods,
                         object_name,
                         sequence_methods,
-                        orm_type = "mybatis" # ? 원하는 모델로 수정
+                        orm_type,
+                        session_uuid
                     )
 
                     # * 각 프로시저 결과를 저장합니다.

@@ -51,6 +51,12 @@ class TestRepositoryGeneration(unittest.IsolatedAsyncioTestCase):
             # "TPX_ALARM_RECIPIENT"
         ]
 
+
+        # * 테스트할 세션 및 orm 타입 설정
+        session_uuid = "test-session-123"
+        orm_type = "jpa"
+
+
         try:
             # * 파일이 존재하면 기존 데이터를 읽고, 없다면 새로 생성합니다.
             result_file_path = os.path.join('test', 'test_converting', 'test_results.json')
@@ -65,11 +71,11 @@ class TestRepositoryGeneration(unittest.IsolatedAsyncioTestCase):
             global_variables = {}
             all_methods_dict = {}
             sequence_methods_dict = {}
-            orm_type = "jpa"  # ? 원하는 모델로 수정
 
+            # * 각 객체에 대해 테스트를 수행
             for object_name in object_names:
-                seq_data = await read_sequence_file(object_name)
-                used_methods, global_variable_nodes, all_methods, sequence_methods = await start_repository_processing(object_name, seq_data, orm_type)
+                seq_data = await read_sequence_file(object_name, session_uuid)
+                used_methods, global_variable_nodes, all_methods, sequence_methods = await start_repository_processing(object_name, seq_data, orm_type, session_uuid)
                 
                 used_methods_dict[object_name] = used_methods
                 global_variables[object_name] = global_variable_nodes

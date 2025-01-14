@@ -38,19 +38,24 @@ class TestPostServiceGeneration(unittest.IsolatedAsyncioTestCase):
         
         # * 테스트할 스토어드 프로시저 파일 이름을 설정 및 수정합니다. 
         object_names = [
-            # "TPX_MAIN",
-            # "TPX_EMPLOYEE",
-            # "TPX_SALARY",
-            # "TPX_ATTENDANCE",
-            "TPX_PROJECT",
-            "TPX_TMF_SYNC_JOB_STATUS",
-            "TPX_TMF_SYNC_JOB",
+            "TPX_UPDATE_SALARY",
+            "TPX_EMPLOYEE",
+            "TPX_SALARY",
+            "TPX_ATTENDANCE",
+            # "TPX_PROJECT",
+            # "TPX_TMF_SYNC_JOB_STATUS",
+            # "TPX_TMF_SYNC_JOB",
             # "TPX_ALARM",
             # "TPX_ALARM_CONTENT",
             # "TPX_ALARM_FILE",
             # "TPX_ALARM_RECIPIENT"
         ]
         
+
+        # * 테스트할 세션 및 orm 타입 설정
+        session_uuid = "test-session-123"
+
+
         try:
             # * 파일이 존재하면 기존 데이터를 읽고, 없다면 새로 생성합니다.
             result_file_path = os.path.join('test', 'test_converting', 'test_results.json')
@@ -75,9 +80,11 @@ class TestPostServiceGeneration(unittest.IsolatedAsyncioTestCase):
                             skeleton_data['method_skeleton_code'],
                             skeleton_data['procedure_name'],
                             object_name,
-                            merge_method_code
+                            merge_method_code,
+                            session_uuid
                         )
-                    await generate_service_class(service_skeleton, service_class_name, merge_method_code)            
+
+                    await generate_service_class(service_skeleton, service_class_name, merge_method_code, session_uuid)            
             
             self.assertTrue(True, "후처리 Service 프로세스가 성공적으로 완료되었습니다.")
         except Exception:

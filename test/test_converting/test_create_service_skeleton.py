@@ -51,6 +51,11 @@ class TestServiceSkeletonGeneration(unittest.IsolatedAsyncioTestCase):
             # "TPX_ALARM_RECIPIENT"
         ]
 
+
+        # * 테스트할 세션 설정
+        session_uuid = "test-session-123"
+
+
         try:
             # * 파일이 존재하면 기존 데이터를 읽고, 없다면 새로 생성합니다.
             result_file_path = os.path.join('test', 'test_converting', 'test_results.json')
@@ -69,7 +74,7 @@ class TestServiceSkeletonGeneration(unittest.IsolatedAsyncioTestCase):
                 global_variables = test_data.get('global_variables', {}).get(object_name, [])
                 
                 # * Service Skeleton 생성
-                service_skeleton_list, service_skeleton, service_class_name, exist_command_class = await start_service_skeleton_processing(entity_name_list, object_name, global_variables)
+                service_skeleton_list, service_skeleton, service_class_name, exist_command_class = await start_service_skeleton_processing(entity_name_list, object_name, global_variables, session_uuid)
                 
                 # * 객체별 결과 저장
                 skeleton_results[object_name] = {

@@ -31,13 +31,18 @@ for logger_name in noisy_loggers:
     logging.getLogger(logger_name).setLevel(logging.CRITICAL)
 
 
+# * 테스트할 세션 및 orm 타입 설정
+session_uuid = "test-session-123"
+orm_type = "jpa"
+
+
 # 스프링부트 기반의 자바 메인 클래스를 생성하는 테스트
 class TestMainGeneration(unittest.IsolatedAsyncioTestCase):
     async def test_create_main(self):
 
         try:
             # * Main 클래스 생성 테스트 시작
-            await start_main_processing(orm_type="jpa")
+            await start_main_processing(orm_type, session_uuid)
             self.assertTrue(True, "Main 클래스 프로세스가 성공적으로 완료되었습니다.")
         except Exception:
             self.fail(f"Main 클래스 생성 테스트 중 예외 발생")

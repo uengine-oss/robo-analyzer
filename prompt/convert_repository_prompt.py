@@ -57,6 +57,7 @@ Sequence Info:
    - 모든 매개변수에 @Param 어노테이션 필수
    - 'Used Variable' 목록의 모든 변수는 매개변수로 포함
    - 누락된 매개변수 없이 완전한 매핑 필요
+   - 숫자 타입은 모두 Long으로 통일
 
 4. 시퀀스 처리
    - 별도의 시퀀스 조회 메서드 생성
@@ -97,6 +98,8 @@ Sequence Info:
    - TRUNC 함수 사용 금지
    - 시작일자(startDate)와 종료일자(endDate) 매개변수 사용
    - BETWEEN 절을 통한 기간 필터링
+   - Date가 식별될 경우 타입은 LocalDate로 통일
+   - Timestamp가 식별될 경우 타입은 LocalDateTime으로 통일
 
    
 [SECTION 3] Mapper 메서드 작성 예시

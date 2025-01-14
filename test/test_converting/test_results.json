@@ -14,13 +14,13 @@
   "entity_codes": {
     "TPX_UPDATE_SALARY": {},
     "TPX_EMPLOYEE": {
-      "TpjEmployee": "package com.example.demo.entity;\n\nimport jakarta.persistence.*;\nimport lombok.*;\n\n@Entity\n@Table(name = \"TPJ_EMPLOYEE\")\n@Data\npublic class TpjEmployee {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    \n    @Column(unique = true, nullable = false)\n    private String empKey;\n    \n    @Column(nullable = false)\n    private String regularYn;\n    \n    @Column(nullable = false)\n    private String empName;\n    \n    @Column(nullable = false)\n    private String deptCode;\n}"
+      "TpjEmployee": "package com.example.demo.entity;\n\nimport jakarta.persistence.*;\nimport lombok.*;\n\n@Entity\n@Table(name = \"TPJ_EMPLOYEE\")\n@Data\npublic class TpjEmployee {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    \n    @Column(nullable = false, length = 1)\n    private String regularYn;\n    \n    @Column(nullable = false, length = 50)\n    private String empName;\n    \n    @Column(nullable = false, length = 10)\n    private String deptCode;\n    \n    private String userId;\n    \n    @Column(unique = true, nullable = false, length = 10)\n    private String empKey;\n}"
     },
     "TPX_SALARY": {
-      "TpjSalary": "package com.example.demo.entity;\n\nimport jakarta.persistence.*;\nimport lombok.*;\nimport java.time.*;\n\n@Entity\n@Table(name = \"TPJ_SALARY\")\n@Data\npublic class TpjSalary {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    \n    @Column(nullable = false)\n    private Long amount;\n    \n    @Column(unique = true, nullable = false, length = 50)\n    private String salKey;\n    \n    @Column(nullable = false)\n    private LocalDate payDate;\n    \n    @Column(length = 10)\n    private String empKey;\n}"
+      "TpjSalary": "package com.example.demo.entity;\n\nimport jakarta.persistence.*;\nimport lombok.*;\nimport java.time.*;\n\n@Entity\n@Table(name = \"TPJ_SALARY\")\n@Data\npublic class TpjSalary {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    \n    @Column(nullable = false)\n    private Long amount;\n    \n    @Column(unique = true, length = 50, nullable = false)\n    private String salKey;\n    \n    private String userId;\n    \n    @Column(nullable = false)\n    private LocalDate payDate;\n    \n    @Column(length = 10)\n    private String empKey;\n}"
     },
     "TPX_ATTENDANCE": {
-      "TpjAttendance": "package com.example.demo.entity;\n\nimport jakarta.persistence.*;\nimport lombok.*;\nimport java.time.*;\n\n@Entity\n@Table(name = \"TPJ_ATTENDANCE\")\n@Data\npublic class TpjAttendance {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    \n    @Column(nullable = false, length = 2)\n    private String status;\n    \n    @Column(nullable = false, length = 50, unique = true)\n    private String attKey;\n    \n    @Column(length = 10)\n    private String empKey;\n    \n    private LocalDate workDate;\n}"
+      "TpjAttendance": "package com.example.demo.entity;\n\nimport jakarta.persistence.*;\nimport lombok.*;\nimport java.time.LocalDate;\n\n@Entity\n@Table(name = \"TPJ_ATTENDANCE\")\n@Data\npublic class TpjAttendance {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    \n    @Column(nullable = false, length = 2)\n    private String status;\n    \n    private String userId;\n    \n    @Column(unique = true, nullable = false, length = 50)\n    private String attKey;\n    \n    @Column(length = 10)\n    private String empKey;\n    \n    private LocalDate workDate;\n}"
     }
   },
   "repository_methods": {
@@ -240,6 +240,7 @@
             "role": "변수 선언및 초기화",
             "13_13": "Used",
             "13_23": "Used",
+            "user_id": "test-session-123",
             "object_name": "TPX_UPDATE_SALARY",
             "scope": "Local",
             "name": "vExists",
@@ -254,6 +255,7 @@
             "18_18": "Used",
             "role": "변수 선언및 초기화",
             "13_23": "Used",
+            "user_id": "test-session-123",
             "object_name": "TPX_UPDATE_SALARY",
             "scope": "Local",
             "name": "vSalaryExists",
@@ -271,6 +273,7 @@
             "44_49": "Used",
             "procedure_name": "EXISTS_EMPLOYEE",
             "role": "변수 선언및 초기화",
+            "user_id": "test-session-123",
             "object_name": "TPX_EMPLOYEE",
             "scope": "Local",
             "44_47": "Used",
@@ -287,6 +290,7 @@
             "64_67": "Used",
             "procedure_name": "IS_REGULAR_EMPLOYEE",
             "role": "변수 선언및 초기화",
+            "user_id": "test-session-123",
             "64_69": "Used",
             "object_name": "TPX_EMPLOYEE",
             "scope": "Local",
@@ -302,6 +306,7 @@
           "v": {
             "procedure_name": "INS_EMPLOYEE",
             "role": "변수 선언및 초기화",
+            "user_id": "test-session-123",
             "89_91": "Used",
             "object_name": "TPX_EMPLOYEE",
             "scope": "Local",
@@ -320,6 +325,7 @@
           "v": {
             "procedure_name": "EXISTS_SALARY",
             "role": "변수 선언및 초기화",
+            "user_id": "test-session-123",
             "object_name": "TPX_SALARY",
             "scope": "Local",
             "55_59": "Used",
@@ -337,6 +343,7 @@
             "85_85": "Used",
             "procedure_name": "p_CALCULATE_DEDUCTION",
             "role": "변수 선언및 초기화",
+            "user_id": "test-session-123",
             "object_name": "TPX_SALARY",
             "scope": "Local",
             "name": "vDeduction",
@@ -347,16 +354,17 @@
         },
         {
           "v": {
+            "role": "변수 선언및 초기화",
+            "type": "NUMBER",
             "85_85": "Used",
             "procedure_name": "p_CALCULATE_DEDUCTION",
             "82_82": "Used",
-            "role": "변수 선언및 초기화",
             "80_80": "Used",
+            "user_id": "test-session-123",
             "object_name": "TPX_SALARY",
             "scope": "Local",
             "name": "vDeductionPerDay",
             "79_83": "Used",
-            "type": "NUMBER",
             "value": "null",
             "76_86": "Used"
           }
@@ -365,6 +373,7 @@
           "v": {
             "procedure_name": "p_CALCULATE_DEDUCTION",
             "role": "변수 선언및 초기화",
+            "user_id": "test-session-123",
             "object_name": "TPX_SALARY",
             "scope": "Local",
             "name": "vRegularYn",
@@ -381,6 +390,7 @@
           "v": {
             "procedure_name": "GET_SALARY",
             "role": "변수 선언및 초기화",
+            "user_id": "test-session-123",
             "object_name": "TPX_SALARY",
             "scope": "Local",
             "name": "vAmount",
@@ -400,6 +410,7 @@
             "role": "변수 선언및 초기화",
             "125_125": "Used",
             "126_128": "Used",
+            "user_id": "test-session-123",
             "object_name": "TPX_SALARY",
             "scope": "Local",
             "name": "vExists",
@@ -414,6 +425,7 @@
             "159_181": "Used",
             "procedure_name": "UPD_SALARY_BY_ABSENT",
             "role": "변수 선언및 초기화",
+            "user_id": "test-session-123",
             "object_name": "TPX_SALARY",
             "scope": "Local",
             "name": "vBaseAmount",
@@ -428,6 +440,7 @@
             "159_181": "Used",
             "procedure_name": "UPD_SALARY_BY_ABSENT",
             "role": "변수 선언및 초기화",
+            "user_id": "test-session-123",
             "object_name": "TPX_SALARY",
             "scope": "Local",
             "name": "vAbsentDays",
@@ -443,6 +456,7 @@
             "159_181": "Used",
             "procedure_name": "UPD_SALARY_BY_ABSENT",
             "role": "변수 선언및 초기화",
+            "user_id": "test-session-123",
             "object_name": "TPX_SALARY",
             "scope": "Local",
             "name": "vFinalAmount",
@@ -456,6 +470,7 @@
             "159_181": "Used",
             "procedure_name": "UPD_SALARY_BY_ABSENT",
             "role": "변수 선언및 초기화",
+            "user_id": "test-session-123",
             "object_name": "TPX_SALARY",
             "scope": "Local",
             "name": "vExists",
@@ -475,6 +490,7 @@
             "role": "변수 선언및 초기화",
             "43_45": "Used",
             "42_55": "Used",
+            "user_id": "test-session-123",
             "object_name": "TPX_ATTENDANCE",
             "scope": "Local",
             "name": "vExists",
@@ -491,6 +507,7 @@
             "74_87": "Used",
             "procedure_name": "GET_ABSENT_DAYS",
             "role": "변수 선언및 초기화",
+            "user_id": "test-session-123",
             "object_name": "TPX_ATTENDANCE",
             "scope": "Local",
             "name": "vCount",
@@ -505,6 +522,7 @@
             "74_87": "Used",
             "procedure_name": "GET_ABSENT_DAYS",
             "role": "변수 선언및 초기화",
+            "user_id": "test-session-123",
             "object_name": "TPX_ATTENDANCE",
             "scope": "Local",
             "name": "vExists",
@@ -515,5 +533,7 @@
         }
       ]
     }
-  }
+  },
+  "controller_skeleton": {},
+  "controller_class_name": {}
 }

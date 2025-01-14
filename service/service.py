@@ -81,13 +81,16 @@ async def generate_and_execute_cypherQuery(file_names: list, user_id: str) -> As
 
         # * 이전에 사용자가 생성한 노드 존재 여부를 확인
         node_exists = await connection.node_exists(user_id, object_names)
-        if not node_exists:
+        if node_exists:
+            already_analyzed = {"type": "ALARM", "MESSAGE" : "ALREADY ANALYZED"}
+            yield json.dumps(already_analyzed).encode('utf-8') + b"send_stream"
             graph_data = await connection.execute_query_and_return_graph(user_id, object_names)
-            stream_data = {"type": "DATA", "graph": graph_data, "line_number": 0, "analysis_progress": 100, "current_file": "Already Analyzed"}
+            stream_data = {"type": "DATA", "graph": graph_data, "analysis_progress": 100}
             yield json.dumps(stream_data).encode('utf-8') + b"send_stream"
+            print("안녕")
             return
         
-
+        print("여기까지 오나?")
         # * 각 패키지 및 프로시저에 대한 understanding 시작
         for file_name, object_name in file_names:
             plsql_file_path = os.path.join(dirs['plsql'], file_name)

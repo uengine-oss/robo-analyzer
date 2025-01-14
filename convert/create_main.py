@@ -32,7 +32,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.mybatis.spring.annotation.MapperScan;
 
 @SpringBootApplication
-@MapperScan(basePackages = "com.example.repository")
+@MapperScan(basePackages = "com.example.demo.repository")
 public class DemoApplication {
 
     public static void main(String[] args) {

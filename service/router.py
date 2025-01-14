@@ -1,6 +1,6 @@
 import logging
 import os
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException, Request, logger
 from fastapi.responses import FileResponse, StreamingResponse
 from service.service import delete_all_temp_data, get_node_info_from_neo4j, process_comparison_result, process_project_zipping
 from service.service import generate_and_execute_cypherQuery
@@ -10,6 +10,7 @@ from service.service import generate_spring_boot_project
 
 
 router = APIRouter()
+logger = logging.getLogger(__name__)  
 
 
 # 역할: 전달받은 파일들을 분석하여 Neo4j 사이퍼 쿼리를 생성하고 실행합니다
@@ -23,7 +24,7 @@ router = APIRouter()
 async def understand_data(request: Request):    
     try:
         # * 사용자 ID 추출
-        user_id = request.headers.get('User-ID')
+        user_id = request.headers.get('Session-UUID')
         if not user_id:
             raise HTTPException(status_code=400, detail="사용자 ID가 없습니다.")
 
@@ -43,8 +44,9 @@ async def understand_data(request: Request):
         return StreamingResponse(generate_and_execute_cypherQuery(file_names, user_id))
     
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Understanding에 실패했습니다: {str(e)}")
-
+        error_message = f"Understanding 처리 중 오류 발생: {str(e)}"
+        logger.exception(error_message)
+        raise HTTPException(status_code=500, detail=error_message)
 
 
 
@@ -61,7 +63,7 @@ async def convert_simple_java(request: Request):
 
     try:
         # * 사용자 ID 추출
-        user_id = request.headers.get('User-ID')
+        user_id = request.headers.get('Session-UUID')
         if not user_id:
             raise HTTPException(status_code=400, detail="사용자 ID가 없습니다.")
     
@@ -76,7 +78,9 @@ async def convert_simple_java(request: Request):
         return StreamingResponse(generate_simple_java_code(cypher_query_for_java))
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"테이블 노드 기준으로 자바 코드 생성에 실패했습니다: {str(e)}")
+        error_message = f"테이블 노드 기준으로 자바 코드 생성에 실패했습니다: {str(e)}"
+        logger.exception(error_message)
+        raise HTTPException(status_code=500, detail=error_message)
 
 
 # 역할: 사용자의 요구사항과 이전 대화 내역을 기반으로 자바 코드를 생성합니다
@@ -105,7 +109,9 @@ async def receive_chat(request: Request):
         return StreamingResponse(generate_simple_java_code(None, prevHistory, userInput))
 
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"자바 코드 생성을 위해 전달된 데이터가 잘못되었습니다: {str(e)}")
+        error_message = f"사용자의 요구사항을 기반으로 자바 코드 생성 처리 중 오류 발생: {str(e)}"
+        logger.exception(error_message)
+        raise HTTPException(status_code=500, detail=error_message)
 
 
 
@@ -122,7 +128,7 @@ async def covnert_spring_project(request: Request):
 
     try:
         # * 사용자 ID 추출
-        user_id = request.headers.get('User-ID')
+        user_id = request.headers.get('Session-UUID')
         if not user_id:
             raise HTTPException(status_code=400, detail="사용자 ID가 없습니다.")
     
@@ -146,7 +152,9 @@ async def covnert_spring_project(request: Request):
         return StreamingResponse(generate_spring_boot_project(file_names, orm_type, user_id), media_type="text/plain")
     
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"스프링 부트 프로젝트 생성을 위해 전달된 데이터가 잘못되었습니다: {str(e)}")
+        error_message = f"스프링 부트 프로젝트 생성 도중 오류 발생: {str(e)}"
+        logger.exception(error_message)
+        raise HTTPException(status_code=500, detail=error_message)
 
 
 
@@ -159,7 +167,7 @@ async def covnert_spring_project(request: Request):
 async def download_spring_project(request: Request):
     try:
         # * 사용자 ID 추출
-        user_id = request.headers.get('User-ID')
+        user_id = request.headers.get('Session-UUID')
         if not user_id:
             raise HTTPException(status_code=400, detail="사용자 ID가 없습니다.")
     
@@ -193,7 +201,9 @@ async def download_spring_project(request: Request):
         )
     
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"스프링 부트 프로젝트를 Zip 파일로 압축하는데 실패했습니다: {str(e)}")
+        error_message = f"스프링 부트 프로젝트를 Zip 파일로 압축하는데 실패했습니다: {str(e)}"
+        logger.exception(error_message)
+        raise HTTPException(status_code=500, detail=error_message)
     
 
 
@@ -205,7 +215,7 @@ async def download_spring_project(request: Request):
 async def delete_all_data(request: Request):
     try:
         # * 사용자 ID 추출
-        user_id = request.headers.get('User-ID')
+        user_id = request.headers.get('Session-UUID')
         if not user_id:
             raise HTTPException(status_code=400, detail="사용자 ID가 없습니다.")
         
@@ -215,8 +225,9 @@ async def delete_all_data(request: Request):
         return {"message": "모든 임시 파일이 삭제되었습니다."}
         
     except Exception as e:
-        logging.error(f"파일 삭제 중 오류 발생: {str(e)}")
-        raise HTTPException(status_code=500, detail="임시 파일 삭제 중 오류가 발생했습니다.")
+        error_message = f"임시 파일 삭제 중 오류 발생: {str(e)}"
+        logger.exception(error_message)
+        raise HTTPException(status_code=500, detail=error_message)
 
 
 # 역할: 비교 결과를 반환하는 엔드포인트
@@ -227,7 +238,7 @@ async def delete_all_data(request: Request):
 async def get_compare_result(request: Request):
     try:
         # * 사용자 ID 추출
-        user_id = request.headers.get('User-ID')
+        user_id = request.headers.get('Session-UUID')
         if not user_id:
             raise HTTPException(status_code=400, detail="사용자 ID가 없습니다.")
         
@@ -247,7 +258,9 @@ async def get_compare_result(request: Request):
         return StreamingResponse(process_comparison_result(test_cases, user_id))
     
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"비교 결과를 가져오는데 실패했습니다: {str(e)}")
+        error_message = f"비교 결과를 가져오는데 실패했습니다: {str(e)}"
+        logger.exception(error_message)
+        raise HTTPException(status_code=500, detail=error_message)
 
 
 # 역할: 테스트 입력값을 위해 노드 정보를 조회하여 반환합니다
@@ -260,7 +273,7 @@ async def get_compare_result(request: Request):
 async def get_node_info(request: Request):
     try:
         # * 사용자 ID 추출
-        user_id = request.headers.get('User-ID')
+        user_id = request.headers.get('Session-UUID')
         if not user_id:
             raise HTTPException(status_code=400, detail="사용자 ID가 없습니다.")
         
@@ -270,4 +283,6 @@ async def get_node_info(request: Request):
         return result
     
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"노드 정보를 가져오는데 실패했습니다: {str(e)}")
+        error_message = f"노드 정보를 가져오는데 실패했습니다: {str(e)}"
+        logger.exception(error_message)
+        raise HTTPException(status_code=500, detail=error_message)

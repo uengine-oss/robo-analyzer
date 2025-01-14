@@ -68,8 +68,8 @@ class Neo4jConnection:
             AND NOT m:Variable AND NOT m:PACKAGE_SPEC AND NOT m:FUNCTION_SPEC AND NOT m:PROCEDURE_SPEC AND NOT m:PACKAGE_VARIABLE
             AND n.object_name IN $package_names
             AND m.object_name IN $package_names
-            AND n.userId = $user_id
-            AND m.userId = $user_id
+            AND n.user_id = $user_id
+            AND m.user_id = $user_id
             RETURN n, r, m
             """
 
@@ -185,10 +185,12 @@ class Neo4jConnection:
     async def node_exists(self, user_id: str, package_names: list) -> bool:
         try:
             # * 패키지 이름이 존재하는 노드 조회
+            print(package_names)
+            print(user_id)
             query = """
-            MATCH (n:Node)
-            WHERE n.objectName IN $package_names
-            AND n.userId = $user_id
+            MATCH (n)
+            WHERE n.object_name IN $package_names
+            AND n.user_id = $user_id
             RETURN COUNT(n) > 0 AS exists
             """
             
@@ -202,6 +204,7 @@ class Neo4jConnection:
             async with self.__driver.session(database=self.database_name) as session:
                 result = await session.run(query, params)
                 record = await result.single()
+                print(record["exists"])
                 return record["exists"]
             
         except Exception as e:

@@ -54,6 +54,12 @@ class TestEntityGeneration(unittest.IsolatedAsyncioTestCase):
             # "TPX_ALARM_RECIPIENT"
         ]
 
+
+        # * 테스트할 세션 및 orm 타입 설정
+        session_uuid = "test-session-123"
+        orm_type = "jpa"
+
+
         try:
             # * 파일이 존재하면 기존 데이터를 읽고, 없다면 새로운 딕셔너리 생성
             result_file_path = os.path.join('test', 'test_converting', 'test_results.json')
@@ -70,7 +76,8 @@ class TestEntityGeneration(unittest.IsolatedAsyncioTestCase):
             for object_name in object_names:
                 entity_names, code_dict = await start_entity_processing(
                     object_name,
-                    orm_type="jpa"
+                    orm_type,
+                    session_uuid
                 )
                 entity_results[object_name] = entity_names
                 entity_codes[object_name] = code_dict

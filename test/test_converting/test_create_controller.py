@@ -38,18 +38,23 @@ class TestControllerGeneration(unittest.IsolatedAsyncioTestCase):
         
         # * 테스트할 객체 이름들을 설정
         object_names = [
-            # "TPX_MAIN",
-            # "TPX_EMPLOYEE",
-            # "TPX_SALARY",
-            # "TPX_ATTENDANCE",
-            "TPX_PROJECT",
-            "TPX_TMF_SYNC_JOB_STATUS",
-            "TPX_TMF_SYNC_JOB",
+            "TPX_UPDATE_SALARY",
+            "TPX_EMPLOYEE",
+            "TPX_SALARY",
+            "TPX_ATTENDANCE",
+            # "TPX_PROJECT",
+            # "TPX_TMF_SYNC_JOB_STATUS",
+            # "TPX_TMF_SYNC_JOB",
             # "TPX_ALARM",
             # "TPX_ALARM_CONTENT",
             # "TPX_ALARM_FILE",
             # "TPX_ALARM_RECIPIENT"
         ]
+
+
+        # * 테스트할 세션 및 orm 타입 설정
+        session_uuid = "test-session-123"
+
 
         try:
             # * 파일이 존재하면 기존 데이터를 읽고, 없다면 새로 생성합니다.
@@ -82,7 +87,7 @@ class TestControllerGeneration(unittest.IsolatedAsyncioTestCase):
                     )
 
                 # * 컨트롤러 클래스 파일 생성   
-                await generate_controller_class(controller_skeleton, controller_class_name, merge_controller_method_code)
+                await generate_controller_class(controller_skeleton, controller_class_name, merge_controller_method_code, session_uuid)
 
 
             # * 결과를 결과 파일에 저장합니다.

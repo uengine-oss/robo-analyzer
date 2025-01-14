@@ -42,6 +42,11 @@ class TestMyBatisMapperGeneration(unittest.IsolatedAsyncioTestCase):
             "TPX_TMF_SYNC_JOB"
         ]
 
+
+        # * 테스트할 세션 및 orm 타입 설정
+        session_uuid = "test-session-123"
+
+
         try:
             # * 테스트 결과 파일 경로 설정
             result_file_path = os.path.join('test', 'test_converting', 'test_results.json')
@@ -64,6 +69,7 @@ class TestMyBatisMapperGeneration(unittest.IsolatedAsyncioTestCase):
                 await start_mybatis_mapper_processing(
                     entity_infos=entity_infos[object_name],
                     all_query_methods=all_query_methods[object_name],
+                    session_uuid=session_uuid,
                 )
 
             self.assertTrue(True, "MyBatis Mapper 생성 프로세스가 성공적으로 완료되었습니다.")
