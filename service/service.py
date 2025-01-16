@@ -9,8 +9,8 @@ import aiofiles
 import os
 from compare.create_init_sql import extract_procedure_params, generate_init_sql, generate_insert_sql, get_package_dependencies
 from compare.extract_log_info import clear_log_file, generate_given_when_then
-from compare.create_docker_compose_yml import generate_docker_compose_yml, process_docker_compose_yml, start_docker_compose_yml
-# from compare.create_init_sql import generate_init_sql
+from compare.create_docker_compose_yml import check_docker_services_running, process_docker_compose_yml
+from compare.create_init_sql import generate_init_sql
 from compare.create_junit_test import create_junit_test
 from compare.execute_plsql_sql import execute_plsql, execute_sql
 from compare.result_compare import execute_maven_commands
@@ -87,10 +87,8 @@ async def generate_and_execute_cypherQuery(file_names: list, user_id: str) -> As
             graph_data = await connection.execute_query_and_return_graph(user_id, object_names)
             stream_data = {"type": "DATA", "graph": graph_data, "analysis_progress": 100}
             yield json.dumps(stream_data).encode('utf-8') + b"send_stream"
-            print("안녕")
             return
         
-        print("여기까지 오나?")
         # * 각 패키지 및 프로시저에 대한 understanding 시작
         for file_name, object_name in file_names:
             plsql_file_path = os.path.join(dirs['plsql'], file_name)
@@ -318,7 +316,7 @@ async def generate_spring_boot_project(file_names: list, orm_type: str, user_id:
 
 
             # * 1 단계 : 엔티티 클래스 생성
-            entity_name_list, table_entity_info = await start_entity_processing(object_name, orm_type, user_id) 
+            entity_name_list, table_entity_info, table_name_list = await start_entity_processing(object_name, orm_type, user_id) 
             yield f"{file_name}-Step1 completed\n"
             
 
@@ -409,9 +407,8 @@ async def generate_spring_boot_project(file_names: list, orm_type: str, user_id:
         yield f"Step7 completed\n"
         yield f"Completed Converting {file_name}.\n\n"
 
-        yield "All files have been converted successfully.\n"
 
-    except ConvertingError as e:
+    except (ConvertingError, FeedbackLoopError) as e:
         yield json.dumps({"error": str(e)}).encode('utf-8') + b"send_stream"
     except Exception as e:
         err_msg = f"스프링 부트 프로젝트로 전환하는 도중 오류가 발생했습니다: {str(e)}"
@@ -496,6 +493,11 @@ async def process_comparison_result(test_cases: list, user_id: str, orm_type: st
         test_class_names = []
 
 
+        # * 테스트 데이터 삭제
+        await execute_sql(delete_statements, orm_type, True)
+        await clear_log_file()
+
+
         # * docker-compose.yml 파일 생성 및 실행 상태 전송
         yield json.dumps({
             "type": "status",
@@ -530,7 +532,7 @@ async def process_comparison_result(test_cases: list, user_id: str, orm_type: st
             await execute_sql(insert_statements)
 
             # * Given 로그 파일 비우기
-            await clear_log_file('plsql')
+            await clear_log_file()
 
             # * 테스트 데이터 생성을 위한 프로시저 파라미터 추출
             procedure_params = extract_procedure_params(procedure)
@@ -549,8 +551,6 @@ async def process_comparison_result(test_cases: list, user_id: str, orm_type: st
             test_class_name = await create_junit_test(given_when_then_log, table_names, package_name, procedure_name, orm_type)
             test_class_names.append(test_class_name)
 
-            # * 테스트 데이터 삭제
-            await execute_sql(delete_statements)
 
         # * 테스트 코드 실행하는 메서드 호출
         async for result in execute_maven_commands(test_class_names, given_when_then_log, user_id):
@@ -628,3 +628,43 @@ async def get_node_info_from_neo4j(user_id: str):
         raise Neo4jError(err_msg)
     finally:
         await neo4j.close()
+
+
+# 역할: 도커 환경을 비동기적으로 초기화합니다.
+#
+# 매개변수:
+#   - user_id: 사용자 ID
+#   - orm_type: ORM 타입
+#   - package_names: 패키지 이름 리스트
+async def initialize_docker_environment(user_id: str, orm_type: str, package_names: list):
+    try:
+        connection = Neo4jConnection()
+        
+        # * 테이블 이름 리스트 조회 쿼리
+        query = f"""
+        MATCH (t:Table)
+        WHERE t.user_id = $param_user_id AND t.object_name IN $param_package_names
+        RETURN collect(t.name) as table_names
+        """
+        
+        params = {
+            'param_user_id': user_id,
+            'param_package_names': package_names
+        }
+        
+        result = await connection.execute_queries([query], params)
+        table_name_list = result[0]['table_names']
+        
+        # * 도커 서비스 실행 여부 확인
+        is_docker_running = await check_docker_services_running()
+        if not is_docker_running:
+            package_names = await get_package_dependencies(user_id)
+            await generate_init_sql(table_name_list, package_names, orm_type)
+            await process_docker_compose_yml(table_name_list)
+            
+        logging.info("Docker environment initialization completed successfully")
+        
+    except Exception as e:
+        logging.error(f"도커 환경 초기화 중 오류 발생: {str(e)}")
+    finally:
+        await connection.close()

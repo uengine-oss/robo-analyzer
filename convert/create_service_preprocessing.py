@@ -5,7 +5,7 @@ from prompt.convert_service_prompt import convert_service_code
 from prompt.convert_summarized_service_skeleton_prompt import convert_summarized_code
 from understand.neo4j_connection import Neo4jConnection
 from util.converting_utlis import extract_used_query_methods
-from util.exception import ConvertingError, HandleResultError, LLMCallError, Neo4jError, ProcessResultError, ServiceCreationError, TraverseCodeError, VariableNodeError
+from util.exception import ConvertingError, HandleResultError, LLMCallError, Neo4jError, ProcessResultError, ServiceCreationError, StringConversionError, TraverseCodeError, VariableNodeError
 from util.string_utils import convert_to_pascal_case
 
 
@@ -201,7 +201,7 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
             # * 노드 업데이트 쿼리를 실행
             await connection.execute_queries(node_update_query)
 
-        except Neo4jError: 
+        except (Neo4jError, StringConversionError): 
             raise
         except Exception as e:
             err_msg = f"(전처리) 서비스 코드 생성 과정에서 LLM의 결과를 처리하는 도중 문제가 발생했습니다: {str(e)}"

@@ -1,8 +1,9 @@
+import asyncio
 import logging
 import os
 from fastapi import APIRouter, HTTPException, Request, logger
 from fastapi.responses import FileResponse, StreamingResponse
-from service.service import delete_all_temp_data, get_node_info_from_neo4j, process_comparison_result, process_project_zipping
+from service.service import delete_all_temp_data, get_node_info_from_neo4j, initialize_docker_environment, process_comparison_result, process_project_zipping
 from service.service import generate_and_execute_cypherQuery
 from service.service import generate_two_depth_match
 from service.service import generate_simple_java_code
@@ -285,5 +286,43 @@ async def get_node_info(request: Request):
     
     except Exception as e:
         error_message = f"노드 정보를 가져오는데 실패했습니다: {str(e)}"
+        logger.exception(error_message)
+        raise HTTPException(status_code=500, detail=error_message)
+    
+
+# 역할: 도커 환경을 비동기적으로 초기화합니다
+#
+# 매개변수:
+#   - request: 
+#     사용자 ID와 ORM 타입이 담긴 요청 객체
+#     패키지 이름이 담긴 요청 객체
+#
+# 반환값:
+#   - dict: 초기화 시작 메시지
+@router.post("/initDocker/")
+async def init_docker_environment(request: Request):
+    try:
+        # * 사용자 ID 추출
+        user_id = request.headers.get('Session-UUID')
+        if not user_id:
+            raise HTTPException(status_code=400, detail="사용자 ID가 없습니다.")
+            
+
+        # * ORM 타입 추출
+        data = await request.json()
+        orm_type = data.get('orm_type', 'jpa').lower()
+        package_names = data.get('package_names', [])
+
+        
+        # * 도커 환경 초기화 시작 (비동기 백그라운드)
+        asyncio.create_task(initialize_docker_environment(user_id, orm_type, package_names))
+        
+        return {
+            "message": "도커 환경 초기화가 백그라운드에서 시작되었습니다.",
+            "status": "started"
+        }
+        
+    except Exception as e:
+        error_message = f"도커 환경 초기화 요청 처리 중 오류 발생: {str(e)}"
         logger.exception(error_message)
         raise HTTPException(status_code=500, detail=error_message)

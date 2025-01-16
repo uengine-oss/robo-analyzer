@@ -61,6 +61,16 @@ prompt = PromptTemplate.from_template(
      * com.example.demo.entity.EntityName
    - 추가적인 import문은 반드시 필요에 따라 작성하세요.
 
+4. Command 클래스 설명 생성 규칙
+   - 반드시 다음 형식으로 작성:
+    * 첫 문장은 "[프로시저명] 프로시저의 입력 파라미터를 표현하는 Command 클래스입니다." 형식으로 시작
+    * 모든 필드는 변환된 자바 필드명과 타입을 포함하여 설명
+
+    예시) "UPDATE_EMPLOYEE 프로시저의 입력 파라미터를 표현하는 Command 클래스입니다.
+        employeeId(Long)는 수정할 직원의 식별자이며,
+        name(String), email(String), phone(String) 필드로 직원의 새로운 정보를 전달받습니다.
+        updateDate(LocalDateTime)는 수정 시각을 지정합니다."
+
 
 [SECTION 2] Command 클래스 예시
 ===============================================
@@ -91,6 +101,7 @@ public class ExampleCommand {{
 {{
     "commandName": "Command Class Name",
     "command": "Command Java Code",
+    "summary": "Command Class 설명",
     "command_class_variable": [
         "Command Class에 선언된 모든 변수들을 '타입:이름' 형태로 채워넣으세요."
     ]

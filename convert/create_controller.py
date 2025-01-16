@@ -3,8 +3,10 @@ import os
 import textwrap
 import tiktoken
 from prompt.convert_controller_prompt import convert_controller_method_code
-from util.exception import ControllerCreationError, ConvertingError, FilePathError, LLMCallError, ProcessResultError, SaveFileError
+from understand.neo4j_connection import Neo4jConnection
+from util.exception import ControllerCreationError, ConvertingError, FilePathError, LLMCallError, Neo4jError, ProcessResultError, SaveFileError, StringConversionError
 from util.file_utils import save_file
+from util.string_utils import convert_to_pascal_case
 
 encoder = tiktoken.get_encoding("cl100k_base")
 CONTROLLER_PATH = 'demo/src/main/java/com/example/demo/controller'
@@ -51,14 +53,17 @@ async def generate_controller_class(controller_skeleton: str, controller_class_n
 # 매개변수: 
 #   - method_signature: 서비스 메서드의 시그니처
 #   - procedure_name: 원본 프로시저/함수 이름
+#   - object_name: 대상 객체 이름 (로깅용)
 #   - command_class_variable: Command DTO 필드 목록
 #   - command_class_name: Command 클래스 이름
 #   - controller_skeleton: 컨트롤러 클래스 기본 구조
+#   - user_id: 사용자 ID    
 #
 # 반환값: 
 #   - method_skeleton_code: 생성된 컨트롤러 메서드 코드
-async def process_controller_method_code(method_signature: str, procedure_name: str, command_class_variable: str, command_class_name: str, controller_skeleton: str) -> str:
-
+async def process_controller_method_code(method_signature: str, procedure_name: str, object_name: str, command_class_variable: str, command_class_name: str, controller_skeleton: str, user_id: str) -> str:
+    connection = Neo4jConnection()
+    
     try:
         # * 컨트롤러 메서드 틀 생성에 필요한 정보를 받습니다.
         analysis_method = convert_controller_method_code(
@@ -69,11 +74,27 @@ async def process_controller_method_code(method_signature: str, procedure_name: 
             controller_skeleton
         )
 
+
         # * 컨트롤러 메서드 코드 추출
         method_skeleton_code = analysis_method['method']
+        method_summary = analysis_method['summary']
+
+
+        # * 컨트롤러 메서드 코드를 컨트롤러 노드에 저장
+        controller_class_name = convert_to_pascal_case(procedure_name)
+        controller_query = [
+            f"""
+            MATCH (p:PROCEDURE {{name: '{procedure_name}', user_id: '{user_id}', object_name: '{object_name}'}} )
+            MERGE (c:CONTROLLER {{name: '{controller_class_name}', user_id: '{user_id}', object_name: '{object_name}', procedure_name: '{procedure_name}'}} )
+            SET c.java_code = '{method_skeleton_code}'
+            SET c.summary = '{method_summary}'
+            MERGE (p)-[:CONVERT]->(c)
+            """
+        ]
+        await connection.execute_queries(controller_query)
         return method_skeleton_code
 
-    except LLMCallError:
+    except (LLMCallError, Neo4jError, StringConversionError):
         raise
     except Exception as e:
         err_msg = f"컨트롤러 메서드를 생성하는 과정에서 결과 처리 준비 처리를 하는 도중 문제가 발생했습니다: {str(e)}"
@@ -95,7 +116,7 @@ async def process_controller_method_code(method_signature: str, procedure_name: 
 #
 # 반환값:
 #   - controller_method_code: 생성된 컨트롤러 메서드 코드
-async def start_controller_processing(method_signature: str, procedure_name: str, command_class_variable: str, command_class_name: str, node_type: str, merge_controller_method_code: str, controller_skeleton: str, object_name: str) -> str:
+async def start_controller_processing(method_signature: str, procedure_name: str, command_class_variable: str, command_class_name: str, node_type: str, merge_controller_method_code: str, controller_skeleton: str, object_name: str, user_id: str) -> str:
 
     logging.info(f"[{object_name}] {procedure_name} 프로시저의 컨트롤러 생성을 시작합니다.")
 
@@ -107,9 +128,11 @@ async def start_controller_processing(method_signature: str, procedure_name: str
             controller_method_code = await process_controller_method_code(
                 method_signature, 
                 procedure_name, 
+                object_name,
                 command_class_variable,
                 command_class_name,
-                controller_skeleton
+                controller_skeleton,
+                user_id
             )
 
             # * 컨트롤러 메서드 코드 병합
@@ -119,7 +142,7 @@ async def start_controller_processing(method_signature: str, procedure_name: str
 
         return merge_controller_method_code
 
-    except (LLMCallError, ProcessResultError):
+    except ConvertingError:
         raise
     except Exception as e:
         err_msg = f"컨트롤러 메서드를 생성하기 위해 데이터를 준비하는 도중 문제가 발생했습니다: {str(e)}"

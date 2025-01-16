@@ -1,3 +1,4 @@
+import asyncio
 import logging
 import os
 from pathlib import Path
@@ -323,3 +324,44 @@ async def process_docker_compose_yml(table_names: list) -> bool:
         err_msg = f"환경 설정 중 오류 발생: {str(e)}"
         logging.error(err_msg)
         raise DockerPrepareError(err_msg)
+
+
+# 역할 : 도커 서비스 실행 여부 확인
+#
+# 반환값 : 
+#   - bool : 도커 서비스 실행 여부
+async def check_docker_services_running() -> bool:
+    try:
+        # docker-compose.yml에 정의된 서비스 목록
+        required_services = [
+            'zookeeper',
+            'kafka',
+            'oracle',
+            'connect',
+            'watcher-plsql',
+            'watcher-java'
+        ]
+        
+        # docker ps 명령어 실행하여 실행 중인 컨테이너 확인
+        process = await asyncio.create_subprocess_shell(
+            'docker ps --format "{{.Names}}"',
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE
+        )
+        
+        stdout, _ = await process.communicate()
+        running_containers = stdout.decode().strip().split('\n')
+        
+        # 모든 필수 서비스가 실행 중인지 확인
+        for service in required_services:
+            if service not in running_containers:
+                logging.info(f"서비스 '{service}'가 실행되고 있지 않습니다.")
+                return False
+                
+        logging.info("모든 필수 Docker 서비스가 실행 중입니다.")
+        return True
+        
+    except Exception as e:
+        err_msg = f"Docker 서비스 상태 확인 중 오류 발생: {str(e)}"
+        logging.error(err_msg)
+        return False

@@ -105,6 +105,8 @@ CodePlaceHolder
 #   - node_type: 대상 노드의 유형
 #   - dir_name: 커맨드 클래스가 저장될 디렉토리 이름
 #   - user_id : 사용자 ID
+#   - connection: Neo4j 연결 객체
+#   - object_name: 프로시저 노드의 객체 이름
 #
 # 반환값: 
 #   - command_class_variable: 커맨드 클래스에 정의된 필드 정보 (함수인 경우 None)
@@ -112,17 +114,39 @@ CodePlaceHolder
 #   - method_skeleton_name: 생성된 서비스 메서드명
 #   - method_skeleton_code: 생성된 메서드 구현 코드
 #   - method_signature: 생성된 메서드 시그니처
-async def process_method_and_command_code(method_skeleton_data: dict, parameter_data: dict, node_type: str, dir_name: str, user_id: str) -> tuple:
+async def process_method_and_command_code(method_skeleton_data: dict, parameter_data: dict, node_type: str, dir_name: str, user_id: str, connection: Neo4jConnection, object_name: str) -> tuple:
     command_class_variable = None
     command_class_name = None
     
     try:
         # * 파라미터가 있는 프로시저인 경우 커맨드 클래스 생성
         if node_type != 'FUNCTION' and parameter_data['parameters']:
+
+
+            # * 커맨드 클래스를 생성하는 프롬프트 호출
             analysis_command = convert_command_code(parameter_data, dir_name)  
             command_class_name = analysis_command['commandName']
             command_class_code = analysis_command['command']
             command_class_variable = analysis_command['command_class_variable']              
+            
+            
+            # * 커맨드 클래스 정보를 노드에 저장
+            command_query = f"""
+            MATCH (p:PROCEDURE {{name: '{method_skeleton_data['procedure_name']}', user_id: '{user_id}', object_name: '{object_name}'}})
+            MERGE (cmd:COMMAND {{
+                name: '{command_class_name}',
+                user_id: '{user_id}',
+                object_name: '{object_name}',
+                procedure_name: '{method_skeleton_data['procedure_name']}',
+            }})
+            SET cmd.java_code = '{command_class_code}'
+            SET cmd.summary = '{method_skeleton_data['summary']}'
+            MERGE (p)-[:CONVERT]->(cmd)
+            """
+            await connection.execute_queries(command_query)
+            
+
+            # * 커맨드 클래스 파일 생성
             await generate_command_class(command_class_name, command_class_code, dir_name, user_id)
 
 
@@ -306,7 +330,7 @@ async def start_service_skeleton_processing(entity_name_list: list, object_name:
             convert_global_variables,
             dir_name,
             external_packages,
-            exist_command_class
+            exist_command_class,
         )
 
         # * 각 프로시저별 메서드 생성
@@ -333,7 +357,9 @@ async def start_service_skeleton_processing(entity_name_list: list, object_name:
                 parameter_data,
                 proc_data['node_type'],
                 dir_name,
-                user_id
+                user_id,
+                connection,
+                object_name
             )
 
 

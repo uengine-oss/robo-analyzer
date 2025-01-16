@@ -149,13 +149,25 @@ jpa_prompt = PromptTemplate.from_template(
    - RAW: byte[]
    - BOOLEAN: Boolean
 
-   private Long tmfSyncJobKey;
-
 6. Import 선언
    - 기본 제공되는 import문 유지
    - 추가로 필요한 import문 선언
 
-
+7. Entity 설명 작성 규칙
+   - 반드시 다음 형식으로 작성:
+     * 첫 문장은 "[테이블명] 테이블을 표현하는 Entity 클래스입니다." 형식으로 시작
+     * 모든 필드는 변환된 자바 필드명과 타입을 포함하여 설명
+     * PK 필드들은 반드시 명시
+     * @Column의 nullable 속성 포함
+   
+   예시) "B_EMPLOYEE 테이블을 표현하는 Entity 클래스입니다.
+         자동 생성되는 id(Long) 필드를 기본키로 사용합니다.
+         empName(String, NOT NULL), empEmail(String), empPhone(String) 필드를 가지며,
+         deptCode(String, NOT NULL), positionCode(String)와 함께
+         hireDate(LocalDate, NOT NULL), lastModifiedDate(LocalDateTime) 같은 일자 관련 필드들로 구성됩니다.
+         managerId(Long)는 Employee 엔티티의 id를 참조합니다."
+         
+   
 [SECTION 2] Entity 클래스 기본 템플릿
 ===============================================
 package com.example.demo.entity;
@@ -189,8 +201,10 @@ public class EntityName {{
 {{
     "analysis": [
         {{
+            "tableName": "TableName",
             "entityName": "EntityName",
             "code": "Java Code"
+            "summary" : "Summary"
         }}
     ]
 }}

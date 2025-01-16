@@ -3,9 +3,8 @@ import logging
 import tiktoken
 from prompt.convert_entity_prompt import convert_entity_code
 from understand.neo4j_connection import Neo4jConnection
-from util.exception import ConvertingError, EntityCreationError, FilePathError, ProcessResultError, SaveFileError, TokenCountError
+from util.exception import ConvertingError, EntityCreationError, FilePathError, Neo4jError, ProcessResultError, SaveFileError, TokenCountError
 from util.file_utils import save_file
-from util.string_utils import convert_to_pascal_case
 from util.token_utils import calculate_code_token
 
 MAX_TOKENS = 1000
@@ -17,18 +16,21 @@ encoder = tiktoken.get_encoding("cl100k_base")
 # 
 # 매개변수: 
 #   table_data_list (list):  Neo4j 데이터베이스에서 가져온 테이블 정보 목록
+#   object_name (str): 패티지 이름
 #   orm_type (str): 사용할 ORM 유형 (JPA, MyBatis 등)   
 #   user_id (str): 사용자 ID
+#   connection (Neo4jConnection): Neo4j 연결 객체
 #
 # 반환값:
 #   entity_name_list (list): 생성된 Java 엔티티 클래스의 이름 목록
-async def process_table_by_token_limit(table_data_list: list, orm_type: str, user_id: str) -> list[str]:
+async def process_table_by_token_limit(table_data_list: list, object_name: str, orm_type: str, user_id: str, connection: Neo4jConnection) -> list[str]:
  
     try:
         current_tokens = 0
         table_data_chunk = []
         entity_name_list = []
         table_entity_info = {}
+
 
         # 역할: 테이블 데이터를 LLM에게 전달하여 Entity 클래스 생성 정보를 받습니다.
         async def process_entity_class_code() -> None:
@@ -41,7 +43,7 @@ async def process_table_by_token_limit(table_data_list: list, orm_type: str, use
 
                 # * 테이블 정보를 이름으로 빠르게 찾기 위한 딕셔너리
                 table_map = {
-                    convert_to_pascal_case(table['name']): table 
+                    table['name']: table 
                     for table in table_data_chunk
                 }
                 
@@ -50,15 +52,28 @@ async def process_table_by_token_limit(table_data_list: list, orm_type: str, use
                 for entity in analysis_data['analysis']:
                     entity_name = entity['entityName']
                     entity_code = entity['code']
+                    table_name = entity['tableName']
+                    entity_summary = entity['summary']
                     
                     # * 엔티티 클래스 파일 생성
                     await generate_entity_class(entity_name, entity_code, user_id)
-                    entity_name_list.append(entity_name)
                     
+                    
+                    # * 엔티티 클래스 정보를 테이블 노드에 저장
+                    entity_query = [
+                        f"""
+                        MATCH (n:Table {{name: '{table_name}', user_id: '{user_id}', object_name: '{object_name}'}} )
+                        SET n.java_code = '{entity_code}', n.summary = '{entity_summary}'
+                        """
+                    ]
+                    await connection.execute_queries(entity_query)
+                    
+
                     # * 엔티티 클래스 정보 저장
+                    entity_name_list.append(entity_name)
                     table_entity_info[entity_name] = {
                         'code': entity['code'],
-                        'table_info': table_map.get(entity_name)
+                        'table_info': table_map.get(table_name)
                     }                
 
 
@@ -67,7 +82,7 @@ async def process_table_by_token_limit(table_data_list: list, orm_type: str, use
                 current_tokens = 0
                 
             
-            except (FilePathError, SaveFileError):
+            except (FilePathError, SaveFileError, Neo4jError):
                 raise
             except Exception as e:
                 err_msg = f"LLM을 통한 엔티티 분석 중 오류가 발생: {str(e)}"
@@ -160,13 +175,17 @@ async def start_entity_processing(object_name: str, orm_type: str, user_id: str)
         METADATA_FIELDS = {'name', 'object_name', 'id', 'primary_keys', 
                           'foreign_keys', 'description', 'reference_tables'}
         table_data_list = []
+        table_name_list = []
 
 
         # * 테이블 데이터의 구조를 사용하기 쉽게 구조를 변경합니다
         for node in table_nodes:
             node_data = node['n']
+            table_name = node_data['name']
+            table_name_list.append(table_name)
+
             table_info = {
-                'name': node_data['name'],
+                'name': table_name,
                 'fields': [
                     (key, value) for key, value in node_data.items() 
                     if key not in METADATA_FIELDS and value
@@ -181,10 +200,10 @@ async def start_entity_processing(object_name: str, orm_type: str, user_id: str)
         
 
         # * 엔티티 클래스 생성을 시작합니다.
-        entity_name_list, table_entity_info = await process_table_by_token_limit(table_data_list, orm_type, user_id)
+        entity_name_list, table_entity_info = await process_table_by_token_limit(table_data_list, object_name, orm_type, user_id, connection)
 
         logging.info(f"[{object_name}] 엔티티가 생성되었습니다.\n")
-        return entity_name_list, table_entity_info
+        return entity_name_list, table_entity_info, table_name_list
     
     except ConvertingError:
         raise

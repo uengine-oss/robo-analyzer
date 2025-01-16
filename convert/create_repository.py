@@ -143,7 +143,10 @@ async def process_repository_by_token_limit(repository_nodes: list, local_variab
                     
                     # * save 메서드 추가
                     existing_methods.append(method_info['method'])
-                    
+
+
+            except (LLMCallError, StringConversionError):
+                raise
             except Exception as e:
                 err_msg = f"save 쿼리 메서드 저장 중 오류가 발생했습니다: {str(e)}"
                 logging.error(err_msg)

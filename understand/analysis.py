@@ -7,7 +7,6 @@ from prompt.understand_summarized_prompt import understand_summary
 import tiktoken
 from prompt.understand_prompt import understand_code
 from prompt.understand_variables_prompt import understand_variables
-from semantic.vectorizer import vectorize_text
 from util.exception import (LLMCallError, TokenCountError, ExtractCodeError, SummarizeCodeError, FocusedCodeError, TraverseCodeError, UnderstandingError,
                             ProcessResultError, HandleResultError, EventRsRqError, VectorizeError)
 
@@ -394,11 +393,9 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
 
 
                 # * 구문의 설명(Summary)을 반영하는 사이퍼쿼리를 생성합니다
-                summary_vector = vectorize_text(summary)  
                 summary_query = f"""
                     MATCH (n:{statement_type} {{startLine: {start_line}, object_name: '{object_name}', user_id: '{user_id}'}})
-                    SET n.summary = {json.dumps(summary)},
-                        n.summary_vector = {summary_vector.tolist()}
+                    SET n.summary = {json.dumps(summary)}
                 """
                 cypher_query.append(summary_query)
 

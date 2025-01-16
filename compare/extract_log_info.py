@@ -339,19 +339,11 @@ async def save_json_to_file(data, file_name):
 
 # 역할 : 로그 파일 비우기
 #
-# 매개변수 : 
-#   - log_type : 로그 타입
-#
 # 반환값 : 
 #   - bool : 로그 파일 비우기 성공 여부
-async def clear_log_file(log_type: str):
+async def clear_log_file():
 
     try:
-            
-        # * PLSQL 로그 타입일 경우 딜레이
-        if log_type == 'plsql':
-            time.sleep(10)
-        
         # * 두 파일 동시 처리
         async with aiofiles.open(PLSQL_LOG_PATH, 'w', encoding='utf-8') as f1, \
                   aiofiles.open(JAVA_LOG_PATH, 'w', encoding='utf-8') as f2:
@@ -360,9 +352,9 @@ async def clear_log_file(log_type: str):
                 f2.write('')
             )
             
-        print(f"{log_type} 로그 파일 비우기 완료")
+        print(f"로그 파일 비우기 완료")
             
     except Exception as e:
-        err_msg = f"{log_type} 로그 파일 비우기 실패: {str(e)}"
+        err_msg = f"로그 파일 비우기 실패: {str(e)}"
         logging.error(err_msg)
         raise ExtractLogError(err_msg)
