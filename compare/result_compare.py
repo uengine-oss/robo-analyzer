@@ -101,8 +101,7 @@ def read_single_log_file(directory_path, file_name):
         logging.error(f"파일 읽기 중 오류 발생: {str(e)}")
         raise
 
-# TODO : user_id(세션 아이디)를 받아서 폴더를 구분하고 있음 -> update도 경로 수정이 필요
-async def execute_maven_commands(test_class_names: list, plsql_gwt_log: list):
+async def execute_maven_commands(test_class_names: list, plsql_gwt_log: list, user_id: str):
     global global_test_class_names, global_plsql_gwt_log, stop_execution_flag
     
     stop_execution_flag = False
@@ -187,7 +186,7 @@ async def execute_maven_commands(test_class_names: list, plsql_gwt_log: list):
             
             logging.info(f"{test_class_name} 테스트 클래스 실행 완료")
             java_gwt_log = await extract_java_given_when_then(i)
-            compare_log, difference_text = await compare_then_results(i)
+            compare_log = await compare_then_results(i)
             await clear_log_files('java', 'plsql')
 
             yield json.dumps({
@@ -521,4 +520,3 @@ async def update_code(explanation=None, java_files=None, error=None, plsql_java_
     except Exception as e:
         logging.error(f"코드 분석 중 오류 발생: {str(e)}")
         raise
-

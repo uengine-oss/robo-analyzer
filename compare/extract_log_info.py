@@ -61,7 +61,6 @@ async def compare_then_results(case_number: int):
         # * 차이점 분석
         differences = {}
         has_differences = False
-        difference_text = None
 
         for op_table in set(plsql_then.keys()) | set(java_then.keys()):
             plsql_values = plsql_then.get(op_table, {})
@@ -87,27 +86,7 @@ async def compare_then_results(case_number: int):
                         }
                     }
 
-                    table_name = op_table.split('_', 1)[1]
-                    operation = op_table.split('_')[0]  
                     
-                    if difference_text is None:
-                        difference_text = f"프로시저 '{plsql_data['when']['procedure'].split('.')[-1]}'의 실행 결과 차이:\n"
-                    
-                    
-                    difference_text += f"\n{table_name} 테이블 ({operation} 연산)에서 차이 발견:\n"
-                    
-                    for field, values in diff_fields.items():
-                        plsql_val = values['plsql']
-                        java_val = values['java']
-                        
-                        if plsql_val == 'None' and java_val != 'None':
-                            difference_text += f"- {field}: PLSQL에는 없는 필드가 Java에서 '{java_val}' 값으로 존재\n"
-                        elif plsql_val != 'None' and java_val == 'None':
-                            difference_text += f"- {field}: Java에는 없는 필드가 PLSQL에서 '{plsql_val}' 값으로 존재\n"
-                        else:
-                            difference_text += f"- {field}: PLSQL='{plsql_val}', Java='{java_val}'\n"
-
-
         # * 결과 생성
         result = (differences if has_differences else {
             "status": "identical",
@@ -117,11 +96,12 @@ async def compare_then_results(case_number: int):
         
         logging.info(f"Case {case_number}: {'차이점이 발견되었습니다.' if has_differences else '모든 결과가 동일합니다.'}")
 
+
         # * 결과를 파일로 저장
         async with aiofiles.open(LOGS_DIR / f"compare_result_case{case_number}.json", 'w', encoding='utf-8') as f:
             await f.write(json.dumps(result, indent=4, ensure_ascii=False))
 
-        return result, difference_text
+        return result
 
     except Exception as e:
         err_msg = f"결과 비교 로그 생성 중 오류가 발생했습니다: {str(e)}"
@@ -266,19 +246,9 @@ async def generate_given_when_then(case_number: int, procedure: dict, params: di
 
         # * THEN 생성 - 모든 JSON 라인 처리
         async with aiofiles.open(PLSQL_LOG_PATH, encoding='utf-8') as f:
-            content = await f.read()
+            content = (await f.read()).replace('\x00', '')
             
-            # Remove all occurrences of '\x00'
-            cleaned_content = content.replace('\x00', '')
-            
-            json_entries = []
-            for line in cleaned_content.split('\n'):
-                if line.strip():
-                    try:
-                        json_entries.append(json.loads(line))
-                    except json.JSONDecodeError as e:
-                        # Log the error or handle it as needed
-                        print(f"Error decoding JSON: {e} - Line: {line}")
+            json_entries = [json.loads(line) for line in content.split('\n') if line.strip()]
             
             then_list = [
                 {

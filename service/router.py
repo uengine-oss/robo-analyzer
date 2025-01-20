@@ -3,12 +3,12 @@ import logging
 import os
 from fastapi import APIRouter, HTTPException, Request, logger
 from fastapi.responses import FileResponse, StreamingResponse
+from compare.result_compare import stop_execution
 from service.service import delete_all_temp_data, get_node_info_from_neo4j, initialize_docker_environment, process_comparison_result, process_project_zipping
 from service.service import generate_and_execute_cypherQuery
 from service.service import generate_two_depth_match
 from service.service import generate_simple_java_code
 from service.service import generate_spring_boot_project
-from compare.result_compare import stop_execution
 
 
 router = APIRouter()
@@ -266,23 +266,6 @@ async def get_compare_result(request: Request):
         raise HTTPException(status_code=500, detail=error_message)
 
 
-# 역할: 비교 결과 생성 중단 요청을 처리합니다
-# 매개변수: 없음
-# 반환값: 중지 메시지
-@router.post("/stop_feedback_loop/")
-async def stop_feedback_loop():
-    try:
-        # 중지 이벤트 설정
-        stop_execution()
-        logging.info("Execution stop request received and processed.")
-        
-        return {"message": "Execution stopped successfully."}
-    except Exception as e:
-        error_message = f"Execution stop failed: {str(e)}"
-        logger.exception(error_message)
-        raise HTTPException(status_code=500, detail=error_message)
-
-
 # 역할: 테스트 입력값을 위해 노드 정보를 조회하여 반환합니다
 #
 # 매개변수:
@@ -342,5 +325,22 @@ async def init_docker_environment(request: Request):
         
     except Exception as e:
         error_message = f"도커 환경 초기화 요청 처리 중 오류 발생: {str(e)}"
+        logger.exception(error_message)
+        raise HTTPException(status_code=500, detail=error_message)
+
+
+
+# 역할 : 피드백 루프를 중지하는 엔드포인트
+# 매개변수 : 없음
+# 반환값 : 중지 메시지
+@router.post("/stop_feedback_loop/")
+async def stop_feedback_loop():
+    try:
+        stop_execution()
+        logging.info("Execution stop request received and processed.")
+        
+        return {"message": "Execution stopped successfully."}
+    except Exception as e:
+        error_message = f"Execution stop failed: {str(e)}"
         logger.exception(error_message)
         raise HTTPException(status_code=500, detail=error_message)

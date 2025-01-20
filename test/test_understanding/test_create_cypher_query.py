@@ -31,7 +31,7 @@ class TestCypherQueryGeneration(unittest.IsolatedAsyncioTestCase):
             # ("calculate_payroll.txt", "calculate_payroll"),
         ]
 
-        session_uuid = "test-session-123"
+        session_uuid = "525f343f-006e-455d-9e52-9825170c2088"
 
 
         # * 검증 로직 없이 함수 실행만 확인

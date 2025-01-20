@@ -84,7 +84,7 @@ prompt = PromptTemplate.from_template(
         * 컬럼명에 'DATE'만 포함되고 'TIME'이 없는 경우 -> LocalDate (예 : CurrentDate, EndDate, StartDate)
         * 테이블 이름의 경우: 테이블 명을 타입으로 사용 (엔티티 클래스를 타입으로 설정)
     - 파라미터의 순서: 알파벳 순서대로 정렬
-
+    
 5. 코드 구조
     - 문자열 "CodePlaceHolder"는 그대로 유지하고, 변경하지 마세요.
     - 메서드 내부 구현 없이, "CodePlaceHolder" 문자열만 존재해야 함

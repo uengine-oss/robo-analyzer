@@ -32,7 +32,7 @@ services:
       test: ["CMD", "/zookeeper/bin/zkServer.sh", "status"]
       interval: 5s
       timeout: 5s
-      retries: 99999
+      retries: 999
       start_period: 3s
 
   kafka:
@@ -51,9 +51,9 @@ services:
         condition: service_healthy
     healthcheck:
       test: ["CMD-SHELL", "/kafka/bin/kafka-topics.sh --list --bootstrap-server kafka:9092 > /dev/null 2>&1 || exit 1"]
-      interval: 15s
+      interval: 5s
       timeout: 5s
-      retries: 99999
+      retries: 999
       start_period: 6s
 
   oracle:
@@ -75,7 +75,7 @@ services:
       test: ["CMD", "sqlplus", "-S", "/ as sysdba", "@/opt/oracle/healthcheck.sql"]
       interval: 10s
       timeout: 5s
-      retries: 99999
+      retries: 999
       start_period: 120s
   
   connect:
@@ -99,7 +99,7 @@ services:
       test: ["CMD", "curl", "-f", "http://localhost:8083/connectors"]
       interval: 10s
       timeout: 5s
-      retries: 99999
+      retries: 999
       start_period: 10s
     entrypoint: ["/docker-entrypoint.sh", "start"]
 
