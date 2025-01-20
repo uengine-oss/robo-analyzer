@@ -7,6 +7,7 @@ from prompt.understand_summarized_prompt import understand_summary
 import tiktoken
 from prompt.understand_prompt import understand_code
 from prompt.understand_variables_prompt import understand_variables
+from semantic.vectorizer import vectorize_text
 from util.exception import (LLMCallError, TokenCountError, ExtractCodeError, SummarizeCodeError, FocusedCodeError, TraverseCodeError, UnderstandingError,
                             ProcessResultError, HandleResultError, EventRsRqError, VectorizeError)
 
@@ -284,16 +285,18 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
                 logging.error(f"분석 결과 개수가 일치하지 않습니다. 예상: {context_range_count}, 실제: {actual_count}")
 
 
-            # * 프로시저 형태의 경우, 전체 코드의 Summary를 요약하고, 사이퍼쿼리를 생성합니다.
+            # * 프로시저 노드의 경우, Summary를 요약 및 벡터화 하고, 사이퍼쿼리를 생성합니다.
             if statement_type in PROCEDURE_TYPES:
                 logging.info(f"[{object_name}] {procedure_name} 프로시저의 요약 정보 추출 완료")
                 summary = understand_summary(summary_dict)
+                summary_vector = vectorize_text(summary['summary'])
                 cypher_query.append(f"""
                     MATCH (n:{statement_type})
                     WHERE n.object_name = '{object_name}'
                         AND n.procedure_name = '{procedure_name}'
                         AND n.user_id = '{user_id}'
-                    SET n.summary = {json.dumps(summary['summary'])}
+                    SET n.summary = {json.dumps(summary['summary'])},
+                        n.summary_vector = {summary_vector.tolist()}
                 """)
                 schedule_stack.clear()
                 node_statementType.clear()
@@ -392,10 +395,12 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
                 summary_dict[summary_key] = summary
 
 
-                # * 구문의 설명(Summary)을 반영하는 사이퍼쿼리를 생성합니다
+                # * 구문의 설명(Summary)과 벡터화 된 Summary를 반영하는 사이퍼쿼리를 생성합니다
+                summary_vector = vectorize_text(summary)
                 summary_query = f"""
                     MATCH (n:{statement_type} {{startLine: {start_line}, object_name: '{object_name}', user_id: '{user_id}'}})
-                    SET n.summary = {json.dumps(summary)}
+                    SET n.summary = {json.dumps(summary)},
+                        n.summary_vector = {summary_vector.tolist()}
                 """
                 cypher_query.append(summary_query)
 
@@ -619,29 +624,29 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
             context_range.append({"startLine": start_line, "endLine": end_line})
             cypher_query.append(f"""
                 MERGE (n:{statement_type} {{startLine: {start_line}, object_name: '{object_name}', user_id: '{user_id}'}})
-                SET n.endLine = {end_line}
-                SET n.name = '{statement_type}[{start_line}]'
-                SET n.node_code = '{node_code.replace("'", "\\'")}'
-                SET n.token = {node_size}
-                SET n.procedure_name = '{procedure_name}'
+                SET n.endLine = {end_line},
+                    n.name = '{statement_type}[{start_line}]',
+                    n.node_code = '{node_code.replace("'", "\\'")}',
+                    n.token = {node_size},
+                    n.procedure_name = '{procedure_name}'
             """)
         else:
             if statement_type == "ROOT":
                 cypher_query.append(f"""
                     MERGE (n:{statement_type} {{startLine: {start_line}, object_name: '{object_name}', user_id: '{user_id}'}})
-                    SET n.endLine = {end_line}
-                    SET n.name = '{object_name}'
-                    SET n.summary = '최상위 시작노드'
+                    SET n.endLine = {end_line},
+                        n.name = '{object_name}',
+                        n.summary = '최상위 시작노드'
                 """)
             elif statement_type in ["PROCEDURE", "FUNCTION"]:
                 cypher_query.append(f"""
                     MERGE (n:{statement_type} {{procedure_name: '{procedure_name}', object_name: '{object_name}', user_id: '{user_id}'}})
-                    SET n.startLine = {start_line}
-                    SET n.endLine = {end_line}
-                    SET n.name = '{statement_type}[{start_line}]'
-                    SET n.summarized_code = '{summarized_code.replace('\n', '\\n').replace("'", "\\'")}'
-                    SET n.node_code = '{node_code.replace('\n', '\\n').replace("'", "\\'")}'
-                    SET n.token = {node_size}
+                    SET n.startLine = {start_line},
+                        n.endLine = {end_line},
+                        n.name = '{statement_type}[{start_line}]',
+                        n.summarized_code = '{summarized_code.replace('\n', '\\n').replace("'", "\\'")}',
+                        n.node_code = '{node_code.replace('\n', '\\n').replace("'", "\\'")}',
+                        n.token = {node_size}
                     WITH n
                     REMOVE n:{('FUNCTION' if statement_type == 'PROCEDURE' else 'PROCEDURE')}
                 """)
@@ -649,11 +654,11 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
                 cypher_query.append(f"""
                     MERGE (n:{statement_type} {{startLine: {start_line}, object_name: '{object_name}', user_id: '{user_id}'}})
                     SET n.endLine = {end_line}
-                    SET n.name = '{statement_type}[{start_line}]'
-                    SET n.summarized_code = '{summarized_code.replace('\n', '\\n').replace("'", "\\'")}'
-                    SET n.node_code = '{node_code.replace('\n', '\\n').replace("'", "\\'")}'
-                    SET n.token = {node_size}
-                    SET n.procedure_name = '{procedure_name}'
+                        n.name = '{statement_type}[{start_line}]',
+                        n.summarized_code = '{summarized_code.replace('\n', '\\n').replace("'", "\\'")}',
+                        n.node_code = '{node_code.replace('\n', '\\n').replace("'", "\\'")}',
+                        n.token = {node_size},
+                        n.procedure_name = '{procedure_name}'
                 """)
 
 

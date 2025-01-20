@@ -2,6 +2,7 @@ import os
 import logging
 import tiktoken
 from prompt.convert_entity_prompt import convert_entity_code
+from semantic.vectorizer import vectorize_text
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError, EntityCreationError, FilePathError, Neo4jError, ProcessResultError, SaveFileError, TokenCountError
 from util.file_utils import save_file
@@ -60,10 +61,13 @@ async def process_table_by_token_limit(table_data_list: list, object_name: str, 
                     
                     
                     # * 엔티티 클래스 정보를 테이블 노드에 저장
+                    summary_vector = vectorize_text(entity_summary)
                     entity_query = [
                         f"""
                         MATCH (n:Table {{name: '{table_name}', user_id: '{user_id}', object_name: '{object_name}'}} )
-                        SET n.java_code = '{entity_code}', n.summary = '{entity_summary}'
+                        SET n.java_code = '{entity_code}', 
+                            n.summary = '{entity_summary}', 
+                            n.summary_vector = {summary_vector.tolist()}
                         """
                     ]
                     await connection.execute_queries(entity_query)

@@ -380,7 +380,7 @@ async def clear_log_files(*log_types: str):
         ])
         logging.info("모든 로그 파일이 안정화되었습니다.")
 
-        
+
         # * 안정화된 파일들 비우기
         async with asyncio.TaskGroup() as tg:
             for file_path in log_paths:
@@ -417,16 +417,16 @@ async def wait_for_log_stabilization(log_path: Path, timeout: int = 60, check_in
         stable_count = 0
         
         while True:
-            # 파일 존재 여부 확인
+            # * 파일 존재 여부 확인
             if not os.path.exists(log_path):
                 logging.warning(f"로그 파일이 아직 생성되지 않았습니다: {log_path}")
                 await asyncio.sleep(check_interval)
                 continue
 
-            # 현재 파일 크기 확인
+            # * 현재 파일 크기 확인
             current_size = os.path.getsize(log_path)
             
-            # 파일 크기 변화 감지
+            # * 파일 크기 변화 감지
             if current_size == last_size:
                 stable_count += 1
                 if stable_count >= stable_duration:
@@ -437,7 +437,7 @@ async def wait_for_log_stabilization(log_path: Path, timeout: int = 60, check_in
                 last_size = current_size
                 logging.debug(f"로그 파일 크기 변화 감지: {current_size} bytes")
 
-            # 타임아웃 체크
+            # * 타임아웃 체크
             if time.time() - start_time > timeout:
                 raise TimeoutError(
                     f"로그 파일 안정화 대기 시간이 초과되었습니다. "

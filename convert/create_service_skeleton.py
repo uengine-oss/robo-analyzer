@@ -5,6 +5,7 @@ import tiktoken
 from prompt.convert_variable_prompt import convert_variables
 from prompt.convert_service_skeleton_prompt import convert_method_code
 from prompt.convert_command_prompt import convert_command_code
+from semantic.vectorizer import vectorize_text
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError, ExtractNodeInfoError, FilePathError, Neo4jError, ProcessResultError, SaveFileError, SkeletonCreationError, StringConversionError, TemplateGenerationError
 from util.file_utils import save_file
@@ -127,7 +128,9 @@ async def process_method_and_command_code(method_skeleton_data: dict, parameter_
             analysis_command = convert_command_code(parameter_data, dir_name)  
             command_class_name = analysis_command['commandName']
             command_class_code = analysis_command['command']
-            command_class_variable = analysis_command['command_class_variable']              
+            command_class_variable = analysis_command['command_class_variable']     
+            command_summary = analysis_command['summary']
+            command_summary_vector = vectorize_text(command_summary)
             
             
             # * 커맨드 클래스 정보를 노드에 저장
@@ -139,8 +142,9 @@ async def process_method_and_command_code(method_skeleton_data: dict, parameter_
                 object_name: '{object_name}',
                 procedure_name: '{method_skeleton_data['procedure_name']}',
             }})
-            SET cmd.java_code = '{command_class_code}'
-            SET cmd.summary = '{method_skeleton_data['summary']}'
+            SET cmd.java_code = '{command_class_code}',
+                cmd.summary = '{command_summary}',
+                cmd.summary_vector = {command_summary_vector.tolist()}
             MERGE (p)-[:CONVERT]->(cmd)
             """
             await connection.execute_queries(command_query)
