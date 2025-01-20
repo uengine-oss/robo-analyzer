@@ -164,11 +164,7 @@ class Neo4jConnection:
     #
     # 반환값:
     #   - 유사도가 높은 순으로 정렬된 노드 목록
-<<<<<<< HEAD
     async def search_similar_nodes(self, search_vector: np.ndarray, similarity_threshold: float = 0.3, limit: int = 15) -> list:
-=======
-    async def search_similar_nodes(self, search_vector, similarity_threshold=0.3, limit=30):
->>>>>>> f4073120c7f8e3500092ef6915e9e3f6555ae856
         try:
             query = """
             MATCH (n)
