@@ -11,16 +11,100 @@
       "TpjAttendance"
     ]
   },
-  "entity_codes": {
+  "table_entity_list": {
     "TPX_UPDATE_SALARY": {},
     "TPX_EMPLOYEE": {
-      "TpjEmployee": "package com.example.demo.entity;\n\nimport jakarta.persistence.*;\nimport lombok.*;\n\n@Entity\n@Table(name = \"TPJ_EMPLOYEE\")\n@Data\npublic class TpjEmployee {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    \n    @Column(nullable = false, length = 1)\n    private String regularYn;\n    \n    @Column(nullable = false, length = 50)\n    private String empName;\n    \n    @Column(nullable = false, length = 10)\n    private String deptCode;\n    \n    private String userId;\n    \n    @Column(unique = true, nullable = false, length = 10)\n    private String empKey;\n}"
+      "TpjEmployee": {
+        "code": "package com.example.demo.entity;\n\nimport jakarta.persistence.*;\nimport lombok.*;\n\n/**\n * TPJ_EMPLOYEE 테이블을 표현하는 Entity 클래스입니다.\n * 자동 생성되는 id(Long) 필드를 기본키로 사용합니다.\n * empKey(String, NOT NULL, Unique)는 원본 테이블의 기본키입니다.\n * empName(String, NOT NULL), deptCode(String, NOT NULL) 필드와 함께\n * regularYn(String, NOT NULL) 필드로 구성됩니다.\n */\n@Entity\n@Table(name = \"TPJ_EMPLOYEE\")\n@Data\npublic class TpjEmployee {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    \n    @Column(unique = true, nullable = false, length = 10)\n    private String empKey;\n    \n    @Column(nullable = false, length = 1)\n    private String regularYn;\n    \n    @Column(nullable = false, length = 50)\n    private String empName;\n    \n    @Column(nullable = false, length = 10)\n    private String deptCode;\n}",
+        "table_info": {
+          "name": "TPJ_EMPLOYEE",
+          "fields": [
+            [
+              "REGULAR_YN",
+              "REGULAR_YN§CHAR(1)§nullable:false"
+            ],
+            [
+              "EMP_NAME",
+              "EMP_NAME§VARCHAR2(50)§nullable:false"
+            ],
+            [
+              "DEPT_CODE",
+              "DEPT_CODE§VARCHAR2(10)§nullable:false"
+            ],
+            [
+              "user_id",
+              "525f343f-006e-455d-9e52-9825170c2088"
+            ],
+            [
+              "EMP_KEY",
+              "EMP_KEY§VARCHAR2(10)§nullable:false"
+            ]
+          ],
+          "primary_keys": "EMP_KEY"
+        }
+      }
     },
     "TPX_SALARY": {
-      "TpjSalary": "package com.example.demo.entity;\n\nimport jakarta.persistence.*;\nimport lombok.*;\nimport java.time.*;\n\n@Entity\n@Table(name = \"TPJ_SALARY\")\n@Data\npublic class TpjSalary {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    \n    @Column(nullable = false)\n    private Long amount;\n    \n    @Column(unique = true, length = 50, nullable = false)\n    private String salKey;\n    \n    private String userId;\n    \n    @Column(nullable = false)\n    private LocalDate payDate;\n    \n    @Column(length = 10)\n    private String empKey;\n}"
+      "TpjSalary": {
+        "code": "package com.example.demo.entity;\n\nimport jakarta.persistence.*;\nimport lombok.*;\nimport java.time.*;\n\n/**\n * TPJ_SALARY 테이블을 표현하는 Entity 클래스입니다.\n * 자동 생성되는 id(Long) 필드를 기본키로 사용합니다.\n * salKey(String, NOT NULL)는 유니크 제약조건이 적용됩니다.\n * amount(Long, NOT NULL), empKey(String), payDate(LocalDate, NOT NULL) 필드를 가집니다.\n * userId(String) 필드는 사용자 식별을 위한 UUID 값을 저장합니다.\n */\n@Entity\n@Table(name = \"TPJ_SALARY\")\n@Data\npublic class TpjSalary {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    \n    @Column(nullable = false)\n    private Long amount;\n    \n    @Column(unique = true, nullable = false)\n    private String salKey;\n    \n    private String userId;\n    \n    @Column(nullable = false)\n    private LocalDate payDate;\n    \n    private String empKey;\n}",
+        "table_info": {
+          "name": "TPJ_SALARY",
+          "fields": [
+            [
+              "AMOUNT",
+              "AMOUNT§NUMBER(10)§nullable:false"
+            ],
+            [
+              "SAL_KEY",
+              "SAL_KEY§VARCHAR2(50)§nullable:false"
+            ],
+            [
+              "user_id",
+              "525f343f-006e-455d-9e52-9825170c2088"
+            ],
+            [
+              "PAY_DATE",
+              "PAY_DATE§DATE§nullable:false"
+            ],
+            [
+              "EMP_KEY",
+              "EMP_KEY§VARCHAR2(10)§nullable:true"
+            ]
+          ],
+          "primary_keys": "SAL_KEY"
+        }
+      }
     },
     "TPX_ATTENDANCE": {
-      "TpjAttendance": "package com.example.demo.entity;\n\nimport jakarta.persistence.*;\nimport lombok.*;\nimport java.time.LocalDate;\n\n@Entity\n@Table(name = \"TPJ_ATTENDANCE\")\n@Data\npublic class TpjAttendance {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    \n    @Column(nullable = false, length = 2)\n    private String status;\n    \n    private String userId;\n    \n    @Column(unique = true, nullable = false, length = 50)\n    private String attKey;\n    \n    @Column(length = 10)\n    private String empKey;\n    \n    private LocalDate workDate;\n}"
+      "TpjAttendance": {
+        "code": "package com.example.demo.entity;\n\nimport jakarta.persistence.*;\nimport lombok.*;\nimport java.time.*;\n\n/**\n * TPJ_ATTENDANCE 테이블을 표현하는 Entity 클래스입니다.\n * 자동 생성되는 id(Long) 필드를 기본키로 사용합니다.\n * attKey(String, NOT NULL)는 원본 테이블의 기본키였으며 unique 제약조건이 적용됩니다.\n * status(String, NOT NULL), userId(String), empKey(String) 필드를 가지며,\n * workDate(LocalDate) 필드로 근무일자를 관리합니다.\n */\n@Entity\n@Table(name = \"TPJ_ATTENDANCE\")\n@Data\npublic class TpjAttendance {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    \n    @Column(nullable = false)\n    private String status;\n    \n    private String userId;\n    \n    @Column(unique = true, nullable = false)\n    private String attKey;\n    \n    private String empKey;\n    \n    private LocalDate workDate;\n}",
+        "table_info": {
+          "name": "TPJ_ATTENDANCE",
+          "fields": [
+            [
+              "STATUS",
+              "STATUS§VARCHAR2(2)§nullable:false"
+            ],
+            [
+              "user_id",
+              "525f343f-006e-455d-9e52-9825170c2088"
+            ],
+            [
+              "ATT_KEY",
+              "ATT_KEY§VARCHAR2(50)§nullable:false"
+            ],
+            [
+              "EMP_KEY",
+              "EMP_KEY§VARCHAR2(10)§nullable:true"
+            ],
+            [
+              "WORK_DATE",
+              "WORK_DATE§DATE§nullable:true"
+            ]
+          ],
+          "primary_keys": "ATT_KEY"
+        }
+      }
     }
   },
   "repository_methods": {
@@ -83,9 +167,9 @@
         ],
         "command_class_name": "TpxUpdateSalaryCommand",
         "method_skeleton_name": "tpxUpdateSalary",
-        "method_skeleton_code": "    public void tpxUpdateSalary(String pEmpKey, String pEmpName, String pDeptCode, Long pBaseAmount, LocalDate pPayDate, String pRegularYn) {\n        Boolean vExists;\n        Boolean vSalaryExists;\n\n        CodePlaceHolder\n    }",
-        "method_signature": "void tpxUpdateSalary(String pEmpKey, String pEmpName, String pDeptCode, Long pBaseAmount, LocalDate pPayDate, String pRegularYn)",
-        "service_method_skeleton": "package com.example.demo.service;\n\n\n\nimport com.example.demo.command.tpxUpdateSalary.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport org.springframework.stereotype.Service;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\n@Service\npublic class TpxUpdateSalaryService {\n    @Autowired\n    private TpxEmployeeService tpxEmployeeService;\n    @Autowired\n    private TpxSalaryService tpxSalaryService;\n\n    public void tpxUpdateSalary(String pEmpKey, String pEmpName, String pDeptCode, Long pBaseAmount, LocalDate pPayDate, String pRegularYn) {\n        Boolean vExists;\n        Boolean vSalaryExists;\n\n        CodePlaceHolder\n    }\n}",
+        "method_skeleton_code": "    public void tpxUpdateSalary(Long baseAmount, String deptCode, String empKey, String empName, LocalDate payDate, String regularYn) {\n        Boolean vExists;\n        Boolean vSalaryExists;\n\n        CodePlaceHolder\n    }",
+        "method_signature": "void tpxUpdateSalary(Long baseAmount, String deptCode, String empKey, String empName, LocalDate payDate, String regularYn)",
+        "service_method_skeleton": "package com.example.demo.service;\n\n\n\nimport com.example.demo.command.tpxUpdateSalary.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport org.springframework.stereotype.Service;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\n@Service\npublic class TpxUpdateSalaryService {\n    @Autowired\n    private TpxEmployeeService tpxEmployeeService;\n    @Autowired\n    private TpxSalaryService tpxSalaryService;\n\n    public void tpxUpdateSalary(Long baseAmount, String deptCode, String empKey, String empName, LocalDate payDate, String regularYn) {\n        Boolean vExists;\n        Boolean vSalaryExists;\n\n        CodePlaceHolder\n    }\n}",
         "node_type": "CREATE_PROCEDURE_BODY",
         "procedure_name": "TPX_UPDATE_SALARY"
       }
@@ -120,9 +204,9 @@
         ],
         "command_class_name": "InsEmployeeCommand",
         "method_skeleton_name": "insEmployee",
-        "method_skeleton_code": "    public void insEmployee(String iEmpKey, String iEmpName, String iDeptCode, String iRegularYn) {\n        Boolean vExists;\n\n        CodePlaceHolder\n    }",
-        "method_signature": "void insEmployee(String iEmpKey, String iEmpName, String iDeptCode, String iRegularYn)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjEmployee;\nimport com.example.demo.repository.TpjEmployeeRepository;\nimport com.example.demo.command.tpxEmployee.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport org.springframework.stereotype.Service;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\n@Service\npublic class TpxEmployeeService {\n    @Autowired\n    private TpjEmployeeRepository tpjEmployeeRepository;\n\n    public void insEmployee(String iEmpKey, String iEmpName, String iDeptCode, String iRegularYn) {\n        Boolean vExists;\n\n        CodePlaceHolder\n    }\n}",
+        "method_skeleton_code": "    public void insEmployee(String deptCode, String empKey, String empName, String regularYn) {\n        Boolean vExists;\n\n        CodePlaceHolder\n    }",
+        "method_signature": "void insEmployee(String deptCode, String empKey, String empName, String regularYn)",
+        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjEmployee;\nimport com.example.demo.repository.TpjEmployeeRepository;\nimport com.example.demo.command.tpxEmployee.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport org.springframework.stereotype.Service;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\n@Service\npublic class TpxEmployeeService {\n    @Autowired\n    private TpjEmployeeRepository tpjEmployeeRepository;\n\n    public void insEmployee(String deptCode, String empKey, String empName, String regularYn) {\n        Boolean vExists;\n\n        CodePlaceHolder\n    }\n}",
         "node_type": "PROCEDURE",
         "procedure_name": "INS_EMPLOYEE"
       }
@@ -166,9 +250,9 @@
         ],
         "command_class_name": "InsSalaryCommand",
         "method_skeleton_name": "insSalary",
-        "method_skeleton_code": "    public void insSalary(String iEmpKey, LocalDate iPayDate, Long iBaseAmount) {\n        Boolean vExists;\n\n        CodePlaceHolder\n    }",
-        "method_signature": "void insSalary(String iEmpKey, LocalDate iPayDate, Long iBaseAmount)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjSalary;\nimport com.example.demo.repository.TpjSalaryRepository;\nimport com.example.demo.command.tpxSalary.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport org.springframework.stereotype.Service;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\n@Service\npublic class TpxSalaryService {\n    @Autowired\n    private TpjSalaryRepository tpjSalaryRepository;\n\n    @Autowired\n    private TpxEmployeeService tpxEmployeeService;\n    @Autowired\n    private TpxAttendanceService tpxAttendanceService;\n\n    public void insSalary(String iEmpKey, LocalDate iPayDate, Long iBaseAmount) {\n        Boolean vExists;\n\n        CodePlaceHolder\n    }\n}",
+        "method_skeleton_code": "    public void insSalary(Long iBaseAmount, String iEmpKey, LocalDate iPayDate) {\n        Boolean vExists;\n    \n        CodePlaceHolder\n    }",
+        "method_signature": "void insSalary(Long iBaseAmount, String iEmpKey, LocalDate iPayDate)",
+        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjSalary;\nimport com.example.demo.repository.TpjSalaryRepository;\nimport com.example.demo.command.tpxSalary.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport org.springframework.stereotype.Service;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\n@Service\npublic class TpxSalaryService {\n    @Autowired\n    private TpjSalaryRepository tpjSalaryRepository;\n\n    @Autowired\n    private TpxEmployeeService tpxEmployeeService;\n    @Autowired\n    private TpxAttendanceService tpxAttendanceService;\n\n    public void insSalary(Long iBaseAmount, String iEmpKey, LocalDate iPayDate) {\n        Boolean vExists;\n    \n        CodePlaceHolder\n    }\n}",
         "node_type": "PROCEDURE",
         "procedure_name": "INS_SALARY"
       },
@@ -205,9 +289,9 @@
         "command_class_variable": null,
         "command_class_name": null,
         "method_skeleton_name": "getAbsentDays",
-        "method_skeleton_code": "    public Long getAbsentDays(String iEmpKey, LocalDate iStartDate, LocalDate iEndDate) {\n        Long vCount;\n        Boolean vExists;\n\n        CodePlaceHolder\n    }",
+        "method_skeleton_code": "    public Long getAbsentDays(String iEmpKey, LocalDate iStartDate, LocalDate iEndDate) {\n        Long vCount;\n        Boolean vExists;\n    \n        CodePlaceHolder\n    }",
         "method_signature": "Long getAbsentDays(String iEmpKey, LocalDate iStartDate, LocalDate iEndDate)",
-        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjAttendance;\nimport com.example.demo.repository.TpjAttendanceRepository;\nimport com.example.demo.command.tpxAttendance.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport org.springframework.stereotype.Service;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\n@Service\npublic class TpxAttendanceService {\n    @Autowired\n    private TpjAttendanceRepository tpjAttendanceRepository;\n\n    @Autowired\n    private TpxEmployeeService tpxEmployeeService;\n\n    public Long getAbsentDays(String iEmpKey, LocalDate iStartDate, LocalDate iEndDate) {\n        Long vCount;\n        Boolean vExists;\n\n        CodePlaceHolder\n    }\n}",
+        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjAttendance;\nimport com.example.demo.repository.TpjAttendanceRepository;\nimport com.example.demo.command.tpxAttendance.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport org.springframework.stereotype.Service;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\n@Service\npublic class TpxAttendanceService {\n    @Autowired\n    private TpjAttendanceRepository tpjAttendanceRepository;\n\n    @Autowired\n    private TpxEmployeeService tpxEmployeeService;\n\n    public Long getAbsentDays(String iEmpKey, LocalDate iStartDate, LocalDate iEndDate) {\n        Long vCount;\n        Boolean vExists;\n    \n        CodePlaceHolder\n    }\n}",
         "node_type": "FUNCTION",
         "procedure_name": "GET_ABSENT_DAYS"
       }
@@ -240,7 +324,7 @@
             "role": "변수 선언및 초기화",
             "13_13": "Used",
             "13_23": "Used",
-            "user_id": "test-session-123",
+            "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "object_name": "TPX_UPDATE_SALARY",
             "scope": "Local",
             "name": "vExists",
@@ -255,7 +339,7 @@
             "18_18": "Used",
             "role": "변수 선언및 초기화",
             "13_23": "Used",
-            "user_id": "test-session-123",
+            "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "object_name": "TPX_UPDATE_SALARY",
             "scope": "Local",
             "name": "vSalaryExists",
@@ -273,7 +357,7 @@
             "44_49": "Used",
             "procedure_name": "EXISTS_EMPLOYEE",
             "role": "변수 선언및 초기화",
-            "user_id": "test-session-123",
+            "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "object_name": "TPX_EMPLOYEE",
             "scope": "Local",
             "44_47": "Used",
@@ -290,7 +374,7 @@
             "64_67": "Used",
             "procedure_name": "IS_REGULAR_EMPLOYEE",
             "role": "변수 선언및 초기화",
-            "user_id": "test-session-123",
+            "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "64_69": "Used",
             "object_name": "TPX_EMPLOYEE",
             "scope": "Local",
@@ -306,7 +390,7 @@
           "v": {
             "procedure_name": "INS_EMPLOYEE",
             "role": "변수 선언및 초기화",
-            "user_id": "test-session-123",
+            "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "89_91": "Used",
             "object_name": "TPX_EMPLOYEE",
             "scope": "Local",
@@ -325,7 +409,7 @@
           "v": {
             "procedure_name": "EXISTS_SALARY",
             "role": "변수 선언및 초기화",
-            "user_id": "test-session-123",
+            "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "object_name": "TPX_SALARY",
             "scope": "Local",
             "55_59": "Used",
@@ -343,7 +427,7 @@
             "85_85": "Used",
             "procedure_name": "p_CALCULATE_DEDUCTION",
             "role": "변수 선언및 초기화",
-            "user_id": "test-session-123",
+            "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "object_name": "TPX_SALARY",
             "scope": "Local",
             "name": "vDeduction",
@@ -360,7 +444,7 @@
             "procedure_name": "p_CALCULATE_DEDUCTION",
             "82_82": "Used",
             "80_80": "Used",
-            "user_id": "test-session-123",
+            "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "object_name": "TPX_SALARY",
             "scope": "Local",
             "name": "vDeductionPerDay",
@@ -373,7 +457,7 @@
           "v": {
             "procedure_name": "p_CALCULATE_DEDUCTION",
             "role": "변수 선언및 초기화",
-            "user_id": "test-session-123",
+            "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "object_name": "TPX_SALARY",
             "scope": "Local",
             "name": "vRegularYn",
@@ -390,7 +474,7 @@
           "v": {
             "procedure_name": "GET_SALARY",
             "role": "변수 선언및 초기화",
-            "user_id": "test-session-123",
+            "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "object_name": "TPX_SALARY",
             "scope": "Local",
             "name": "vAmount",
@@ -410,7 +494,7 @@
             "role": "변수 선언및 초기화",
             "125_125": "Used",
             "126_128": "Used",
-            "user_id": "test-session-123",
+            "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "object_name": "TPX_SALARY",
             "scope": "Local",
             "name": "vExists",
@@ -425,7 +509,7 @@
             "159_181": "Used",
             "procedure_name": "UPD_SALARY_BY_ABSENT",
             "role": "변수 선언및 초기화",
-            "user_id": "test-session-123",
+            "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "object_name": "TPX_SALARY",
             "scope": "Local",
             "name": "vBaseAmount",
@@ -440,7 +524,7 @@
             "159_181": "Used",
             "procedure_name": "UPD_SALARY_BY_ABSENT",
             "role": "변수 선언및 초기화",
-            "user_id": "test-session-123",
+            "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "object_name": "TPX_SALARY",
             "scope": "Local",
             "name": "vAbsentDays",
@@ -456,7 +540,7 @@
             "159_181": "Used",
             "procedure_name": "UPD_SALARY_BY_ABSENT",
             "role": "변수 선언및 초기화",
-            "user_id": "test-session-123",
+            "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "object_name": "TPX_SALARY",
             "scope": "Local",
             "name": "vFinalAmount",
@@ -470,7 +554,7 @@
             "159_181": "Used",
             "procedure_name": "UPD_SALARY_BY_ABSENT",
             "role": "변수 선언및 초기화",
-            "user_id": "test-session-123",
+            "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "object_name": "TPX_SALARY",
             "scope": "Local",
             "name": "vExists",
@@ -490,7 +574,7 @@
             "role": "변수 선언및 초기화",
             "43_45": "Used",
             "42_55": "Used",
-            "user_id": "test-session-123",
+            "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "object_name": "TPX_ATTENDANCE",
             "scope": "Local",
             "name": "vExists",
@@ -507,7 +591,7 @@
             "74_87": "Used",
             "procedure_name": "GET_ABSENT_DAYS",
             "role": "변수 선언및 초기화",
-            "user_id": "test-session-123",
+            "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "object_name": "TPX_ATTENDANCE",
             "scope": "Local",
             "name": "vCount",
@@ -522,7 +606,7 @@
             "74_87": "Used",
             "procedure_name": "GET_ABSENT_DAYS",
             "role": "변수 선언및 초기화",
-            "user_id": "test-session-123",
+            "user_id": "525f343f-006e-455d-9e52-9825170c2088",
             "object_name": "TPX_ATTENDANCE",
             "scope": "Local",
             "name": "vExists",

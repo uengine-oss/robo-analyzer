@@ -53,7 +53,7 @@ class TestPostServiceGeneration(unittest.IsolatedAsyncioTestCase):
         
 
         # * 테스트할 세션 및 orm 타입 설정
-        session_uuid = "test-session-123"
+        session_uuid = "525f343f-006e-455d-9e52-9825170c2088"
 
 
         try:
@@ -64,6 +64,7 @@ class TestPostServiceGeneration(unittest.IsolatedAsyncioTestCase):
                     test_data = json.load(f)
             else:
                 test_data = {}   
+
 
             # * Service 후처리 테스트 시작
             for object_name in object_names:

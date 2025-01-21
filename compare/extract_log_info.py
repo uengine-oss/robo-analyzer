@@ -312,7 +312,14 @@ def decode_value(value, type_):
         raise DecodeLogError(err_msg)
 
 
-# TODO : utils로 이동
+# 역할 : JSON 데이터를 파일로 저장하는 함수
+#
+# 매개변수 : 
+#   - data : 저장할 JSON 데이터
+#   - file_name : 파일 이름
+#
+# 반환값 : 
+#   - bool : 파일 저장 성공 여부
 async def save_json_to_file(data, file_name):
     """JSON 데이터를 파일로 저장"""
     logs_dir = LOGS_DIR

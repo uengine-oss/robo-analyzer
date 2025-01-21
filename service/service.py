@@ -378,6 +378,7 @@ async def generate_spring_boot_project(file_names: list, orm_type: str, user_id:
                     merge_controller_method_code,
                     controller_skeleton,
                     object_name,
+                    user_id
                 )
 
 
@@ -387,7 +388,7 @@ async def generate_spring_boot_project(file_names: list, orm_type: str, user_id:
             
             
             # * 서비스 클래스 라인 범위 추출하여 노드에 할당
-            await find_service_line_ranges(object_name, service_class_name, user_id)
+            # await find_service_line_ranges(object_name, service_class_name, user_id)
             yield f"{file_name}-Step4 completed\n"
 
 
@@ -640,19 +641,18 @@ async def initialize_docker_environment(user_id: str, orm_type: str, package_nam
         connection = Neo4jConnection()
         
         # * 테이블 이름 리스트 조회 쿼리
-        query = f"""
+        query = [f"""
         MATCH (t:Table)
-        WHERE t.user_id = $param_user_id AND t.object_name IN $param_package_names
+        WHERE t.user_id = '{user_id}' 
+        AND t.object_name IN {package_names}
         RETURN collect(t.name) as table_names
-        """
+        """]
         
-        params = {
-            'param_user_id': user_id,
-            'param_package_names': package_names
-        }
-        
-        result = await connection.execute_queries([query], params)
+
+        # * 테이블 이름 리스트 조회 쿼리 실행
+        result = await connection.execute_queries(query)
         table_name_list = result[0]['table_names']
+        
         
         # * 도커 서비스 실행 여부 확인
         is_docker_running = await check_docker_services_running()

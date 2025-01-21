@@ -53,7 +53,7 @@ class TestControllerGeneration(unittest.IsolatedAsyncioTestCase):
 
 
         # * 테스트할 세션 및 orm 타입 설정
-        session_uuid = "test-session-123"
+        session_uuid = "525f343f-006e-455d-9e52-9825170c2088"
 
 
         try:
@@ -83,7 +83,8 @@ class TestControllerGeneration(unittest.IsolatedAsyncioTestCase):
                         service_data['node_type'],
                         merge_controller_method_code,
                         controller_skeleton,
-                        object_name
+                        object_name,
+                        session_uuid
                     )
 
                 # * 컨트롤러 클래스 파일 생성   

@@ -7,7 +7,6 @@ import unittest
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from convert.create_entity import start_entity_processing
-from util.file_utils import read_sequence_file
 
 
 # * 로그 레벨 설정
@@ -56,7 +55,7 @@ class TestEntityGeneration(unittest.IsolatedAsyncioTestCase):
 
 
         # * 테스트할 세션 및 orm 타입 설정
-        session_uuid = "test-session-123"
+        session_uuid = "525f343f-006e-455d-9e52-9825170c2088"
         orm_type = "jpa"
 
 
@@ -72,19 +71,19 @@ class TestEntityGeneration(unittest.IsolatedAsyncioTestCase):
 
             # * 엔티티 클래스 생성 테스트 시작
             entity_results = {}
-            entity_codes = {}
+            table_entity_info = {}
             for object_name in object_names:
-                entity_names, code_dict = await start_entity_processing(
+                entity_names, table_entitys = await start_entity_processing(
                     object_name,
                     orm_type,
                     session_uuid
                 )
                 entity_results[object_name] = entity_names
-                entity_codes[object_name] = code_dict
+                table_entity_info[object_name] = table_entitys
 
             test_data.update({
                 "entity_name_list": entity_results,
-                "entity_codes": entity_codes
+                "table_entity_list": table_entity_info
             })
 
             # * 테스트 결과를 외부 파일에 저장

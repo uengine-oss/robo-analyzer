@@ -1,3 +1,4 @@
+from asyncio.log import logger
 import os
 import logging
 import tiktoken
@@ -74,11 +75,11 @@ async def process_table_by_token_limit(table_data_list: list, object_name: str, 
                     
 
                     # * 엔티티 클래스 정보 저장
-                    entity_name_list.append(entity_name)
+                    entity_name_list.append(entity_name)                    
                     table_entity_info[entity_name] = {
                         'code': entity['code'],
-                        'table_info': table_map.get(table_name)
-                    }                
+                        'table_info': table_map.get(table_name, {})
+                    }
 
 
                 # * 다음 사이클을 위한 상태 초기화
@@ -177,7 +178,7 @@ async def start_entity_processing(object_name: str, orm_type: str, user_id: str)
 
         # * 테이블 데이터 구조화
         METADATA_FIELDS = {'name', 'object_name', 'id', 'primary_keys', 
-                          'foreign_keys', 'description', 'reference_tables'}
+                          'foreign_keys', 'description', 'reference_tables', 'summary_vector'}
         table_data_list = []
 
 

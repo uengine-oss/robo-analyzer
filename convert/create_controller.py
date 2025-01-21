@@ -86,7 +86,11 @@ async def process_controller_method_code(method_signature: str, procedure_name: 
         controller_class_name = convert_to_pascal_case(procedure_name)
         controller_query = [
             f"""
-            MATCH (p:PROCEDURE {{name: '{procedure_name}', user_id: '{user_id}', object_name: '{object_name}'}} )
+            MATCH (p)
+            WHERE (p:PROCEDURE OR p:CREATE_PROCEDURE_BODY)
+            AND p.procedure_name = '{procedure_name}'
+            AND p.user_id = '{user_id}'
+            AND p.object_name = '{object_name}'
             MERGE (c:CONTROLLER {{name: '{controller_class_name}', user_id: '{user_id}', object_name: '{object_name}', procedure_name: '{procedure_name}'}} )
             SET c.java_code = '{method_skeleton_code}',
                 c.summary = '{method_summary}',
@@ -103,6 +107,8 @@ async def process_controller_method_code(method_signature: str, procedure_name: 
         err_msg = f"컨트롤러 메서드를 생성하는 과정에서 결과 처리 준비 처리를 하는 도중 문제가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise ProcessResultError(err_msg)
+    finally:
+        await connection.close()
 
 
 # 역할: 컨트롤러 메서드 생성 프로세스를 시작하고 관리하는 함수입니다.
@@ -116,6 +122,7 @@ async def process_controller_method_code(method_signature: str, procedure_name: 
 #   - merge_controller_method_code: 병합될 컨트롤러 메서드 코드
 #   - controller_skeleton: 컨트롤러 클래스 기본 구조
 #   - object_name: 대상 객체 이름 (로깅용)
+#   - user_id: 사용자 ID
 #
 # 반환값:
 #   - controller_method_code: 생성된 컨트롤러 메서드 코드

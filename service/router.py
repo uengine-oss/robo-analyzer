@@ -223,6 +223,7 @@ async def delete_all_data(request: Request):
         
 
         # * 임시 파일 삭제
+        logging.info("User ID: %s", user_id)
         await delete_all_temp_data(user_id)
         return {"message": "모든 임시 파일이 삭제되었습니다."}
         

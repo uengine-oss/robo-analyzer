@@ -390,6 +390,12 @@ Sequence Method List:
    - 언더스코어를 카멜케이스로 변환
    - 예시: p_get_data -> pGetData, i_user_key -> iUserKey
 
+5. 메서드 파라미터 규칙
+   - 파라미터는 알파벳 순으로 정렬하여 반환하세요.
+   예 : 
+   - 원본: p_get_data(iUserKey, iProjKey, iDeptCode)
+   - 변환: pGetData(iDeptCode, iProjKey, iUserKey)
+   
 
 [SECTION 4] SQL 구문 처리 규칙
 =============================================== 

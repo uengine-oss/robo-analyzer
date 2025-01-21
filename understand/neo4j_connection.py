@@ -64,8 +64,8 @@ class Neo4jConnection:
             # * 패키지 별 노드를 가져오기 위한 정보를 추출
             default_query = custom_query or f"""
             MATCH (n)-[r]->(m) 
-            WHERE NOT n:Variable AND NOT n:PACKAGE_SPEC AND NOT n:FUNCTION_SPEC AND NOT n:PROCEDURE_SPEC AND NOT n:PACKAGE_VARIABLE
-            AND NOT m:Variable AND NOT m:PACKAGE_SPEC AND NOT m:FUNCTION_SPEC AND NOT m:PROCEDURE_SPEC AND NOT m:PACKAGE_VARIABLE
+            WHERE NOT n:Variable AND NOT n:PACKAGE_SPEC AND NOT n:FUNCTION_SPEC AND NOT n:PROCEDURE_SPEC AND NOT n:PACKAGE_VARIABLE AND NOT n:COMMAND AND NOT n:CONTROLLER
+            AND NOT m:Variable AND NOT m:PACKAGE_SPEC AND NOT m:FUNCTION_SPEC AND NOT m:PROCEDURE_SPEC AND NOT m:PACKAGE_VARIABLE AND NOT m:COMMAND AND NOT m:CONTROLLER
             AND n.object_name IN $package_names
             AND m.object_name IN $package_names
             AND n.user_id = $user_id

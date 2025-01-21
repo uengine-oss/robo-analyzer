@@ -110,6 +110,8 @@ async def get_java_node(object_name: str, connection: Neo4jConnection, user_id: 
             WHERE n.object_name = '{object_name}'
             AND n.user_id = '{user_id}'
             AND n.java_code IS NOT NULL
+            AND n.startLine IS NOT NULL
+            AND n.endLine IS NOT NULL
             AND NOT n:EXCEPTION
             RETURN n
             ORDER BY n.startLine

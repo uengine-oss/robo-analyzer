@@ -233,15 +233,16 @@ async def start_service_postprocessing(method_skeleton_code: str, procedure_name
         
 
         # * 서비스 클래스 정보를 노드에 저장
-        service_query = f"""
+        service_query = [f"""
         MATCH (p)
         WHERE p.procedure_name = '{procedure_name}'
         AND p.object_name = '{object_name}'
         AND p.user_id = '{user_id}'
         AND (p:PROCEDURE OR p:FUNCTION)
         SET p.java_code = '{all_java_code}'
-        """
-        await connection.execute_query(service_query)
+        """]
+        await connection.execute_queries(service_query)
+
 
         # * 메서드 코드 들여쓰기 및 완성
         method_skeleton_code = method_skeleton_code.replace("        CodePlaceHolder", "CodePlaceHolder")

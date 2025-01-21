@@ -134,19 +134,35 @@ async def process_method_and_command_code(method_skeleton_data: dict, parameter_
             
             
             # * 커맨드 클래스 정보를 노드에 저장
-            command_query = f"""
-            MATCH (p:PROCEDURE {{name: '{method_skeleton_data['procedure_name']}', user_id: '{user_id}', object_name: '{object_name}'}})
-            MERGE (cmd:COMMAND {{
-                name: '{command_class_name}',
-                user_id: '{user_id}',
-                object_name: '{object_name}',
-                procedure_name: '{method_skeleton_data['procedure_name']}',
-            }})
-            SET cmd.java_code = '{command_class_code}',
-                cmd.summary = '{command_summary}',
-                cmd.summary_vector = {command_summary_vector.tolist()}
-            MERGE (p)-[:CONVERT]->(cmd)
-            """
+            command_query = [
+                f"""
+                MATCH (p)
+                WHERE (p:PROCEDURE OR p:CREATE_PROCEDURE_BODY)
+                AND p.procedure_name = '{method_skeleton_data['procedure_name']}'
+                AND p.user_id = '{user_id}'
+                AND p.object_name = '{object_name}'
+                MERGE (cmd:COMMAND {{
+                    name: '{command_class_name}',
+                    user_id: '{user_id}',
+                    object_name: '{object_name}',
+                    procedure_name: '{method_skeleton_data['procedure_name']}'
+                }})
+                SET cmd.java_code = '{command_class_code}',
+                    cmd.summary = '{command_summary}'
+                MERGE (p)-[:CONVERT]->(cmd)
+                RETURN cmd
+                """,
+                
+                f"""
+                MATCH (cmd:COMMAND {{
+                    name: '{command_class_name}',
+                    user_id: '{user_id}',
+                    object_name: '{object_name}',
+                    procedure_name: '{method_skeleton_data['procedure_name']}'
+                }})
+                SET cmd.summary_vector = {command_summary_vector.tolist()}
+                """
+            ]
             await connection.execute_queries(command_query)
             
 

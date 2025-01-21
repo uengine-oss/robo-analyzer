@@ -53,7 +53,7 @@ class TestRepositoryGeneration(unittest.IsolatedAsyncioTestCase):
 
 
         # * 테스트할 세션 및 orm 타입 설정
-        session_uuid = "test-session-123"
+        session_uuid = "525f343f-006e-455d-9e52-9825170c2088"
         orm_type = "jpa"
 
 
@@ -66,16 +66,19 @@ class TestRepositoryGeneration(unittest.IsolatedAsyncioTestCase):
             else:
                 test_data = {}          
             
+
             # * Repository Interface 생성 테스트 시작
             used_methods_dict = {} 
             global_variables = {}
             all_methods_dict = {}
             sequence_methods_dict = {}
 
+
             # * 각 객체에 대해 테스트를 수행
             for object_name in object_names:
+                table_entity_info = test_data.get('table_entity_list', {}).get(object_name, {})
                 seq_data = await read_sequence_file(object_name, session_uuid)
-                used_methods, global_variable_nodes, all_methods, sequence_methods = await start_repository_processing(object_name, seq_data, orm_type, session_uuid)
+                used_methods, global_variable_nodes, all_methods, sequence_methods = await start_repository_processing(object_name, seq_data, orm_type, session_uuid, table_entity_info)
                 
                 used_methods_dict[object_name] = used_methods
                 global_variables[object_name] = global_variable_nodes
@@ -89,6 +92,7 @@ class TestRepositoryGeneration(unittest.IsolatedAsyncioTestCase):
                 "sequence_methods": sequence_methods_dict
             })
             
+        
             # * 결과를 결과 파일에 저장합니다.
             with open(result_file_path, 'w', encoding='utf-8') as f:
                 json.dump(test_data, f, ensure_ascii=False, indent=2)

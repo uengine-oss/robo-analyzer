@@ -653,7 +653,7 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
             else:
                 cypher_query.append(f"""
                     MERGE (n:{statement_type} {{startLine: {start_line}, object_name: '{object_name}', user_id: '{user_id}'}})
-                    SET n.endLine = {end_line}
+                    SET n.endLine = {end_line},
                         n.name = '{statement_type}[{start_line}]',
                         n.summarized_code = '{summarized_code.replace('\n', '\\n').replace("'", "\\'")}',
                         n.node_code = '{node_code.replace('\n', '\\n').replace("'", "\\'")}',

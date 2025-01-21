@@ -1,3 +1,4 @@
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
@@ -17,6 +18,14 @@ app.add_middleware(
 
 # 라우터를 FastAPI 애플리케이션 인스턴스에 등록
 app.include_router(router)
+
+
+# 로깅 설정
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(levelname)s: %(message)s',
+    force=True  # 기존 로깅 설정을 덮어쓰기
+)
 
 
 # 애플리케이션 실행: 개발 시 uvicorn을 사용하여 로컬 서버를 실행
