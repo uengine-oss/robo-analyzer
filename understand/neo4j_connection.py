@@ -1,8 +1,6 @@
 import logging
 from neo4j import AsyncGraphDatabase
 import os
-
-import numpy as np
 from util.exception import Neo4jError
 
 class Neo4jConnection:
@@ -16,7 +14,7 @@ class Neo4jConnection:
     #   - user: 데이터베이스 사용자 이름 (기본값: "neo4j")
     #   - password: 데이터베이스 비밀번호 (기본값: "neo4j")
     def __init__(self):
-        uri = os.getenv("NEO4J_URI", "bolt://localhost:7691")
+        uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
         user = os.getenv("NEO4J_USER", "neo4j")
         password = os.getenv("NEO4J_PASSWORD", "an1021402")
         self.__driver = AsyncGraphDatabase.driver(uri, auth=(user, password))
@@ -64,8 +62,8 @@ class Neo4jConnection:
             # * 패키지 별 노드를 가져오기 위한 정보를 추출
             default_query = custom_query or f"""
             MATCH (n)-[r]->(m) 
-            WHERE NOT n:Variable AND NOT n:PACKAGE_SPEC AND NOT n:FUNCTION_SPEC AND NOT n:PROCEDURE_SPEC AND NOT n:PACKAGE_VARIABLE AND NOT n:COMMAND AND NOT n:CONTROLLER
-            AND NOT m:Variable AND NOT m:PACKAGE_SPEC AND NOT m:FUNCTION_SPEC AND NOT m:PROCEDURE_SPEC AND NOT m:PACKAGE_VARIABLE AND NOT m:COMMAND AND NOT m:CONTROLLER
+            WHERE NOT n:Variable AND NOT n:PROCEDURE_SPEC AND NOT n:PACKAGE_VARIABLE
+            AND NOT m:Variable AND NOT m:PROCEDURE_SPEC AND NOT m:PACKAGE_VARIABLE
             AND n.object_name IN $package_names
             AND m.object_name IN $package_names
             AND n.user_id = $user_id
@@ -121,69 +119,6 @@ class Neo4jConnection:
             raise Neo4jError(error_msg)
         
 
-
-    # 역할: 텍스트 유사도 기반으로 노드를 검색합니다.
-    #
-    # 매개변수: 
-    #   - search_text: 검색할 텍스트
-    #   - similarity_threshold: 유사도 임계값 (기본값: 0.5)
-    #   - limit: 반환할 최대 결과 수 (기본값: 5)
-    #
-    # 반환값:
-    #   - 유사도가 높은 순으로 정렬된 노드 목록
-    async def search_similar_nodes(self, search_vector: np.ndarray, similarity_threshold: float = 0.3, limit: int = 5) -> list:
-        try:
-            query = """
-            MATCH (n)
-            WHERE n.summary_vector IS NOT NULL 
-            AND n.java_code IS NOT NULL 
-            AND NOT n:EXCEPTION
-            AND NOT n:FUNCTION
-            AND NOT n:PROCEDURE
-            AND NOT n:CREATE_PROCEDURE_BODY
-            WITH n, gds.similarity.cosine(n.summary_vector, $search_vector) AS similarity
-            WHERE similarity >= $threshold
-            RETURN n.node_code as node_code, n.java_code as java_code, n.java_summary as summary, n.name as name, n.java_file as java_file, similarity
-            ORDER BY similarity DESC
-            LIMIT $limit
-            """
-            
-            async with self.__driver.session(database=self.database_name) as session:
-                result = await session.run(query, 
-                                            search_vector=search_vector.tolist(),
-                                            threshold=similarity_threshold,
-                                            limit=limit)
-                nodes = await result.data()
-                
-                # 결과가 없는 경우 임계값을 낮춰서 다시 검색
-                if not nodes:
-                    query = """
-                    MATCH (n)
-                    WHERE n.summary_vector IS NOT NULL 
-                    AND n.java_code IS NOT NULL 
-                    AND NOT n:EXCEPTION
-                    AND NOT n:FUNCTION
-                    AND NOT n:PROCEDURE
-                    AND NOT n:CREATE_PROCEDURE_BODY
-                    WITH n, gds.similarity.cosine(n.summary_vector, $search_vector) AS similarity
-                    RETURN n.node_code as node_code, n.java_code as java_code, n.java_summary as summary, n.name as name, n.java_file as java_file, similarity
-                    ORDER BY similarity DESC
-                    LIMIT $limit
-                    """
-                    
-                    result = await session.run(query,
-                                             search_vector=search_vector.tolist(),
-                                             limit=limit)
-                    nodes = await result.data()
-
-                return nodes
-
-        except Exception as e:
-            error_msg = f"유사도 검색 중 오류 발생: {str(e)}"
-            logging.exception(error_msg)
-            raise Neo4jError(error_msg)
-        
-
     # 역할: 이전에 사용자가 생성한 노드 존재 여부를 확인합니다.
     #
     # 매개변수:
@@ -219,116 +154,5 @@ class Neo4jConnection:
             
         except Exception as e:
             error_msg = f"노드 존재 여부 확인 중 오류 발생: {str(e)}"
-            logging.exception(error_msg)
-            raise Neo4jError(error_msg)
-        
-
-
-    # 역할 : 오류 코드 참조 노드 조회
-    #
-    # 매개변수 :
-    #   - error_file : 오류 파일명
-    #   - required_type : 필요한 파일 유형
-    #   - error_code : 오류 코드
-    #   - package_name : 오류와 관련된 패키지명
-    #   - related_objects : 관련 객체명
-    # 
-    # 반환값 :
-    #   - reference_nodes : 참조 노드 목록  
-    async def get_reference_nodes(self, error_file, required_type, error_code, package_name, related_objects):
-        try:
-            if required_type == "Service":
-                query = """
-                MATCH (n)-[:INT_CALL|EXT_CALL]->(related)-[:PARENT_OF]->(s:SPEC)
-                WHERE n.java_file = $error_file
-                AND n.object_name = $package_name
-                AND n.java_code CONTAINS $error_code
-                AND apoc.text.clean(n.java_code) CONTAINS apoc.text.clean($error_code)
-
-                
-                RETURN COLLECT(DISTINCT s) as nodes
-                """
-                params = {
-                    "error_file": error_file,
-                    "error_code": error_code,
-                    "package_name": package_name
-                }
-                
-            elif required_type == "Entity":
-                query = """
-                MATCH (n:Table)
-                WHERE n.java_file = $related_objects + '.java'
-                AND n.object_name = $package_name
-                RETURN COLLECT(n) as nodes
-                """
-                params = {
-                    "package_name": package_name,
-                    "related_objects": related_objects
-                }
-
-            elif required_type == "Repository":
-                query = """
-                MATCH (n:REPOSITORY)
-                WHERE n.object_name = $package_name
-                RETURN COLLECT(n) as nodes
-                """
-                params = {
-                    "package_name": package_name
-                }
-            
-            elif required_type == "Command":
-                if related_objects:
-                    query = """
-                    MATCH (n:COMMAND)
-                    WHERE n.object_name = $package_name
-                    AND n.java_file = $related_objects + 'Command.java'
-                    RETURN COLLECT(n) as nodes
-                    """
-                    params = {
-                        "package_name": package_name,
-                        "related_objects": related_objects
-                    }
-                else:
-                    query = """
-                    MATCH (n:COMMAND)
-                    WHERE n.object_name = $package_name
-                    AND n.java_file = $error_file
-                    RETURN COLLECT(n) as nodes
-                    """
-                    params = {
-                        "package_name": package_name,
-                        "error_file": error_file
-                    }
-
-            elif required_type == "Controller":
-                if related_objects:
-                    query = """
-                    MATCH (n:CONTROLLER)
-                    WHERE n.object_name = $package_name
-                    AND n.java_file = $related_objects + 'Controller.java'
-                    RETURN COLLECT(n) as nodes
-                    """
-                    params = {
-                        "package_name": package_name,
-                        "related_objects": related_objects
-                    }
-                else:
-                    query = """
-                    MATCH (n:CONTROLLER)
-                    WHERE n.object_name = $package_name
-                    AND n.java_file = $error_file
-                    RETURN COLLECT(n) as nodes
-                    """
-                    params = {
-                        "package_name": package_name,
-                        "error_file": error_file
-                    }
-
-            async with self.__driver.session(database=self.database_name) as session:
-                result = await session.run(query, params)
-                return await result.data()
-                
-        except Exception as e:
-            error_msg = f"오류 코드 참조 노드 조회 중 오류 발생: {str(e)}"
             logging.exception(error_msg)
             raise Neo4jError(error_msg)

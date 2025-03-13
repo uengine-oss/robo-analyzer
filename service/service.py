@@ -16,13 +16,12 @@ from convert.create_entity import start_entity_processing
 from convert.create_service_preprocessing import start_service_preprocessing
 from convert.create_service_postprocessing import generate_service_class, start_service_postprocessing 
 from convert.create_service_skeleton import start_service_skeleton_processing
-from convert.create_support_files import start_mybatis_mapper_processing
 from convert.validate_service_preprocessing import start_validate_service_preprocessing
 from prompt.understand_ddl import understand_ddl
 from understand.neo4j_connection import Neo4jConnection
 from understand.analysis import analysis
 from prompt.java2deths_prompt import convert_2deths_java
-from util.exception import ConvertingError, FeedbackLoopError, Java2dethsError, LLMCallError, Neo4jError, ProcessResultError, UnderstandingError
+from util.exception import ConvertingError, Java2dethsError, LLMCallError, Neo4jError, ProcessResultError, UnderstandingError
 from util.file_utils import read_sequence_file
 from util.string_utils import add_line_numbers
 
@@ -400,7 +399,7 @@ async def generate_spring_boot_project(file_names: list, orm_type: str, user_id:
         yield f"Completed Converting {file_name}.\n\n"
 
 
-    except (ConvertingError, FeedbackLoopError) as e:
+    except ConvertingError as e:
         yield json.dumps({"error": str(e)}).encode('utf-8') + b"send_stream"
     except Exception as e:
         err_msg = f"스프링 부트 프로젝트로 전환하는 도중 오류가 발생했습니다: {str(e)}"
