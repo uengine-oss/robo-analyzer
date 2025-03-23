@@ -2,7 +2,7 @@ from collections import defaultdict
 import os
 import logging
 import textwrap
-from prompt.convert_repository_prompt import convert_repository_code
+from prompt.convert_repository_prompt import convert_repository_code, convert_repository_code_python
 from understand.neo4j_connection import Neo4jConnection
 from util.converting_utlis import extract_used_variable_nodes
 from util.exception import ConvertingError, LLMCallError, ProcessResultError, RepositoryCreationError, SaveFileError, StringConversionError, TemplateGenerationError, TraverseCodeError
@@ -41,6 +41,23 @@ public interface {entity_pascal_name}Repository extends JpaRepository<{entity_pa
 }}"""
 
 
+PYTHON_PATH = 'demo/app/repository'
+SQLALCHEMY_TEMPLATE = """from sqlalchemy.orm import Session
+from sqlalchemy import func, text
+from typing import List, Optional
+from datetime import datetime, date
+from app.entity.{entity_pascal_name} import {entity_pascal_name}
+
+class {entity_pascal_name}Repository:
+    def __init__(self, session: Session):
+        self.session = session
+        
+{merged_methods}
+
+{sequence_methods}
+"""
+
+
 # 역할: Spring Data 리포지토리 인터페이스 파일을 생성합니다.
 #
 # 매개변수:
@@ -55,7 +72,8 @@ async def generate_repository_interface(all_query_methods: dict, orm_type: str, 
             save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', 'java', user_id, REPOSITORY_PATH)
         else:
             parent_workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            save_path = os.path.join(parent_workspace_dir, 'target', 'java', user_id, REPOSITORY_PATH)
+            # save_path = os.path.join(parent_workspace_dir, 'target', 'java', user_id, REPOSITORY_PATH)
+            save_path = os.path.join(parent_workspace_dir, 'target', 'python', user_id, PYTHON_PATH)
 
 
         # * 시퀀스 메서드 들여쓰기 처리
@@ -78,8 +96,10 @@ async def generate_repository_interface(all_query_methods: dict, orm_type: str, 
             )
 
             # * ORM 타입에 따른 템플릿 선택 및 데이터 삽입
-            template = JPA_TEMPLATE if orm_type == 'jpa' else MYBATIS_TEMPLATE
+            # template = JPA_TEMPLATE if orm_type == 'jpa' else MYBATIS_TEMPLATE
+            template = SQLALCHEMY_TEMPLATE
             repository_interface_template = template.format(
+            # repository_interface_template = template.format(
                 entity_pascal_name=entity_pascal_name,
                 entity_camel_name=entity_camel_name,
                 merged_methods=merged_methods,
@@ -87,7 +107,7 @@ async def generate_repository_interface(all_query_methods: dict, orm_type: str, 
             )
 
             # * 파일 저장
-            filename = f"{entity_pascal_name}Repository.java"
+            filename = f"{entity_pascal_name}Repository.py"
             await save_file(
                 content=repository_interface_template, 
                 filename=filename, 
@@ -159,13 +179,12 @@ async def process_repository_by_token_limit(repository_nodes: list, local_variab
 
             try:
                 # * LLM을 통한 코드 변환
-                analysis_data = convert_repository_code(
+                analysis_data = convert_repository_code_python(
                     repository_data_chunk, 
                     used_variable_nodes, 
                     len(repository_data_chunk),
                     global_variable_nodes,
                     sequence_data,
-                    orm_type
                 )
 
 

@@ -1,12 +1,11 @@
 import json
 import logging
 
-from prompt.convert_service_prompt import convert_service_code
+from prompt.convert_service_prompt import convert_service_code, convert_service_code_python
 from prompt.convert_summarized_service_skeleton_prompt import convert_summarized_code
 from understand.neo4j_connection import Neo4jConnection
 from util.converting_utlis import extract_used_query_methods
 from util.exception import ConvertingError, HandleResultError, LLMCallError, Neo4jError, ProcessResultError, ServiceCreationError, StringConversionError, TraverseCodeError, VariableNodeError
-from util.string_utils import convert_to_pascal_case
 
 
 
@@ -123,7 +122,7 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
 
 
             # * 전달된 정보를 llm에게 전달하여 결과를 받고, 결과를 처리하는 함수를 호출합니다.
-            analysis_result = convert_service_code(
+            analysis_result = convert_service_code_python(
                 convert_sp_code, 
                 service_skeleton, 
                 used_variables, 
@@ -182,7 +181,7 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
                 node_update_query.append(
                     f"MATCH (n) WHERE n.startLine = {start_line} "
                     f"AND n.object_name = '{object_name}' AND n.endLine = {end_line} AND n.user_id = '{user_id}' "
-                    f"SET n.java_code = '{escaped_code}', "
+                    f"SET n.java_code = '{escaped_code}'"
                 )    
 
 
@@ -397,6 +396,7 @@ async def start_service_preprocessing(service_skeleton:str, command_class_variab
             RETURN n, r, m
             ORDER BY n.startLine
             """,
+
             # * 변수 노드를 조회하는 쿼리
             f"""
             MATCH (n)

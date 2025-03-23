@@ -1,7 +1,7 @@
 import os
 import logging
 import tiktoken
-from prompt.convert_entity_prompt import convert_entity_code
+from prompt.convert_entity_prompt import convert_entity_code, convert_entity_code_python
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError, EntityCreationError, FilePathError, Neo4jError, ProcessResultError, SaveFileError, TokenCountError
 from util.file_utils import save_file
@@ -9,6 +9,7 @@ from util.token_utils import calculate_code_token
 
 MAX_TOKENS = 1000
 ENTITY_PATH = 'demo/src/main/java/com/example/demo/entity'
+ENTITY_PATH_PYTHON = 'demo/app/entity'
 encoder = tiktoken.get_encoding("cl100k_base")
 
 
@@ -37,7 +38,8 @@ async def process_table_by_token_limit(table_data_list: list, object_name: str, 
 
             try:
                 # * 테이블 데이터를 LLM에게 전달하여 Entity 클래스 생성 정보를 받음
-                analysis_data = convert_entity_code(table_data_chunk, orm_type)
+                # analysis_data = convert_entity_code(table_data_chunk, orm_type)
+                analysis_data = convert_entity_code_python(table_data_chunk)
 
 
                 # * 각 엔티티별로 파일 생성
@@ -108,13 +110,14 @@ async def generate_entity_class(entity_name: str, entity_code: str, user_id: str
             save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', 'java', user_id, ENTITY_PATH)
         else:
             parent_workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            save_path = os.path.join(parent_workspace_dir, 'target', 'java', user_id, ENTITY_PATH)
+            # save_path = os.path.join(parent_workspace_dir, 'target', 'java', user_id, ENTITY_PATH)
+            save_path = os.path.join(parent_workspace_dir, 'target', 'python', user_id, ENTITY_PATH_PYTHON)
 
 
         # * Entity Class 파일 생성
         await save_file(
             content=entity_code, 
-            filename=f"{entity_name}.java", 
+            filename=f"{entity_name}.py", 
             base_path=save_path
         )
     

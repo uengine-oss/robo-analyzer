@@ -17,7 +17,11 @@ llm = ChatAnthropic(model="claude-3-7-sonnet-20250219", max_tokens=8000, tempera
 
 prompt = PromptTemplate.from_template(
 """
-당신은 Oracle PLSQL 전문가입니다. 주어진 Stored Procedure Code를 철저히 분석하세요.
+당신은 PostgreSQL(PL/pgSQL) 전문가입니다. 주어진 함수/프로시저 코드를 철저히 분석하세요.
+
+
+분석할 패키지(스키마마) 이름:
+{schema_name}
 
 
 분석할 Stored Procedure Code:
@@ -99,11 +103,12 @@ prompt = PromptTemplate.from_template(
 #   - sp_code : 분석 대상 PL/SQL 프로시저의 전체 코드
 #   - context_ranges : 분석이 필요한 코드 범위 목록
 #   - context_range_count : 분석해야 할 코드 범위의 총 개수
+#   - object_name : 패키지지 이름
 #
 # 반환값: 
 #   - parsed_content : LLM의 코드 분석 결과
 #      (테이블 관계, 변수 정보, 프로시저 호출 관계 등이 포함된 구조화된 데이터)
-def understand_code(sp_code, context_ranges, context_range_count):
+def understand_code(sp_code, context_ranges, context_range_count, object_name):
     try:
         ranges_json = json.dumps(context_ranges)
 
@@ -115,7 +120,7 @@ def understand_code(sp_code, context_ranges, context_range_count):
 
         json_parser = JsonOutputParser()
         # TODO 여기서 최대 출력 토큰만 4096이 넘은 경우 처리가 필요
-        result = chain.invoke({"code": sp_code, "ranges": ranges_json, "count": context_range_count})
+        result = chain.invoke({"code": sp_code, "ranges": ranges_json, "count": context_range_count, "schema_name": object_name})
         json_parsed_content = json_parser.parse(result.content)
         logging.info(f"토큰 수: {result.usage_metadata}")     
         return json_parsed_content

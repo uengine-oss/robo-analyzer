@@ -46,14 +46,13 @@ prompt = PromptTemplate.from_template(
 2. 메서드 생성 규칙
     - 메서드로 생성 (어노테이션 없음)
     - 반환타입:
-    - 반환타입:
         * parameter_type이 'OUT'인 파라미터가 있는 경우:
             - OUT 파라미터의 type을 메서드의 반환 타입으로 사용
         * OUT 파라미터가 없는 경우:
             - declaration에서 반환타입이 명시되지 않은 경우 void로 설정
             - declaration에 반환타입이 있는 경우 해당 타입으로 매핑
         * 반드시 RETURN 또는 OUT 파라미터의 타입에 맞춰서 반환타입을 설정하세요.
-            - NUMBER -> Long
+            - NUMBER, NUMERIC, INTEGER, DECIMAL, BIGDECIMAL 등 모든 숫자 타입 -> 반드시 Long만 사용 (INTEGER나 BIGDECIMAL 사용 금지)
             - VARCHAR2, CHAR -> String
             - DATE -> LocalDate
             - TIME -> LocalDateTime
@@ -64,7 +63,7 @@ prompt = PromptTemplate.from_template(
     - 오직 'local_variables' 목록에 있는 변수만 메서드 내부 변수로 생성
     - 명명규칙: 접두어 제거하지 말고, 원본 이름을 그대로 카멜케이스로 표현 (첫 글자 소문자)
     - 데이터 타입 매핑:
-        * NUMBER, NUMERIC -> Long
+        * NUMBER, NUMERIC, INTEGER, DECIMAL, BIGDECIMAL 등 모든 숫자 타입 -> 반드시 Long만 사용 (INTEGER나 BIGDECIMAL 사용 금지)
         * VARCHAR, VARCHAR2, CHAR -> String
         * 컬럼명에 'TIME'이 포함된 경우 -> LocalDateTime (예 : CurrentTime, EndTime, StartTime)
         * 컬럼명에 'DATE'만 포함되고 'TIME'이 없는 경우 -> LocalDate (예 : CurrentDate, EndDate, StartDate)
@@ -79,7 +78,7 @@ prompt = PromptTemplate.from_template(
     - 'parameter_data'의 'parameters' 목록에 있는 파라미터만 메서드 파라미터로 생성
     - 명명규칙: 카멜케이스 (첫 글자 소문자)
     - 데이터 타입 매핑:
-        * NUMBER, NUMERIC -> Long
+        * NUMBER, NUMERIC, INTEGER, DECIMAL, BIGDECIMAL 등 모든 숫자 타입 -> 반드시 Long만 사용 (INTEGER나 BIGDECIMAL 사용 금지)
         * VARCHAR, VARCHAR2, CHAR -> String
         * 컬럼명에 'TIME'이 포함된 경우 -> LocalDateTime (예 : CurrentTime, EndTime, StartTime)
         * 컬럼명에 'DATE'만 포함되고 'TIME'이 없는 경우 -> LocalDate (예 : CurrentDate, EndDate, StartDate)
@@ -125,6 +124,136 @@ public ReturnType methodName(Type1 param1, Type2 param2) {{
 # 반환값: 
 #   - result : LLM이 생성한 메서드 기본 구조 정보
 def convert_method_code(method_skeleton_data, parameter_data):
+    
+    try:
+        method_skeleton_data = json.dumps(method_skeleton_data, ensure_ascii=False, indent=2)
+        parameter_data = json.dumps(parameter_data, ensure_ascii=False, indent=2)
+        chain = (
+            RunnablePassthrough()
+            | prompt
+            | llm
+            | JsonOutputParser()
+        )
+        result = chain.invoke({"method_skeleton_data": method_skeleton_data, "parameter_data": parameter_data})
+        return result
+    
+    except Exception as e:
+        err_msg = f"메서드 틀 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다: {str(e)}"
+        logging.error(err_msg)
+        raise LLMCallError(err_msg)
+    
+
+
+
+# 파이썬 서비스 클래스 생성 프롬프트
+prompt = PromptTemplate.from_template(
+"""
+당신은 PL/SQL 함수를 파이썬 메서드로 변환하는 전문가입니다.
+주어진 JSON 데이터를 기반으로 메서드 틀을 생성합니다.
+
+[입력 데이터 구조 설명]
+===============================================
+1. 메서드 데이터:
+{method_skeleton_data}
+- procedure_name: 프로시저/함수 이름
+- local_variables: 로컬 변수 목록 (각 변수는 name, type, value 속성을 가짐)
+- declaration: 선언부 코드 (리턴타입, 입력 매개변수 등이 선언된 부분)
+- summary: 메서드의 전체적인 비즈니스 로직 흐름을 설명
+
+2. 파라미터 데이터:
+{parameter_data}
+- parameters: 파라미터 목록 (각 파라미터는 name, type, value, parameter_type 속성을 가짐)
+- procedure_name: 함수 이름
+
+
+[SECTION 1] 메서드 생성 규칙
+===============================================
+1. 메서드 명명 규칙
+    - 'procedure_name'을 스네이크 케이스로 변환하여 메서드명 생성
+    - v, p, i, o 와 같은 접두어를 제거하지말고, 풀네임을 메서드 명으로 전환
+    - 예시: GET_EMPLOYEE_COUNT -> get_employee_count
+    - 첫 글자는 소문자로 시작
+
+2. 메서드 생성 규칙
+    - 클래스 메서드로 생성 (항상 첫번째 파라미터는 self)
+    - 반환타입:
+        * parameter_type이 'OUT'인 파라미터가 있는 경우:
+            - OUT 파라미터의 type을 메서드의 반환 타입으로 사용
+        * OUT 파라미터가 없는 경우:
+            - declaration에서 반환타입이 명시되지 않은 경우 None으로 설정
+            - declaration에 반환타입이 있는 경우 해당 타입으로 매핑
+        * 반드시 RETURN 또는 OUT 파라미터의 타입에 맞춰서 반환타입을 설정하세요.
+            - NUMBER, NUMERIC, INTEGER, DECIMAL, BIGDECIMAL 등 모든 숫자 타입 -> int
+            - VARCHAR2, CHAR -> str
+            - DATE -> date
+            - TIME -> datetime
+            - BOOLEAN -> bool
+    - 파라미터: 'parameter_data'의 'parameters' 정보를 기반으로 생성 (self는 항상 첫번째 파라미터)
+    
+3. 메서드의 필드 규칙
+    - 오직 'local_variables' 목록에 있는 변수만 메서드 내부 변수로 생성
+    - 명명규칙: 접두어 제거하지 말고, 원본 이름을 그대로 스네이크 케이스로 표현 (첫 글자 소문자)
+    - 데이터 타입 매핑:
+        * NUMBER, NUMERIC, INTEGER, DECIMAL, BIGDECIMAL 등 모든 숫자 타입 -> int
+        * VARCHAR, VARCHAR2, CHAR -> str
+        * 컬럼명에 'TIME'이 포함된 경우 -> datetime (예 : CurrentTime, EndTime, StartTime)
+        * 컬럼명에 'DATE'만 포함되고 'TIME'이 없는 경우 -> date (예 : CurrentDate, EndDate, StartDate)
+        * 테이블 이름의 경우: 테이블 명을 타입으로 사용 (엔티티 클래스를 타입으로 설정)
+    - 변수 초기화:
+        - local_variables의 value 값이 존재하는 경우에만 해당 값으로 초기화합니다.
+        - 테이블 명, 엔티티 클래스가 타입으로 선정된 경우 EntityClass() 형태로 표현
+        - 그 외 기본 타입들은 'value' 값이 없다면 변수 초기화 하지 않고 선언만 합니다.
+    - 'local_variables' 배열이 비어있다면 메서드의 필드는 생성하지 않습니다.
+
+4. 메서드의 파라미터 규칙
+    - 'parameter_data'의 'parameters' 목록에 있는 파라미터만 메서드 파라미터로 생성 (self는 항상 첫번째 파라미터)
+    - 명명규칙: 스네이크 케이스 (첫 글자 소문자)
+    - 데이터 타입 매핑:
+        * NUMBER, NUMERIC, INTEGER, DECIMAL, BIGDECIMAL 등 모든 숫자 타입 -> int
+        * VARCHAR, VARCHAR2, CHAR -> str
+        * 컬럼명에 'TIME'이 포함된 경우 -> datetime (예 : CurrentTime, EndTime, StartTime)
+        * 컬럼명에 'DATE'만 포함되고 'TIME'이 없는 경우 -> date (예 : CurrentDate, EndDate, StartDate)
+        * 테이블 이름의 경우: 테이블 명을 타입으로 사용 (엔티티 클래스를 타입으로 설정)
+    - 파라미터의 순서: self 다음에 나머지 파라미터는 알파벳 순서대로 정렬
+    
+5. 코드 구조
+    - 문자열 "CodePlaceHolder"는 그대로 유지하고, 변경하지 마세요.
+    - 메서드 내부 구현 없이, "CodePlaceHolder" 문자열만 존재해야 함
+    - return 문 또한 별도로 추가 예정으로, return을 추가하지말고, 템플릿 구조를 지키세요.
+
+    
+[SECTION 2] 메서드 예시 템플릿
+===============================================
+def method_name(self, param1: str, param2: int) -> return_type:
+    employee_id: int
+    name: str
+    date_value: date
+    time_value: datetime
+    employee: Employee
+    
+    CodePlaceHolder
+
+
+[SECTION 3] JSON 출력 형식
+===============================================
+부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요:
+{{
+    "methodName": "get_employee_count",
+    "method": "def get_employee_count(employee_id: int, department_code: str) -> int:\\n    CodePlaceHolder",
+    "methodSignature": "get_employee_count(employee_id: int, department_code: str) -> int",
+}}
+"""
+)
+
+# 역할: PL/SQL 함수/프로시저의 시그니처를 분석하여 파이썬 메서드의 기본 구조를 생성하는 함수입니다.
+#
+# 매개변수: 
+#   - method_skeleton_data : 메서드 기본 구조 생성에 필요한 데이터
+#   - parameter_data : 함수/프로시저의 파라미터 정보
+#
+# 반환값: 
+#   - result : LLM이 생성한 메서드 기본 구조 정보
+def convert_method_code_python(method_skeleton_data, parameter_data):
     
     try:
         method_skeleton_data = json.dumps(method_skeleton_data, ensure_ascii=False, indent=2)

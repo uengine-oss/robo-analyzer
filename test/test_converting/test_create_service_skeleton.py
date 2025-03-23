@@ -53,7 +53,7 @@ class TestServiceSkeletonGeneration(unittest.IsolatedAsyncioTestCase):
 
 
         # * 테스트할 세션 설정
-        session_uuid = "525f343f-006e-455d-9e52-9825170c2088"
+        session_uuid = "d654a0db-6038-40a8-bea5-5c6a1b183883"
 
 
         try:

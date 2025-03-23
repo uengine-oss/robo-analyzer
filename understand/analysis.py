@@ -122,19 +122,17 @@ def extract_definition(code: str) -> str:
 # 반환값: 
 #   - str: 추출된 프로시저/함수 이름
 def extract_procedure_name(code: str) -> str:
-    
     # * 첫 번째 줄만 검사
     first_line = code.split('\n')[0]
     
-
-    # * PROCEDURE나 FUNCTION 다음에 오는 이름을 추출하는 정규식
-    pattern = r'(?:PROCEDURE|FUNCTION)\s+(\w+)'
-    match = re.search(pattern, first_line)
+    # * 통합된 정규식 패턴: 스키마.함수명 또는 단순 함수명 모두 처리
+    pattern = r'(?:PROCEDURE|FUNCTION)\s+(?:(\w+)\.)?(\w+)'
     
-
-    # * 매칭된 결과가 있으면 이름을 반환, 없으면 None 반환
+    match = re.search(pattern, first_line, re.IGNORECASE)
     if match:
-        return match.group(1)
+        # * 두 번째 그룹이 항상 함수명(스키마가 있든 없든)
+        return match.group(2)
+    
     return None
 
 
@@ -311,7 +309,7 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
 
 
             # * 분석에 필요한 정보를 llm에게 보냄으로써, 분석을 시작하고, 결과를 처리하는 함수를 호출
-            analysis_result = understand_code(extract_code, context_range, context_range_count)        
+            analysis_result = understand_code(extract_code, context_range, context_range_count, object_name)        
             cypher_queries = await handle_analysis_result(analysis_result)
             
 
@@ -455,10 +453,12 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
 
 
                 # * CALL 호출 관계를 생성합니다
-                if statement_type in ["CALL", "ASSIGNMENT", "EXCEPTION", "IF"]:
+                if statement_type in ["CALL", "ASSIGNMENT"]:
                     for name in called_nodes:
                         if '.' in name:  # 다른 패키지 호출인 경우
                             package_name, proc_name = name.split('.')
+                            package_name = package_name
+                            
                             call_relation_query = f"""
                                 MATCH (c:{statement_type} {{startLine: {start_line}, object_name: '{object_name}', user_id: '{user_id}'}}) 
                                 OPTIONAL MATCH (p)
@@ -552,12 +552,18 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
                 elif statement_type == 'DEFINITION':
                     cypher_query.extend([
                         f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', parameter_type: '{var_parameter_type}', procedure_name: '{procedure_name}', role: '{role}', scope: 'Local', value: '{var_value}'}}) ",
-                        f"MERGE (p:{statement_type} {{startLine: {node_startLine}, object_name: '{object_name}', procedure_name: '{procedure_name}'}}) "
+                        f"MERGE (p:{statement_type} {{startLine: {node_startLine}, object_name: '{object_name}', procedure_name: '{procedure_name}', node_code: '{declaration_code}'}}) "
                         f"SET p.summary = {var_summary}"
                         f"WITH p "
                         f"MATCH (v:Variable {{name: '{var_name}', object_name: '{object_name}', procedure_name: '{procedure_name}'}})"
                         f"MERGE (p)-[:SCOPE]->(v)"
                     ])
+                    # PROCEDURE/FUNCTION 노드와 DEFINITION 연결 - 별도 쿼리로 추가
+                    cypher_query.append(
+                        f"MATCH (p:{statement_type} {{startLine: {node_startLine}, object_name: '{object_name}', procedure_name: '{procedure_name}'}}), "
+                        f"(f WHERE (f:PROCEDURE OR f:FUNCTION) AND f.object_name = '{object_name}' AND f.procedure_name = '{procedure_name}' AND f.startLine = {node_startLine}) "
+                        f"MERGE (f)-[:DEFINES]->(p)"
+                    )
                 else:
                     logging.info("알 수 없는 노드 타입입니다.")
 

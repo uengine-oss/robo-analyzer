@@ -55,7 +55,7 @@ class TestEntityGeneration(unittest.IsolatedAsyncioTestCase):
 
 
         # * 테스트할 세션 및 orm 타입 설정
-        session_uuid = "525f343f-006e-455d-9e52-9825170c2088"
+        session_uuid = "d654a0db-6038-40a8-bea5-5c6a1b183883"
         orm_type = "jpa"
 
 
@@ -71,19 +71,16 @@ class TestEntityGeneration(unittest.IsolatedAsyncioTestCase):
 
             # * 엔티티 클래스 생성 테스트 시작
             entity_results = {}
-            table_entity_info = {}
             for object_name in object_names:
-                entity_names, table_entitys = await start_entity_processing(
+                entity_names = await start_entity_processing(
                     object_name,
                     orm_type,
                     session_uuid
                 )
                 entity_results[object_name] = entity_names
-                table_entity_info[object_name] = table_entitys
 
             test_data.update({
                 "entity_name_list": entity_results,
-                "table_entity_list": table_entity_info
             })
 
             # * 테스트 결과를 외부 파일에 저장

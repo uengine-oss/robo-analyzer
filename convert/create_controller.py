@@ -3,7 +3,7 @@ import logging
 import os
 import textwrap
 import tiktoken
-from prompt.convert_controller_prompt import convert_controller_method_code
+from prompt.convert_controller_prompt import convert_controller_method_code, convert_controller_method_code_python
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ControllerCreationError, ConvertingError, FilePathError, LLMCallError, Neo4jError, ProcessResultError, SaveFileError, StringConversionError
 from util.file_utils import save_file
@@ -11,6 +11,7 @@ from util.string_utils import convert_to_pascal_case
 
 encoder = tiktoken.get_encoding("cl100k_base")
 CONTROLLER_PATH = 'demo/src/main/java/com/example/demo/controller'
+CONTROLLER_PYTHON_PATH = 'demo/app/controller'
 
 
 # 역할: 생성된 컨트롤러 코드를 지정된 경로에 Java 파일로 저장하는 함수입니다.
@@ -33,11 +34,12 @@ async def generate_controller_class(controller_skeleton: str, controller_class_n
             save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', 'java', user_id, CONTROLLER_PATH)
         else:
             project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            save_path = os.path.join(project_root, 'target', 'java', user_id, CONTROLLER_PATH)
+            # save_path = os.path.join(project_root, 'target', 'java', user_id, CONTROLLER_PATH)
+            save_path = os.path.join(project_root, 'target', 'python', user_id, CONTROLLER_PYTHON_PATH)
 
 
         # * 파일 저장
-        await save_file(content=controller_code, filename=f"{controller_class_name}.java", base_path=save_path)
+        await save_file(content=controller_code, filename=f"{controller_class_name}.py", base_path=save_path)
         logging.info(f"[{controller_class_name}] Success Create Controller Java File\n")
 
     except SaveFileError:
@@ -67,7 +69,7 @@ async def process_controller_method_code(method_signature: str, procedure_name: 
     
     try:
         # * 컨트롤러 메서드 틀 생성에 필요한 정보를 받습니다.
-        analysis_method = convert_controller_method_code(
+        analysis_method = convert_controller_method_code_python(
             method_signature,
             procedure_name,
             command_class_variable,
@@ -137,3 +139,8 @@ async def start_controller_processing(method_signature: str, procedure_name: str
         err_msg = f"컨트롤러 메서드를 생성하기 위해 데이터를 준비하는 도중 문제가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise ControllerCreationError(err_msg)
+
+
+
+
+

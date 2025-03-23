@@ -8,9 +8,9 @@ import aiofiles
 import os
 from convert.create_controller import generate_controller_class, start_controller_processing
 from convert.create_controller_skeleton import start_controller_skeleton_processing
-from convert.create_main import start_main_processing
-from convert.create_pomxml import start_pomxml_processing
-from convert.create_properties import start_APLproperties_processing
+from convert.create_main import start_main_processing, start_main_processing_python
+from convert.create_pomxml import start_pipfile_processing, start_pomxml_processing
+from convert.create_properties import start_APLproperties_processing, start_config_processing
 from convert.create_repository import start_repository_processing
 from convert.create_entity import start_entity_processing
 from convert.create_service_preprocessing import start_service_preprocessing
@@ -384,17 +384,20 @@ async def generate_spring_boot_project(file_names: list, orm_type: str, user_id:
 
 
         # * 5 단계 : pom.xml 생성
-        await start_pomxml_processing(orm_type, user_id)
+        # await start_pomxml_processing(orm_type, user_id)
+        await start_pipfile_processing(user_id)
         yield f"{file_name}-Step5 completed\n"
         
 
         # * 6 단계 : application.properties 생성
-        await start_APLproperties_processing(orm_type, user_id)
+        # await start_APLproperties_processing(orm_type, user_id)
+        await start_config_processing(user_id)
         yield f"Step6 completed\n"
 
 
         # * 7 단계 : StartApplication.java 생성
-        await start_main_processing(orm_type, user_id)
+        # await start_main_processing(orm_type, user_id)
+        await start_main_processing_python(user_id)
         yield f"Step7 completed\n"
         yield f"Completed Converting {file_name}.\n\n"
 

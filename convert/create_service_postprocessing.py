@@ -9,6 +9,7 @@ from util.string_utils import convert_to_pascal_case
 
 encoder = tiktoken.get_encoding("cl100k_base")
 SERVICE_PATH = 'demo/src/main/java/com/example/demo/service'
+SERVICE_PYTHON_PATH = 'demo/app/service'
 
 
 # 역할: 토큰 수가 1700개 이상인 큰 부모 노드의 요약된 코드를 실제 자식 노드들의 코드로 대체하는 함수입니다.
@@ -114,21 +115,21 @@ async def traverse_node_for_merging_service(node_list:list, connection:Neo4jConn
                 continue
             
 
-            # * TRY 노드 처리
-            if is_try_node:
-                try_catch_code += java_code
-                print("TRY 노드 처리 중입니다.") 
-                continue
+            # # * TRY 노드 처리
+            # if is_try_node:
+            #     try_catch_code += java_code
+            #     print("TRY 노드 처리 중입니다.") 
+            #     continue
 
 
-            # * EXCEPTION 노드 처리
+            # # * EXCEPTION 노드 처리
             if is_exception_node:
-                try_catch_code = try_catch_code.replace("        CodePlaceHolder", "CodePlaceHolder")
-                indented_code = textwrap.indent(try_catch_code, '    ')
-                java_code = java_code.replace("CodePlaceHolder", indented_code)
-                all_java_code += java_code + "\n"
-                try_catch_code = ""
-                print("EXCEPTION 노드 처리 중입니다.") 
+                # try_catch_code = try_catch_code.replace("        CodePlaceHolder", "CodePlaceHolder")
+                # indented_code = textwrap.indent(try_catch_code, '    ')
+                # java_code = java_code.replace("CodePlaceHolder", indented_code)
+                # all_java_code += java_code + "\n"
+                # try_catch_code = ""
+                # print("EXCEPTION 노드 처리 중입니다.") 
                 continue
             
 
@@ -171,13 +172,14 @@ async def generate_service_class(service_skeleton: str, service_class_name: str,
             save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', 'java', user_id, SERVICE_PATH)
         else:
             current_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            save_path = os.path.join(current_dir, 'target', 'java', user_id, SERVICE_PATH)
+            # save_path = os.path.join(current_dir, 'target', 'java', user_id, SERVICE_PATH)
+            save_path = os.path.join(current_dir, 'target', 'python', user_id, SERVICE_PYTHON_PATH)
 
 
         # * 서비스 클래스 파일 생성
         await save_file(
             content=service_skeleton,
-            filename=f"{service_class_name}.java",
+            filename=f"{service_class_name}.py",
             base_path=save_path
         )
 

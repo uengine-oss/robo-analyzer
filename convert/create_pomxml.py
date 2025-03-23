@@ -209,3 +209,68 @@ async def start_pomxml_processing(orm_type: str, user_id:str):
         err_msg = f"스프링부트의 Pom.xml 파일을 생성하는 도중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise PomXmlCreationError(err_msg)
+    
+
+
+PIPFILE_NAME = "Pipfile"
+PIPFILE_PATH = 'demo'
+
+
+# SQLAlchemy 템플릿
+SQLALCHEMY_PIPFILE_TEMPLATE = """[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+fastapi = ">=0.104.0"
+uvicorn = ">=0.23.2"
+sqlalchemy = ">=2.0.0"
+alembic = ">=1.12.0"
+cx-oracle = ">=8.3.0"
+h2 = ">=0.3.0"
+pydantic = ">=2.4.2"
+psycopg2-binary = ">=2.9.6"
+python-dotenv = ">=1.0.0"
+pytz = ">=2023.3"
+
+[dev-packages]
+pytest = ">=7.4.0"
+httpx = ">=0.24.1"
+
+[requires]
+python_version = "3.10"
+"""
+
+
+# 역할: Python 프로젝트의 의존성 관리 파일인 Pipfile을 생성합니다.
+#
+# 매개변수: 
+#   - user_id : 사용자 ID
+async def start_pipfile_processing(user_id:str):
+    logging.info("Pipfile 생성을 시작합니다.")
+    
+    try:       
+        # * 저장 경로 설정
+        if os.getenv('DOCKER_COMPOSE_CONTEXT'):
+            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', 'python', user_id, PIPFILE_PATH)
+        else:
+            parent_workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            save_path = os.path.join(parent_workspace_dir, 'target', 'python', user_id, PIPFILE_PATH)
+
+
+        # * Pipfile 파일 생성
+        await save_file(
+            content=SQLALCHEMY_PIPFILE_TEMPLATE,
+            filename=PIPFILE_NAME, 
+            base_path=save_path
+        )
+        
+        logging.info("Pipfile이 생성되었습니다. pipenv install 명령을 실행하면 Pipfile.lock이 자동으로 생성됩니다.\n")
+
+    except SaveFileError:
+        raise
+    except Exception as e:
+        err_msg = f"파이썬 Pipfile 파일을 생성하는 도중 오류가 발생했습니다: {str(e)}"
+        logging.error(err_msg)
+        raise PomXmlCreationError(err_msg)
