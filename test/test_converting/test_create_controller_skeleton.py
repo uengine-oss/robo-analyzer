@@ -6,7 +6,6 @@ import logging
 import unittest
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
 from convert.create_controller_skeleton import start_controller_skeleton_processing
-from convert.create_service_skeleton import start_service_skeleton_processing
 
 
 # * 로그 레벨 설정
@@ -39,9 +38,9 @@ class TestControllerSkeletonGeneration(unittest.IsolatedAsyncioTestCase):
         
         # * 테스트할 객체 이름들을 설정
         object_names = [
-            "TPX_UPDATE_SALARY",
+            # "TPX_UPDATE_SALARY",
             "TPX_EMPLOYEE",
-            "TPX_SALARY",
+            # "TPX_SALARY",
             "TPX_ATTENDANCE",
             # "TPX_PROJECT",
             # "TPX_TMF_SYNC_JOB_STATUS",

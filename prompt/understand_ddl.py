@@ -13,9 +13,7 @@ import openai
 
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
-api_key = os.getenv("OPENAI_API_KEY")
-# llm = ChatOpenAI(api_key=api_key, model_name="gpt-4o")
-llm = ChatAnthropic(model="claude-3-7-sonnet-20250219", max_tokens=8000, temperature=0.1)
+
 
 prompt = PromptTemplate.from_template(
 """
@@ -82,9 +80,16 @@ DDL 내용입니다:
 # 반환값:
 #   - result : 테이블 구조 분석 결과가 담긴 JSON 형식의 딕셔너리
 #             (테이블 정보, 컬럼 목록, 키 정보 포함)
-def understand_ddl(ddl_content):
+def understand_ddl(ddl_content, api_key):
 
     try:
+        # 전달받은 API 키로 Anthropic Claude LLM 인스턴스 생성
+        llm = ChatAnthropic(
+            model="claude-3-7-sonnet-latest", 
+            max_tokens=8192,
+            api_key=api_key
+        )
+
         ddl_content = json.dumps(ddl_content, indent=2, ensure_ascii=False)
 
         chain = (

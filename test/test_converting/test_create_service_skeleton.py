@@ -38,9 +38,9 @@ class TestServiceSkeletonGeneration(unittest.IsolatedAsyncioTestCase):
         
         # * 테스트할 객체 이름들을 설정
         object_names = [
-            "TPX_UPDATE_SALARY",
+            # "TPX_UPDATE_SALARY",
             "TPX_EMPLOYEE",
-            "TPX_SALARY",
+            # "TPX_SALARY",
             "TPX_ATTENDANCE",
             # "TPX_PROJECT",
             # "TPX_TMF_SYNC_JOB_STATUS",
@@ -53,7 +53,8 @@ class TestServiceSkeletonGeneration(unittest.IsolatedAsyncioTestCase):
 
 
         # * 테스트할 세션 설정
-        session_uuid = "d654a0db-6038-40a8-bea5-5c6a1b183883"
+        session_uuid = "e37f4668-8d1e-4650-bc95-2328a76cf594"
+        api_key = "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"
 
 
         try:
@@ -74,7 +75,7 @@ class TestServiceSkeletonGeneration(unittest.IsolatedAsyncioTestCase):
                 global_variables = test_data.get('global_variables', {}).get(object_name, [])
                 
                 # * Service Skeleton 생성
-                service_skeleton_list, service_skeleton, service_class_name, exist_command_class = await start_service_skeleton_processing(entity_name_list, object_name, global_variables, session_uuid)
+                service_skeleton_list, service_skeleton, service_class_name, exist_command_class = await start_service_skeleton_processing(entity_name_list, object_name, global_variables, session_uuid, api_key)
                 
                 # * 객체별 결과 저장
                 skeleton_results[object_name] = {

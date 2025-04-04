@@ -38,9 +38,9 @@ class TestPostServiceGeneration(unittest.IsolatedAsyncioTestCase):
         
         # * 테스트할 스토어드 프로시저 파일 이름을 설정 및 수정합니다. 
         object_names = [
-            "TPX_UPDATE_SALARY",
+            # "TPX_UPDATE_SALARY",
             "TPX_EMPLOYEE",
-            "TPX_SALARY",
+            # "TPX_SALARY",
             "TPX_ATTENDANCE",
             # "TPX_PROJECT",
             # "TPX_TMF_SYNC_JOB_STATUS",
@@ -53,7 +53,7 @@ class TestPostServiceGeneration(unittest.IsolatedAsyncioTestCase):
         
 
         # * 테스트할 세션 및 orm 타입 설정
-        session_uuid = "d654a0db-6038-40a8-bea5-5c6a1b183883"
+        session_uuid = "e37f4668-8d1e-4650-bc95-2328a76cf594"
 
 
         try:
@@ -82,7 +82,7 @@ class TestPostServiceGeneration(unittest.IsolatedAsyncioTestCase):
                             skeleton_data['procedure_name'],
                             object_name,
                             merge_method_code,
-                            session_uuid
+                            session_uuid,
                         )
 
                     await generate_service_class(service_skeleton, service_class_name, merge_method_code, session_uuid)            

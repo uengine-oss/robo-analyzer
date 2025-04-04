@@ -14,13 +14,6 @@ import openai
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
 
-api_key = os.getenv("OPENAI_API_KEY")
-if api_key is None:
-    raise ValueError("OPENAI_API_KEY 환경 변수가 설정되지 않았습니다.")
-
-# llm = ChatOpenAI(api_key=api_key, model_name="gpt-4o")
-llm = ChatAnthropic(model="claude-3-7-sonnet-20250219", max_tokens=8000, temperature=0.1)
-
 
 prompt = PromptTemplate.from_template(
 """
@@ -61,8 +54,16 @@ prompt = PromptTemplate.from_template(
 """
 )
 
-def understand_summary(summaries):
+def understand_summary(summaries, api_key):
     try:
+
+        # 전달받은 API 키로 Anthropic Claude LLM 인스턴스 생성
+        llm = ChatAnthropic(
+            model="claude-3-7-sonnet-latest", 
+            max_tokens=8192,
+            api_key=api_key
+        )
+
         chain = (
             RunnablePassthrough()
             | prompt

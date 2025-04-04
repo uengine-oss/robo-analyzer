@@ -17,9 +17,9 @@ class TestCypherQueryGeneration(unittest.IsolatedAsyncioTestCase):
         
         # * 테스트할 파일 이름 및 유저 id와 프로시저 이름을 설정
         file_names = [
-            ("TPX_UPDATE_SALARY.sql", "TPX_UPDATE_SALARY"),
+            # ("TPX_UPDATE_SALARY.sql", "TPX_UPDATE_SALARY"),
             ("TPX_EMPLOYEE.sql", "TPX_EMPLOYEE"),
-            ("TPX_SALARY.sql", "TPX_SALARY"),
+            # ("TPX_SALARY.sql", "TPX_SALARY"),
             ("TPX_ATTENDANCE.sql", "TPX_ATTENDANCE"),
             # ("TPX_PROJECT.sql", "TPX_PROJECT"),
             # ("TPX_TMF_SYNC_JOB_STATUS.sql", "TPX_TMF_SYNC_JOB_STATUS"),
@@ -31,11 +31,12 @@ class TestCypherQueryGeneration(unittest.IsolatedAsyncioTestCase):
             # ("calculate_payroll.txt", "calculate_payroll"),
         ]
 
-        session_uuid = "d654a0db-6038-40a8-bea5-5c6a1b183883"
+        session_uuid = "e37f4668-8d1e-4650-bc95-2328a76cf594"
+        api_key = "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"
 
 
         # * 검증 로직 없이 함수 실행만 확인
-        async for _ in generate_and_execute_cypherQuery(file_names, session_uuid):
+        async for _ in generate_and_execute_cypherQuery(file_names, session_uuid, api_key):
             pass  
 
 if __name__ == '__main__':

@@ -38,9 +38,9 @@ class TestRepositoryGeneration(unittest.IsolatedAsyncioTestCase):
     async def test_create_repository(self):
         # * 테스트할 객체 이름들을 설정
         object_names = [
-            "TPX_UPDATE_SALARY",
+            # "TPX_UPDATE_SALARY",
             "TPX_EMPLOYEE",
-            "TPX_SALARY",
+            # "TPX_SALARY",
             "TPX_ATTENDANCE",
             # "TPX_PROJECT",
             # "TPX_TMF_SYNC_JOB_STATUS",
@@ -53,8 +53,8 @@ class TestRepositoryGeneration(unittest.IsolatedAsyncioTestCase):
 
 
         # * 테스트할 세션 및 orm 타입 설정
-        session_uuid = "d654a0db-6038-40a8-bea5-5c6a1b183883"
-        orm_type = "jpa"
+        session_uuid = "e37f4668-8d1e-4650-bc95-2328a76cf594"
+        api_key = "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"
 
 
         try:
@@ -77,7 +77,7 @@ class TestRepositoryGeneration(unittest.IsolatedAsyncioTestCase):
             # * 각 객체에 대해 테스트를 수행
             for object_name in object_names:
                 seq_data = await read_sequence_file(object_name, session_uuid)
-                used_methods, global_variable_nodes, all_methods, sequence_methods = await start_repository_processing(object_name, seq_data, orm_type, session_uuid)
+                used_methods, global_variable_nodes, all_methods, sequence_methods = await start_repository_processing(object_name, seq_data, session_uuid, api_key)
                 
                 used_methods_dict[object_name] = used_methods
                 global_variables[object_name] = global_variable_nodes

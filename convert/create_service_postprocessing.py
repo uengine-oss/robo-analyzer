@@ -5,11 +5,9 @@ import tiktoken
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError, FilePathError, ProcessResultError, SaveFileError, ServiceCreationError, TraverseCodeError
 from util.file_utils import save_file
-from util.string_utils import convert_to_pascal_case
 
 encoder = tiktoken.get_encoding("cl100k_base")
 SERVICE_PATH = 'demo/src/main/java/com/example/demo/service'
-SERVICE_PYTHON_PATH = 'demo/app/service'
 
 
 # 역할: 토큰 수가 1700개 이상인 큰 부모 노드의 요약된 코드를 실제 자식 노드들의 코드로 대체하는 함수입니다.
@@ -115,21 +113,21 @@ async def traverse_node_for_merging_service(node_list:list, connection:Neo4jConn
                 continue
             
 
-            # # * TRY 노드 처리
-            # if is_try_node:
-            #     try_catch_code += java_code
-            #     print("TRY 노드 처리 중입니다.") 
-            #     continue
+            # * TRY 노드 처리
+            if is_try_node:
+                try_catch_code += java_code
+                print("TRY 노드 처리 중입니다.") 
+                continue
 
 
-            # # * EXCEPTION 노드 처리
+            # * EXCEPTION 노드 처리
             if is_exception_node:
-                # try_catch_code = try_catch_code.replace("        CodePlaceHolder", "CodePlaceHolder")
-                # indented_code = textwrap.indent(try_catch_code, '    ')
-                # java_code = java_code.replace("CodePlaceHolder", indented_code)
-                # all_java_code += java_code + "\n"
-                # try_catch_code = ""
-                # print("EXCEPTION 노드 처리 중입니다.") 
+                try_catch_code = try_catch_code.replace("        CodePlaceHolder", "CodePlaceHolder")
+                indented_code = textwrap.indent(try_catch_code, '    ')
+                java_code = java_code.replace("CodePlaceHolder", indented_code)
+                all_java_code += java_code + "\n"
+                try_catch_code = ""
+                print("EXCEPTION 노드 처리 중입니다.") 
                 continue
             
 
@@ -172,14 +170,13 @@ async def generate_service_class(service_skeleton: str, service_class_name: str,
             save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', 'java', user_id, SERVICE_PATH)
         else:
             current_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            # save_path = os.path.join(current_dir, 'target', 'java', user_id, SERVICE_PATH)
-            save_path = os.path.join(current_dir, 'target', 'python', user_id, SERVICE_PYTHON_PATH)
+            save_path = os.path.join(current_dir, 'target', 'java', user_id, SERVICE_PATH)
 
 
         # * 서비스 클래스 파일 생성
         await save_file(
             content=service_skeleton,
-            filename=f"{service_class_name}.py",
+            filename=f"{service_class_name}.java",
             base_path=save_path
         )
 
@@ -219,12 +216,12 @@ async def start_service_postprocessing(method_skeleton_code: str, procedure_name
             f"  AND (p:FUNCTION OR p:PROCEDURE OR p:CREATE_PROCEDURE_BODY) "
             f"MATCH (p)-[:PARENT_OF]->(n) "
             f"WHERE NOT (n:ROOT OR n:Variable OR n:DECLARE OR n:Table "
-            f"          OR n:PACKAGE_BODY OR n:DEFINITION) "
+            f"          OR n:PACKAGE_BODY OR n:PACKAGE_SPEC OR n:PROCEDURE_SPEC OR n:SPEC) "
             f"OPTIONAL MATCH (n)-[r:NEXT]->(m) "
             f"WHERE m.object_name = '{object_name}' "
             f"  AND m.user_id = '{user_id}' "
             f"  AND NOT (m:ROOT OR m:Variable OR m:DECLARE OR m:Table "
-            f"          OR m:PACKAGE_BODY OR m:DEFINITION) "
+            f"          OR m:PACKAGE_BODY OR m:PACKAGE_SPEC OR m:PROCEDURE_SPEC OR m:SPEC) "
             f"RETURN n, labels(n) as nType, r, m, labels(m) as mType "
             f"ORDER BY n.startLine"
         ]
@@ -233,7 +230,7 @@ async def start_service_postprocessing(method_skeleton_code: str, procedure_name
         # * 노드 조회 및 Java 코드 병합
         results = await connection.execute_queries(query)
         all_java_code = await traverse_node_for_merging_service(results[0], connection, object_name, user_id)
-        
+
 
         # * 메서드 코드 들여쓰기 및 완성
         method_skeleton_code = method_skeleton_code.replace("        CodePlaceHolder", "CodePlaceHolder")
@@ -256,5 +253,3 @@ async def start_service_postprocessing(method_skeleton_code: str, procedure_name
         raise ServiceCreationError(err_msg)
     finally:
         await connection.close() 
-
-

@@ -3,7 +3,7 @@ import logging
 import os
 import textwrap
 import tiktoken
-from prompt.convert_controller_prompt import convert_controller_method_code, convert_controller_method_code_python
+from prompt.convert_controller_prompt import convert_controller_method_code
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ControllerCreationError, ConvertingError, FilePathError, LLMCallError, Neo4jError, ProcessResultError, SaveFileError, StringConversionError
 from util.file_utils import save_file
@@ -11,7 +11,6 @@ from util.string_utils import convert_to_pascal_case
 
 encoder = tiktoken.get_encoding("cl100k_base")
 CONTROLLER_PATH = 'demo/src/main/java/com/example/demo/controller'
-CONTROLLER_PYTHON_PATH = 'demo/app/controller'
 
 
 # 역할: 생성된 컨트롤러 코드를 지정된 경로에 Java 파일로 저장하는 함수입니다.
@@ -22,6 +21,7 @@ CONTROLLER_PYTHON_PATH = 'demo/app/controller'
 #   - controller_class_name : 생성할 컨트롤러 클래스의 이름
 #   - merge_controller_method_code : 컨트롤러 클래스에 추가될 메서드 코드
 #   - user_id : 사용자 ID
+#   - api_key : Claude API 키
 async def generate_controller_class(controller_skeleton: str, controller_class_name: str, merge_controller_method_code: str, user_id:str):
     try:
         # * 컨트롤러 코드 생성
@@ -34,12 +34,11 @@ async def generate_controller_class(controller_skeleton: str, controller_class_n
             save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', 'java', user_id, CONTROLLER_PATH)
         else:
             project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            # save_path = os.path.join(project_root, 'target', 'java', user_id, CONTROLLER_PATH)
-            save_path = os.path.join(project_root, 'target', 'python', user_id, CONTROLLER_PYTHON_PATH)
+            save_path = os.path.join(project_root, 'target', 'java', user_id, CONTROLLER_PATH)
 
 
         # * 파일 저장
-        await save_file(content=controller_code, filename=f"{controller_class_name}.py", base_path=save_path)
+        await save_file(content=controller_code, filename=f"{controller_class_name}.java", base_path=save_path)
         logging.info(f"[{controller_class_name}] Success Create Controller Java File\n")
 
     except SaveFileError:
@@ -64,17 +63,18 @@ async def generate_controller_class(controller_skeleton: str, controller_class_n
 #
 # 반환값: 
 #   - method_skeleton_code: 생성된 컨트롤러 메서드 코드
-async def process_controller_method_code(method_signature: str, procedure_name: str, object_name: str, command_class_variable: str, command_class_name: str, controller_skeleton: str, user_id: str) -> str:
+async def process_controller_method_code(method_signature: str, procedure_name: str, object_name: str, command_class_variable: str, command_class_name: str, controller_skeleton: str, user_id: str, api_key: str) -> str:
     connection = Neo4jConnection()
     
     try:
         # * 컨트롤러 메서드 틀 생성에 필요한 정보를 받습니다.
-        analysis_method = convert_controller_method_code_python(
+        analysis_method = convert_controller_method_code(
             method_signature,
             procedure_name,
             command_class_variable,
             command_class_name,
-            controller_skeleton
+            controller_skeleton,
+            api_key
         )
 
 
@@ -104,10 +104,11 @@ async def process_controller_method_code(method_signature: str, procedure_name: 
 #   - controller_skeleton: 컨트롤러 클래스 기본 구조
 #   - object_name: 대상 객체 이름 (로깅용)
 #   - user_id: 사용자 ID
+#   - api_key: Claude API 키
 #
 # 반환값:
 #   - controller_method_code: 생성된 컨트롤러 메서드 코드
-async def start_controller_processing(method_signature: str, procedure_name: str, command_class_variable: str, command_class_name: str, node_type: str, merge_controller_method_code: str, controller_skeleton: str, object_name: str, user_id: str) -> str:
+async def start_controller_processing(method_signature: str, procedure_name: str, command_class_variable: str, command_class_name: str, node_type: str, merge_controller_method_code: str, controller_skeleton: str, object_name: str, user_id: str, api_key: str) -> str:
 
     logging.info(f"[{object_name}] {procedure_name} 프로시저의 컨트롤러 생성을 시작합니다.")
 
@@ -123,7 +124,8 @@ async def start_controller_processing(method_signature: str, procedure_name: str
                 command_class_variable,
                 command_class_name,
                 controller_skeleton,
-                user_id
+                user_id,
+                api_key
             )
 
             # * 컨트롤러 메서드 코드 병합

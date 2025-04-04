@@ -13,13 +13,12 @@ from util.exception import (LLMCallError, TokenCountError, ExtractCodeError, Sum
 
 encoder = tiktoken.get_encoding("cl100k_base")
 
-STATEMENT_TYPES = ["SELECT", "INSERT", "ASSIGNMENT", "UPDATE", "DELETE", "EXECUTE_IMMDDIATE", "IF", "FOR", "COMMIT", "MERGE", "WHILE", "CALL", "DECLARE", "PROCEDURE", "FUNCTION", "RETURN", "EXCEPTION"]
+STATEMENT_TYPES = ["SELECT", "INSERT", "ASSIGNMENT", "UPDATE", "DELETE", "EXECUTE_IMMDDIATE", "IF", "FOR", "COMMIT", "MERGE", "WHILE", "CALL", "PROCEDURE_SPEC", "DECLARE", "PROCEDURE", "FUNCTION", "RETURN", "EXCEPTION", "TRY"]
 DML_TYPES = ["UPDATE", "INSERT", "DELETE", "MERGE"]
 PROCEDURE_TYPES = ["PROCEDURE", "FUNCTION", "CREATE_PROCEDURE_BODY"]
-NON_ANALYSIS_TYPES = ["CREATE_PROCEDURE_BODY", "ROOT", "PACKAGE_SPEC", "PACKAGE_BODY", "PROCEDURE","FUNCTION", "DECLARE"]
-NON_NEXT_RECURSIVE_TYPES = ["FUNCTION", "PROCEDURE", "PACKAGE_VARIABLE"]
-NON_CHILD_ANALYSIS_TYPES = ["PACKAGE_VARIABLE"]
-
+NON_ANALYSIS_TYPES = ["CREATE_PROCEDURE_BODY", "ROOT", "PACKAGE_SPEC", "PROCEDURE_SPEC", "FUNCTION_SPEC", "PACKAGE_BODY", "PROCEDURE","FUNCTION", "DECLARE"]
+NON_NEXT_RECURSIVE_TYPES = ["FUNCTION", "PROCEDURE", "PACKAGE_VARIABLE", "PROCEDURE_SPEC", "FUNCTION_SPEC"]
+NON_CHILD_ANALYSIS_TYPES = ["PACKAGE_VARIABLE", "PROCEDURE_SPEC", "FUNCTION_SPEC","DECLARE", "SPEC"]
 
 # 역할: 스토어드 프로시저 코드의 토큰 수를 계산합니다.
 #
@@ -80,40 +79,6 @@ def extract_code_within_range(code: str, context_range: list[dict]) -> tuple[str
         raise ExtractCodeError(err_msg)
 
 
-# 역할: 프로시저/함수의 선언부만 추출하는 함수
-#
-# 매개변수: 
-#   - code (str): 프로시저/함수 코드
-#
-# 반환값: 
-#   - str: 추출된 선언부 (이름, 파라미터, 반환 타입 포함)
-def extract_definition(code: str) -> str:
-    if not code:
-        return ""
-    
-    try:
-        # *코드를 줄 단위로 분리
-        lines = code.split('\n')
-        spec_lines = []
-        
-        for line in lines:
-            spec_lines.append(line)
-            # * IS 또는 AS 키워드로 끝나는 선언부 감지
-            # * 주석 제거 후 검사
-            clean_line = re.sub(r'--.*$', '', line).strip().upper()
-            
-            # * IS 또는 AS로 끝나는 패턴 찾기
-            if re.search(r'\bIS\b|\bAS\b', clean_line):
-                break
-        
-        return '\n'.join(spec_lines)
-    
-    except Exception as e:
-        err_msg = f"Understanding 과정에서 프로시저 선언부 추출 중 오류가 발생했습니다: {str(e)}"
-        logging.error(err_msg)
-        raise ExtractCodeError(err_msg)
-
-
 # 역할: PLSQL 코드에서 프로시저/함수 이름을 추출하는 함수
 #
 # 매개변수: 
@@ -122,17 +87,19 @@ def extract_definition(code: str) -> str:
 # 반환값: 
 #   - str: 추출된 프로시저/함수 이름
 def extract_procedure_name(code: str) -> str:
+    
     # * 첫 번째 줄만 검사
     first_line = code.split('\n')[0]
     
-    # * 통합된 정규식 패턴: 스키마.함수명 또는 단순 함수명 모두 처리
-    pattern = r'(?:PROCEDURE|FUNCTION)\s+(?:(\w+)\.)?(\w+)'
+
+    # * PROCEDURE나 FUNCTION 다음에 오는 이름을 추출하는 정규식
+    pattern = r'(?:PROCEDURE|FUNCTION)\s+(\w+)'
+    match = re.search(pattern, first_line)
     
-    match = re.search(pattern, first_line, re.IGNORECASE)
+
+    # * 매칭된 결과가 있으면 이름을 반환, 없으면 None 반환
     if match:
-        # * 두 번째 그룹이 항상 함수명(스키마가 있든 없든)
-        return match.group(2)
-    
+        return match.group(1)
     return None
 
 
@@ -276,7 +243,7 @@ def clean_field_name(field_name: str) -> str:
 #   - ddl_tables (dict): 테이블 DDL 정보
 #   - has_ddl_info (bool): DDL 정보가 있는지 여부
 #   - user_id(str): 사용자 ID
-async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queue, receive_queue: asyncio.Queue, last_line: int, object_name: str, ddl_tables: dict, has_ddl_info: bool, user_id: str):
+async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queue, receive_queue: asyncio.Queue, last_line: int, object_name: str, ddl_tables: dict, has_ddl_info: bool, user_id: str, api_key: str):
     schedule_stack = []               # 스케줄 스택
     context_range = []                # LLM이 분석할 스토어드 프로시저의 범위
     cypher_query = []                 # 사이퍼 쿼리를 담을 리스트
@@ -286,8 +253,6 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
     extract_code = ""                 # 범위 만큼 추출된 스토어드 프로시저
     focused_code = ""                 # 전체적인 스토어드 프로시저 코드
     sp_token_count = 0                # 토큰 수
-    definition = ""                   # 함수 및 프로시저 정의 코드드
-
 
     print(f"\n[{object_name}] 사이퍼 쿼리 생성 시작")
 
@@ -309,7 +274,7 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
 
 
             # * 분석에 필요한 정보를 llm에게 보냄으로써, 분석을 시작하고, 결과를 처리하는 함수를 호출
-            analysis_result = understand_code(extract_code, context_range, context_range_count, object_name)        
+            analysis_result = understand_code(extract_code, context_range, context_range_count, procedure_name, api_key)        
             cypher_queries = await handle_analysis_result(analysis_result)
             
 
@@ -322,7 +287,7 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
             # * 프로시저 노드의 경우, Summary를 요약 및 벡터화 하고, 사이퍼쿼리를 생성합니다.
             if statement_type in PROCEDURE_TYPES:
                 logging.info(f"[{object_name}] {procedure_name} 프로시저의 요약 정보 추출 완료")
-                summary = understand_summary(summary_dict)
+                summary = understand_summary(summary_dict, api_key)
                 cypher_query.append(f"""
                     MATCH (n:{statement_type})
                     WHERE n.object_name = '{object_name}'
@@ -372,17 +337,17 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
 
             # * 테이블의 필드를 재구성 및 테이블 생성 사이퍼쿼리를 생성합니다.
             for table, fields in tables.items():
-                table_name = table.split('.')[-1]
+                table_name = table.split('.')[-1].upper()  # 테이블명을 대문자로 변환
                 table_fields[table_name].update(fields)
                 if not fields or '*' in fields:
-                    table_query = f"MERGE (t:Table {{name: '{table}', object_name: '{object_name}', user_id: '{user_id}'}})"
+                    table_query = f"MERGE (t:Table {{name: '{table.upper()}', object_name: '{object_name}', user_id: '{user_id}'}})"
                     cypher_query.append(table_query)
                 else:
                     for field in fields:
                         field_name = clean_field_name(field.split(':')[1])
                         field_type = field.split(':')[0]
                         update_query = f"""
-                            MERGE (t:Table {{name: '{table}', object_name: '{object_name}', user_id: '{user_id}'}})
+                            MERGE (t:Table {{name: '{table.upper()}', object_name: '{object_name}', user_id: '{user_id}'}})
                             WITH t 
                             WHERE t.{field_name} IS NULL 
                             SET t.{field_name} = '{field_type}'
@@ -392,8 +357,8 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
 
             # * 테이블간의 참조 관계를 위한 사이퍼쿼리를 생성합니다.
             for reference in table_references:
-                source_table = reference['source'].split('.')[-1]
-                target_table = reference['target'].split('.')[-1]
+                source_table = reference['source'].split('.')[-1].upper()  # 대문자로 변환
+                target_table = reference['target'].split('.')[-1].upper()  # 대문자로 변환
                 
                 # * 자기 자신의 테이블을 참조하는 경우 무시합니다
                 if source_table != target_table:
@@ -457,7 +422,8 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
                     for name in called_nodes:
                         if '.' in name:  # 다른 패키지 호출인 경우
                             package_name, proc_name = name.split('.')
-                            package_name = package_name
+                            package_name = package_name.upper()
+                            proc_name = proc_name.upper()
                             
                             call_relation_query = f"""
                                 MATCH (c:{statement_type} {{startLine: {start_line}, object_name: '{object_name}', user_id: '{user_id}'}}) 
@@ -489,7 +455,7 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
 
                 # * 테이블과 노드간의 관계를 생성합니다
                 if table_relationship_type and tableName:
-                    first_table_name = tableName[0].split('.')[-1]
+                    first_table_name = tableName[0].split('.')[-1].upper()  # 대문자로 변환
                     table_relationship_query = f"""
                         MERGE (n:{statement_type} {{startLine: {start_line}, object_name: '{object_name}', user_id: '{user_id}'}})
                         WITH n
@@ -512,17 +478,17 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
     #   - declaration_code (str): 분석할 선언부 코드
     #   - node_startLine (int): 선언부의 시작 라인 번호
     #   - statement_type (str): 선언부의 타입
-    def process_declaration_part(declaration_code, node_startLine, statement_type):
+    def process_declaration_part(declaration_code: str, node_startLine: int, statement_type: str):
         try:
             # * 매개변수의 역할을 결정합니다
             role = ('패키지 전역 변수' if statement_type == 'PACKAGE_VARIABLE' else
                     '변수 선언및 초기화' if statement_type == 'DECLARE' else
-                    '함수 및 프로시저 입력 매개변수' if statement_type == 'DEFINITION' else
+                    '함수 및 프로시저 입력 매개변수' if statement_type == 'SPEC' else
                     '알 수 없는 매개변수')
             
 
             # * 변수를 분석하고, 각 타입별로 변수 노드를 생성합니다
-            analysis_result = understand_variables(declaration_code, ddl_tables)
+            analysis_result = understand_variables(declaration_code, ddl_tables, api_key)
             logging.info(f"[{object_name}] {procedure_name}의 변수 분석 완료")
             var_summary = json.dumps(analysis_result.get("summary", "unknown"))
             for variable in analysis_result["variables"]:
@@ -533,42 +499,36 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
                 
                 if statement_type == 'DECLARE':
                     cypher_query.extend([
-                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', procedure_name: '{procedure_name}', role: '{role}', scope: 'Local', value: '{var_value}'}}) ",
-                        f"MATCH (p:{statement_type} {{startLine: {node_startLine}, object_name: '{object_name}', procedure_name: '{procedure_name}'}}) "
+                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', procedure_name: '{procedure_name}', role: '{role}', scope: 'Local', value: '{var_value}', user_id: '{user_id}'}}) ",
+                        f"MATCH (p:{statement_type} {{startLine: {node_startLine}, object_name: '{object_name}', procedure_name: '{procedure_name}', user_id: '{user_id}'}}) "
                         f"SET p.summary = {var_summary}"
                         f"WITH p "
-                        f"MATCH (v:Variable {{name: '{var_name}', object_name: '{object_name}', procedure_name: '{procedure_name}'}})"
+                        f"MATCH (v:Variable {{name: '{var_name}', object_name: '{object_name}', procedure_name: '{procedure_name}', user_id: '{user_id}'}})"
                         f"MERGE (p)-[:SCOPE]->(v)"
                     ])
                 elif statement_type == 'PACKAGE_VARIABLE':
                     cypher_query.extend([
-                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', role: '{role}', scope: 'Global', value: '{var_value}'}}) ",
-                        f"MATCH (p:{statement_type} {{startLine: {node_startLine}, object_name: '{object_name}'}}) "
+                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', role: '{role}', scope: 'Global', value: '{var_value}', user_id: '{user_id}'}}) ",
+                        f"MATCH (p:{statement_type} {{startLine: {node_startLine}, object_name: '{object_name}', user_id: '{user_id}'}}) "
                         f"SET p.summary = {var_summary}"
                         f"WITH p "
-                        f"MATCH (v:Variable {{name: '{var_name}', object_name: '{object_name}', scope: 'Global'}})"
+                        f"MATCH (v:Variable {{name: '{var_name}', object_name: '{object_name}', scope: 'Global', user_id: '{user_id}'}})"
                         f"MERGE (p)-[:SCOPE]->(v)"
                     ])
-                elif statement_type == 'DEFINITION':
-                    cypher_query.extend([
-                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', parameter_type: '{var_parameter_type}', procedure_name: '{procedure_name}', role: '{role}', scope: 'Local', value: '{var_value}'}}) ",
-                        f"MERGE (p:{statement_type} {{startLine: {node_startLine}, object_name: '{object_name}', procedure_name: '{procedure_name}', node_code: '{declaration_code}'}}) "
-                        f"SET p.summary = {var_summary}"
-                        f"WITH p "
-                        f"MATCH (v:Variable {{name: '{var_name}', object_name: '{object_name}', procedure_name: '{procedure_name}'}})"
-                        f"MERGE (p)-[:SCOPE]->(v)"
-                    ])
-                    # PROCEDURE/FUNCTION 노드와 DEFINITION 연결 - 별도 쿼리로 추가
-                    cypher_query.append(
-                        f"MATCH (p:{statement_type} {{startLine: {node_startLine}, object_name: '{object_name}', procedure_name: '{procedure_name}'}}), "
-                        f"(f WHERE (f:PROCEDURE OR f:FUNCTION) AND f.object_name = '{object_name}' AND f.procedure_name = '{procedure_name}' AND f.startLine = {node_startLine}) "
-                        f"MERGE (f)-[:DEFINES]->(p)"
-                    )
                 else:
-                    logging.info("알 수 없는 노드 타입입니다.")
+                    cypher_query.extend([
+                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', parameter_type: '{var_parameter_type}', procedure_name: '{procedure_name}', role: '{role}', scope: 'Local', value: '{var_value}', user_id: '{user_id}'}}) ",
+                        f"MATCH (p:{statement_type} {{startLine: {node_startLine}, object_name: '{object_name}', procedure_name: '{procedure_name}', user_id: '{user_id}'}}) "
+                        f"SET p.summary = {var_summary}"
+                        f"WITH p "
+                        f"MATCH (v:Variable {{name: '{var_name}', object_name: '{object_name}', procedure_name: '{procedure_name}', user_id: '{user_id}'}})"
+                        f"MERGE (p)-[:SCOPE]->(v)"
+                    ])
 
-        except Exception:
-            err_msg = "Understanding 과정에서 프로시저 선언부 분석 및 변수 노드 생성 중 오류가 발생했습니다."
+        except LLMCallError:
+            raise
+        except Exception as e:
+            err_msg = f"Understanding 과정에서 프로시저 선언부 분석 및 변수 노드 생성 중 오류가 발생했습니다: {str(e)}"
             logging.error(err_msg)
             raise HandleResultError(err_msg)
 
@@ -611,7 +571,7 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
     #   - parent_startLine (int, optional): 부모 노드의 시작 라인 번호
     #   - parent_statementType (str, optional): 부모 노드의 타입
     async def traverse(node: dict, schedule_stack: list, parent_startLine: int = None, parent_statementType: str = None):
-        nonlocal focused_code, sp_token_count, extract_code, procedure_name, definition
+        nonlocal focused_code, sp_token_count, extract_code, procedure_name
 
         # * 분석에 필요한 필요한 정보를 준비하거나 할당합니다
         start_line, end_line, statement_type = node['startLine'], node['endLine'], node['type']
@@ -631,10 +591,9 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
         }
 
 
-        # * 프로시저 노드의 경우, 프로시저 정보 처리 및 저장합니다
+        # * 프로시저 노드의 경우, 프로시저 정보를 저장합니다
         if statement_type in PROCEDURE_TYPES:
             procedure_name = extract_procedure_name(node_code)
-            definition = extract_definition(node_code)
             logging.info(f"[{object_name}] {procedure_name} 프로시저 분석 시작")
 
 
@@ -683,7 +642,6 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
                         n.name = '{statement_type}[{start_line}]',
                         n.summarized_code = '{summarized_code.replace('\n', '\\n').replace("'", "\\'")}',
                         n.node_code = '{node_code.replace('\n', '\\n').replace("'", "\\'")}',
-                        n.definition = '{definition.replace('\n', '\\n').replace("'", "\\'")}',
                         n.token = {node_size}
                     WITH n
                     REMOVE n:{('FUNCTION' if statement_type == 'PROCEDURE' else 'PROCEDURE')}
@@ -701,10 +659,8 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
 
 
         # * 현재 노드가 프로시저 선언부인 경우, 변수 노드를 생성합니다
-        if (procedure_name and statement_type in ["DECLARE"]) or statement_type == "PACKAGE_VARIABLE":
+        if (procedure_name and statement_type in ["SPEC", "DECLARE"]) or statement_type == "PACKAGE_VARIABLE":
             process_declaration_part(node_code, start_line, statement_type)
-        if definition and statement_type in ["PROCEDURE", "FUNCTION"]:
-            process_declaration_part(definition, start_line, "DEFINITION")
 
 
         # * 스케줄 스택에 현재 스케줄을 넣고, 노드의 타입을 세트에 저장합니다
@@ -739,7 +695,6 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
 
 
         # * 부모 노드의 자식들이 모두 처리가 끝났다면, 부모 노드도 context_range에 포함합니다. (만약 프로시저, 함수 노드라면 분석을 진행합니다)
-        # TODO 왜 프로시저 노드의 경우, 분석을 진행하는지 이해하기 -> 토큰 초과가 될텐데? 그냥 summary 부분만 처리
         if children:
             if (statement_type in PROCEDURE_TYPES) and (context_range and focused_code):
                 extract_code, line_number = extract_code_within_range(focused_code, context_range)
@@ -769,6 +724,7 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
         await send_queue.put({"type": "end_analysis"})
 
     except UnderstandingError as e:
+        logging.error(f"여기까지왔나? analysis")
         await send_queue.put({'type': 'error', 'message': str(e)})
         raise
     except Exception as e:

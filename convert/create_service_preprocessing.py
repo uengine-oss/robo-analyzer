@@ -1,7 +1,7 @@
 import json
 import logging
 
-from prompt.convert_service_prompt import convert_service_code, convert_service_code_python
+from prompt.convert_service_prompt import convert_service_code
 from prompt.convert_summarized_service_skeleton_prompt import convert_summarized_code
 from understand.neo4j_connection import Neo4jConnection
 from util.converting_utlis import extract_used_query_methods
@@ -21,9 +21,9 @@ from util.exception import ConvertingError, HandleResultError, LLMCallError, Neo
 #   - object_name : 처리 중인 패키지/프로시저의 식별자
 #   - procedure_name : 처리 중인 프로시저의 이름
 #   - sequence_methods : 사용 가능한 시퀀스 메서드 목록
-#   - orm_type : 사용할 ORM 유형 (jpa, mybatis)
 #   - user_id : 사용자 ID
-async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, connection:Neo4jConnection, command_class_variable:dict, service_skeleton:str, query_method_list:list, object_name:str, procedure_name:str, sequence_methods:list, orm_type:str, user_id:str):
+#   - api_key : Claude API 키
+async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, connection:Neo4jConnection, command_class_variable:dict, service_skeleton:str, query_method_list:list, object_name:str, procedure_name:str, sequence_methods:list, user_id:str, api_key:str):
 
     used_variables =  []                  # 사용된 변수 정보를 저장하는 리스트
     context_range = []                    # 분석할 컨텍스트 범위를 저장하는 리스트
@@ -122,7 +122,7 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
 
 
             # * 전달된 정보를 llm에게 전달하여 결과를 받고, 결과를 처리하는 함수를 호출합니다.
-            analysis_result = convert_service_code_python(
+            analysis_result = convert_service_code(
                 convert_sp_code, 
                 service_skeleton, 
                 used_variables, 
@@ -130,7 +130,7 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
                 context_range, range_count, 
                 used_query_method_dict,
                 sequence_methods,
-                orm_type
+                api_key
             )
             tracking_variables = await handle_convert_result(analysis_result)
 
@@ -150,13 +150,7 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
             raise ProcessResultError(err_msg)
 
 
-    # 역할: LLM이 분석한 결과를 바탕으로 Neo4j 데이터베이스의 노드들을 업데이트하는 함수입니다.
-    #
-    # 매개변수:
-    #   - analysis_result : LLM이 분석한 결과
-    #
-    # 반환값:
-    #   - tracking_variables : 변수 정보를 추적하기 위한 사전
+
     # 역할: LLM이 분석한 결과를 바탕으로 Neo4j 데이터베이스의 노드들을 업데이트하는 함수입니다.
     #
     # 매개변수:
@@ -356,18 +350,21 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
 
     
 
-# 역할: 서비스 코드 생성을 위한 전처리 작업의 시작점입니다.
+# 역할: PL/SQL 프로시저를 Java 서비스 계층의 메서드로 변환하는 전체 프로세스를 관리합니다.
 #
-# 매개변수:
-#   - service_skeleton : 생성될 서비스의 기본 구조 템플릿
-#   - command_class_variable : Command 클래스에 정의된 변수들의 정보
-#   - procedure_name : 처리할 프로시저의 이름
-#   - query_method_list : 사용 가능한 전체 query 쿼리 메서드 목록
-#   - object_name : 처리 중인 패키지/프로시저의 식별자
+# 매개변수: 
+#   - service_skeleton : 생성될 Java Service 클래스의 기본 구조
+#   - command_class_variable : Command 클래스의 필드 정보
+#   - procedure_name : 처리 중인 프로시저의 이름
+#   - query_method_list : 사용 가능한 쿼리 메서드 목록
+#   - object_name : 처리 중인 패키지/프로시저의 이름
 #   - sequence_methods : 사용 가능한 시퀀스 메서드 목록
-#   - orm_type : 사용할 ORM 유형 (jpa, mybatis)
 #   - user_id : 사용자 ID
-async def start_service_preprocessing(service_skeleton:str, command_class_variable:dict, procedure_name:str, query_method_list:list, object_name:str, sequence_methods:list, orm_type:str, user_id:str) -> None:
+#   - api_key : Claude API 키
+#
+# 반환값: 
+#   - variable_nodes : 변환 과정에서 사용된 변수 노드 리스트
+async def start_service_preprocessing(service_skeleton:str, command_class_variable:dict, procedure_name:str, query_method_list:list, object_name:str, sequence_methods:list, user_id:str, api_key:str) -> None:
     
     connection = Neo4jConnection() 
     logging.info(f"[{object_name}] {procedure_name} 프로시저의 서비스 코드 생성을 시작합니다.")
@@ -384,19 +381,18 @@ async def start_service_preprocessing(service_skeleton:str, command_class_variab
             AND (p:FUNCTION OR p:PROCEDURE OR p:CREATE_PROCEDURE_BODY)
             MATCH (p)-[:PARENT_OF]->(n)
             WHERE NOT (n:ROOT OR n:Variable OR n:DECLARE OR n:Table 
-                  OR n:PACKAGE_BODY OR n:DEFINITION)
+                  OR n:PACKAGE_BODY OR n:PACKAGE_SPEC OR n:PROCEDURE_SPEC OR n:SPEC)
             OPTIONAL MATCH (n)-[r]->(m)
             WHERE m.object_name = '{object_name}'
             AND m.user_id = '{user_id}'
             AND NOT (m:ROOT OR m:Variable OR m:DECLARE OR m:Table 
-                OR m:PACKAGE_BODY OR m:DEFINITION)
+                OR m:PACKAGE_BODY OR m:PACKAGE_SPEC OR m:PROCEDURE_SPEC OR m:SPEC)
             AND NOT type(r) CONTAINS 'CALL'
             AND NOT type(r) CONTAINS 'WRITES'
             AND NOT type(r) CONTAINS 'FROM'
             RETURN n, r, m
             ORDER BY n.startLine
             """,
-
             # * 변수 노드를 조회하는 쿼리
             f"""
             MATCH (n)
@@ -425,8 +421,8 @@ async def start_service_preprocessing(service_skeleton:str, command_class_variab
             object_name, 
             procedure_name,
             sequence_methods,
-            orm_type,
-            user_id
+            user_id,
+            api_key
         )
 
         logging.info(f"[{object_name}] {procedure_name} 프로시저의 서비스 코드 생성이 완료되었습니다.\n")

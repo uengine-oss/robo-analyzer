@@ -1,11 +1,10 @@
-import json
 import os
 import logging
 import textwrap
 import tiktoken
-from prompt.convert_variable_prompt import convert_variables, convert_variables_python
-from prompt.convert_service_skeleton_prompt import convert_method_code, convert_method_code_python
-from prompt.convert_command_prompt import convert_command_code, convert_command_code_python
+from prompt.convert_variable_prompt import convert_variables
+from prompt.convert_service_skeleton_prompt import convert_method_code
+from prompt.convert_command_prompt import convert_command_code
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError, ExtractNodeInfoError, FilePathError, Neo4jError, ProcessResultError, SaveFileError, SkeletonCreationError, StringConversionError, TemplateGenerationError
 from util.file_utils import save_file
@@ -13,79 +12,6 @@ from util.string_utils import convert_to_camel_case, convert_to_pascal_case
 
 encoder = tiktoken.get_encoding("cl100k_base")
 JAVA_PATH = 'demo/src/main/java/com/example/demo'
-PYTHON_PATH_SERVICE = 'demo/app/service'
-PYTHON_PATH_COMMAND = 'demo/app/command'
-
-
-async def generate_service_skeleton_python(object_name: str, entity_name_list: list, converted_global_variables: list, dir_name: str, external_call_package_names: list, exist_command_class: bool) -> str:
-    try:
-        global_fields = []
-
-        # * 서비스 클래스명 생성 및 전역 변수를 클래스 필드로 전환 
-        service_class_name = convert_to_pascal_case(object_name) + "Service"
-
-
-        # * 글로벌 변수를 클래스 필드로 변환
-        if converted_global_variables:
-            for var in converted_global_variables["variables"]:
-                # Python에서는 private이 없으므로 일반 속성으로 변환
-                field = f"        self.{var['javaName']} = {var['value']}"
-                global_fields.append(field)
-
-
-        # * 의존성 주입 로직 및 필드 생성
-        init_params = ["self", "db: Session"]
-        init_body = ["        self.db = db"]
-        
-        if global_fields:
-            init_body.extend(global_fields)
-            
-        if entity_name_list:
-            for entity in entity_name_list:
-                camel_entity = entity[0].lower() + entity[1:]
-                init_body.append(f"        self.{camel_entity}_repository = {entity}Repository(db)")
-            
-        if external_call_package_names:
-            for package_name in external_call_package_names:
-                pascal_service = convert_to_pascal_case(package_name) + "Service"
-                camel_service = convert_to_camel_case(package_name) + "_service"
-                init_params.append(f"{camel_service}: Optional[{pascal_service}] = None")
-                init_body.append(f"        self.{camel_service} = {camel_service} or {pascal_service}(db)")
-
-
-        # * __init__ 메서드 생성
-        init_method = f"    def __init__({', '.join(init_params)}):\n"
-        init_method += "\n".join(init_body)
-    
-
-        # * 서비스 클래스 템플릿 생성
-        service_class_template = f"""from sqlalchemy.orm import Session
-from sqlalchemy import text
-from typing import List, Optional, Dict, Any
-{''.join(f'from app.entity.{entity} import {entity}\n' for entity in entity_name_list)}
-{''.join(f'from app.repository.{entity}Repository import {entity}Repository\n' for entity in entity_name_list)}
-{''.join(f'from app.service.{convert_to_pascal_case(package_name)}Service import {convert_to_pascal_case(package_name)}Service\n' for package_name in external_call_package_names)}
-from fastapi import HTTPException, status
-from datetime import datetime, date, timedelta
-import calendar
-import uuid
-
-
-class {service_class_name}:
-{init_method}
-
-CodePlaceHolder
-"""
-
-        return service_class_template, service_class_name
-    
-    except StringConversionError:
-        raise
-    except Exception as e:
-        err_msg = f"서비스 클래스 골격을 생성하는 도중 문제가 발생했습니다: {str(e)}"
-        logging.error(err_msg)
-        raise TemplateGenerationError(err_msg)
-    
 
 
 # 역할: 스프링부트 서비스 클래스의 기본 골격을 생성합니다.
@@ -186,28 +112,22 @@ CodePlaceHolder
 #   - method_skeleton_name: 생성된 서비스 메서드명
 #   - method_skeleton_code: 생성된 메서드 구현 코드
 #   - method_signature: 생성된 메서드 시그니처
-async def process_method_and_command_code(method_skeleton_data: dict, parameter_data: dict, node_type: str, dir_name: str, user_id: str) -> tuple:
+async def process_method_and_command_code(method_skeleton_data: dict, parameter_data: dict, node_type: str, dir_name: str, user_id: str, api_key: str) -> tuple:
     command_class_variable = None
     command_class_name = None
     
     try:
         # * 파라미터가 있는 프로시저인 경우 커맨드 클래스 생성
         if node_type != 'FUNCTION' and parameter_data['parameters']:
-
-
-            # * 커맨드 클래스를 생성하는 프롬프트 호출
-            analysis_command = convert_command_code_python(parameter_data, dir_name)  
+            analysis_command = convert_command_code(parameter_data, dir_name, api_key)  
             command_class_name = analysis_command['commandName']
             command_class_code = analysis_command['command']
-            command_class_variable = analysis_command['command_class_variable']     
-            
-
-            # * 커맨드 클래스 파일 생성
+            command_class_variable = analysis_command['command_class_variable']              
             await generate_command_class(command_class_name, command_class_code, dir_name, user_id)
 
 
         # * 메서드 틀 생성에 필요한 정보를 받습니다.
-        analysis_method = convert_method_code_python(method_skeleton_data, parameter_data)  
+        analysis_method = convert_method_code(method_skeleton_data, parameter_data, api_key)  
         method_skeleton_name = analysis_method['methodName']
         method_skeleton_code = analysis_method['method']
         method_signature = analysis_method['methodSignature']
@@ -244,12 +164,11 @@ async def generate_command_class(class_name: str, source_code: str, dir_name: st
             base_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', 'java', user_id, JAVA_PATH, 'command', dir_name)
         else:
             parent_workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            # base_path = os.path.join(parent_workspace_dir, 'target', 'java', user_id, JAVA_PATH, 'command', dir_name)
-            base_path = os.path.join(parent_workspace_dir, 'target', 'python', user_id, PYTHON_PATH_COMMAND, dir_name)
+            base_path = os.path.join(parent_workspace_dir, 'target', 'java', user_id, JAVA_PATH, 'command', dir_name)
 
 
         # * 커맨드 클래스 파일로 생성합니다.
-        await save_file(content=source_code, filename=f"{class_name}.py", base_path=base_path)
+        await save_file(content=source_code, filename=f"{class_name}.java", base_path=base_path)
 
     except SaveFileError:
         raise
@@ -279,7 +198,7 @@ async def get_procedure_groups(connection: Neo4jConnection, object_name: str) ->
             WHERE d.object_name = '{object_name}'
             OPTIONAL MATCH (d)-[:SCOPE]-(dv:Variable)
             WHERE dv.object_name = '{object_name}'
-            OPTIONAL MATCH (p)-[:DEFINES]->(s:DEFINITION)
+            OPTIONAL MATCH (p)-[:PARENT_OF]->(s:SPEC)
             WHERE s.object_name = '{object_name}'
             OPTIONAL MATCH (s)-[:SCOPE]-(sv:Variable)
             WHERE sv.object_name = '{object_name}'
@@ -290,7 +209,6 @@ async def get_procedure_groups(connection: Neo4jConnection, object_name: str) ->
             END as node_type
             RETURN p, d, dv, s, sv, node_type
             ORDER BY p.startLine""",
-            
             # * 외부 호출 노드 쿼리
             f"""MATCH (p)-[:CALL {{scope: 'external'}}]->(ext)
             WHERE p.object_name = '{object_name}'
@@ -314,8 +232,7 @@ async def get_procedure_groups(connection: Neo4jConnection, object_name: str) ->
                     'parameters': [],
                     'local_variables': [],
                     'declaration': item['s'].get('node_code', ''),
-                    'node_type': item['node_type'],
-                    'summary': item['p'].get('summary', '')
+                    'node_type': item['node_type']
                 }
             
             # * 파라미터 추가
@@ -364,7 +281,7 @@ async def get_procedure_groups(connection: Neo4jConnection, object_name: str) ->
 #   - service_template: 서비스 클래스의 기본 템플릿 코드
 #   - service_class_name: 생성된 서비스 클래스명
 #   - exist_command_class: 커맨드 클래스가 존재하는지 여부
-async def start_service_skeleton_processing(entity_name_list: list, object_name: str, global_variables: list, user_id: str) -> tuple[list, str, str, bool]:
+async def start_service_skeleton_processing(entity_name_list: list, object_name: str, global_variables: list, user_id: str, api_key: str) -> tuple[list, str, str, bool]:
 
     connection = Neo4jConnection()
     dir_name = convert_to_camel_case(object_name)
@@ -379,17 +296,17 @@ async def start_service_skeleton_processing(entity_name_list: list, object_name:
         
 
         # * 전역 변수 변환
-        convert_global_variables = convert_variables_python(global_variables) if global_variables else {}
-
+        convert_global_variables = convert_variables(global_variables, api_key)
         
+
         # * 서비스 스켈레톤 생성
-        service_skeleton, service_class_name = await generate_service_skeleton_python(
+        service_skeleton, service_class_name = await generate_service_skeleton(
             object_name,
             entity_name_list,
             convert_global_variables,
             dir_name,
             external_packages,
-            exist_command_class,
+            exist_command_class
         )
 
         # * 각 프로시저별 메서드 생성
@@ -401,8 +318,7 @@ async def start_service_skeleton_processing(entity_name_list: list, object_name:
             method_skeleton_data = {
                 'procedure_name': proc_name,
                 'local_variables': proc_data['local_variables'],
-                'declaration': proc_data['declaration'],
-                'summary': proc_data['summary']
+                'declaration': proc_data['declaration']
             }
             
             # * 파라미터 데이터 준비
@@ -418,6 +334,7 @@ async def start_service_skeleton_processing(entity_name_list: list, object_name:
                 proc_data['node_type'],
                 dir_name,
                 user_id,
+                api_key
             )
 
 

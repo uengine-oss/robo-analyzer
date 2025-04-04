@@ -34,9 +34,10 @@ async def get_nodes_without_java_code(connection: Neo4jConnection, object_name: 
         AND NOT n:PACKAGE_SPEC
         AND NOT n:PACKAGE_VARIABLE
         AND NOT n:Variable
+        AND NOT n:PROCEDURE_SPEC
         AND NOT n:PACKAGE_BODY
         AND NOT n:FUNCTION
-        AND NOT n:DEFINITION
+        AND NOT n:SPEC
         AND NOT n:DECLARE
         AND NOT n:PROCEDURE
         AND NOT n:CREATE_PROCEDURE_BODY
@@ -71,10 +72,10 @@ async def get_nodes_without_java_code(connection: Neo4jConnection, object_name: 
 #   - procedure_name : 처리할 프로시저의 이름
 #   - query_method_list : 사용 가능한 전체 query 쿼리 메서드 목록
 #   - object_name : 처리 중인 패키지/프로시저의 식별자
-#   - orm_type : 사용할 ORM 유형 (jpa, mybatis)
 #   - sequence_methods : 사용할 시퀀스 메서드 목록
 #   - user_id : 사용자 ID
-async def start_validate_service_preprocessing(variable_nodes:list, service_skeleton: str, command_class_variable: dict, procedure_name: str, query_method_list: list, object_name: str, orm_type: str, sequence_methods:list, user_id:str) -> None:
+#   - api_key : 사용할 API 키
+async def start_validate_service_preprocessing(variable_nodes:list, service_skeleton: str, command_class_variable: dict, procedure_name: str, query_method_list: list, object_name: str, sequence_methods:list, user_id:str, api_key:str) -> None:
     
     connection = Neo4jConnection()
     used_query_method_dict = {}
@@ -107,7 +108,7 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
                 range_count,
                 used_query_method_dict,
                 sequence_methods,
-                orm_type
+                api_key
             )
 
 

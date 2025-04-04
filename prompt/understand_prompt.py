@@ -13,7 +13,6 @@ from langchain_core.output_parsers import JsonOutputParser
 # TODO 일단 기본키 외래키 같은것들도 정보에 추가해야하고, 프롬포트로 수정 필요(기본키 외래키가 식별될 경우에만 추가하도록)
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
-llm = ChatAnthropic(model="claude-3-7-sonnet-20250219", max_tokens=8000, temperature=0.0)
 
 prompt = PromptTemplate.from_template(
 """
@@ -104,14 +103,23 @@ prompt = PromptTemplate.from_template(
 #   - context_ranges : 분석이 필요한 코드 범위 목록
 #   - context_range_count : 분석해야 할 코드 범위의 총 개수
 #   - object_name : 패키지지 이름
+#   - api_key : OpenAI API 키
 #
 # 반환값: 
 #   - parsed_content : LLM의 코드 분석 결과
 #      (테이블 관계, 변수 정보, 프로시저 호출 관계 등이 포함된 구조화된 데이터)
-def understand_code(sp_code, context_ranges, context_range_count, object_name):
+def understand_code(sp_code, context_ranges, context_range_count, object_name, api_key):
     try:
         ranges_json = json.dumps(context_ranges)
-
+        
+        # 전달받은 API 키로 Anthropic Claude LLM 인스턴스 생성
+        llm = ChatAnthropic(
+            model="claude-3-7-sonnet-latest", 
+            temperature=0,
+            max_tokens=8192,
+            api_key=api_key
+        )
+        
         chain = (
             RunnablePassthrough()
             | prompt

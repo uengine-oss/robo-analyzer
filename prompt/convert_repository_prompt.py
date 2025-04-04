@@ -12,181 +12,6 @@ from util.exception import LLMCallError
 
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
-llm = ChatAnthropic(model="claude-3-7-sonnet-20250219", max_tokens=8000, temperature=0.1)
-
-# MyBatis Mapper 인터페이스에 save 쿼리 메서드 저장 프롬프트
-myBatis_save_prompt = PromptTemplate.from_template(
-"""
-당신은 클린 아키텍처 원칙을 따르는 스프링부트 기반의 자바 애플리케이션을 개발하는 소프트웨어 엔지니어입니다. 
-주어진 데이터를 기반으로 MyBatis Mapper 인터페이스의 save 메서드를 생성하는 작업을 맡았습니다.
-
-
-Table Entity Info:
-{table_json_data}
-
-
-[SECTION 1] Save 메서드 생성 지침
-===============================================
-1. 기본 규칙
-   - @Insert 어노테이션 사용
-   - 메서드명은 save로 통일
-   - 반환 타입은 void
-   - 매개변수는 엔티티 객체
-
-2. SQL 작성 규칙
-   - 테이블명은 Table Info의 name 필드 사용
-   - 모든 컬럼에 대해 INSERT 구문 생성
-   - 값 바인딩은 #{{필드명}} 형식 사용
-   - 필드명은 엔티티 클래스의 필드명과 동일하게 사용
-
-
-[SECTION 2] Save 메서드 작성 예시
-===============================================
-@Insert("INSERT INTO EMPLOYEE (EMP_NO, NAME, DEPARTMENT) VALUES (#{{empNo}}, #{{name}}, #{{department}})")
-void save(Employee employee);
-
-
-[SECTION 3] JSON 출력 형식
-===============================================
-부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요:
-{{
-    "analysis": [
-        {{
-            "tableName": "테이블명",
-            "method": "@Insert(\"INSERT INTO table (col1, col2) VALUES (#{{field1}}, #{{field2}})\")\nvoid save(Entity entity);",
-        }}
-    ]
-}}
-"""
-)
-
-
-# MyBatis Mapper 인터페이스 생성 프롬프트
-myBatis_prompt = PromptTemplate.from_template(
-"""
-당신은 클린 아키텍처 원칙을 따르는 스프링부트 기반의 자바 애플리케이션을 개발하는 소프트웨어 엔지니어입니다. 
-주어진 데이터를 기반으로 MyBatis Mapper 인터페이스의 메서드를 생성하는 작업을 맡았습니다.
-
-
-Stored Procedure Code:
-{repository_nodes}
-
-
-Used Variable:
-{used_variable_nodes}
-
-
-Global Variable:
-{global_variable_nodes}
-
-
-Sequence Info:
-{sequence_data}
-
-
-생성될 Mapper 메서드는 {count}개입니다.
-'Global Variable'들은 애플리케이션 전반에서 전역적으로 사용되는 변수들로 필요한 경우 활용하세요.
-
-
-[SECTION 1] Mapper 메서드 생성 지침
-===============================================
-1. 변환 범위
-   - 각 JSON 객체는 독립적으로 Mapper 메서드로 변환
-   - ...code... 표시된 부분은 제외하고 변환
-
-2. 변환 규칙
-   - 각 JSON 객체는 자신의 Stored Procedure Code만 참조
-   - 다른 객체의 코드는 참고하지 않음
-   - 명명 규칙: 단수형 파스칼 케이스 (예: Employee)
-
-3. 매개변수 처리
-   - 모든 매개변수에 @Param 어노테이션 필수
-   - 'Used Variable' 목록의 모든 변수는 매개변수로 포함
-   - 누락된 매개변수 없이 완전한 매핑 필요
-   - 숫자 타입은 모두 Long으로 통일
-
-4. 시퀀스 처리
-   - 별도의 시퀀스 조회 메서드 생성
-   - 시퀀스 메서드 명명 규칙: getNext[시퀀스명]
-   - 반환 타입은 Long으로 통일
-   - @Select 어노테이션으로 직접 시퀀스 조회
-   - 시퀀스가 사용되는 필드를 식별하여 'field' 필드에 포함
-   - 예시: @Select("SELECT SEQUENCE_NAME.NEXTVAL FROM DUAL")\nLong getSequenceNextVal();
-
-    
-[SECTION 2] Mapper 메서드 필수 구현 규칙
-===============================================
-1. 반환 타입 규칙
-   - SELECT 단건 조회: 엔티티 객체
-   - SELECT 목록 조회: List<Employee>
-   - INSERT/UPDATE/DELETE: void
-   - 예시: List<Employee> findAll();
-   - 엔티티 이름은 전달된 테이블 명을 그대로 파스칼 케이스로 전환하여 사용하세요. (예: TPJ_EMPLOYEE -> TpjEmployee)
-
-2. 어노테이션 규칙
-   - SELECT: @Select
-   - INSERT: @Insert
-   - UPDATE: @Update
-   - DELETE: @Delete
-   - 복잡한 동적 쿼리는 어노테이션 생략 (XML에서 처리)
-
-3. 매개변수 규칙
-   - 모든 매개변수에 @Param 어노테이션 사용
-   - 예시: @Param("empNo") String empNo
-
-4. 명명 규칙
-   - 조회: findBy[조건]
-   - 삽입: insert[엔티티명]
-   - 수정: update[엔티티명]
-   - 삭제: deleteBy[조건]
-
-5. 날짜 기간 처리
-   - TRUNC 함수 사용 금지
-   - 시작일자(startDate)와 종료일자(endDate) 매개변수 사용
-   - BETWEEN 절을 통한 기간 필터링
-   - Date가 식별될 경우 타입은 LocalDate로 통일
-   - Timestamp가 식별될 경우 타입은 LocalDateTime으로 통일
-
-   
-[SECTION 3] Mapper 메서드 작성 예시
-===============================================
-출력 형식:
-- @Mapper 어노테이션 제외
-- 순수 메서드만 'method'에 포함
-- SQL 어노테이션과 메서드 시그니처를 개행문자(\\n)로 구분
-
-예시 출력:
-@Select("SELECT * FROM EMPLOYEE WHERE emp_no = #{{empNo}}")
-\nEmployee findByEmpNo(@Param("empNo") String empNo);
-
-
-[SECTION 4] JSON 출력 형식
-===============================================
-부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요:
-{{
-    "analysis": [
-        {{
-            "tableName": "테이블명",
-            "method": "@Select(\"SELECT * FROM table WHERE id = #{{id}}\")\nType methodName(@Param(\"id\") Type id);",
-            "range": [
-               {{
-                  "startLine": 시작라인번호,
-                  "endLine": 끝라인번호,
-               }},
-            ],
-        }}
-    ],
-    "seq_method": [
-        {{
-            "method": "@Select("SELECT SAMPLE_SEQ.NEXTVAL FROM DUAL")\nLong getNextEmployeeSequence();",
-            "field": "필드명",
-        }}
-    ]
-}}
-"""
-)
-
-
 
 # JPA Repository 인터페이스 생성 프롬프트
 jpa_prompt = PromptTemplate.from_template(
@@ -275,9 +100,10 @@ Sequence Info:
 
 4. 날짜 기간 처리
    - TRUNC 함수 사용 금지
+   - 타입은 반드시 LocalDate 타입으로 통일
    - 시작일자(startDate)와 종료일자(endDate) 매개변수 사용
    - BETWEEN 절을 통한 기간 필터링
-
+   
 
 [SECTION 3] JPA Query Methods 작성 예시
 ===============================================
@@ -318,6 +144,7 @@ Sequence Info:
 """
 )
 
+
 # 역할: 테이블과 직접 연결된 PL/SQL 노드를 분석하여 Repository 인터페이스를 생성하는 함수입니다.
 #
 # 매개변수: 
@@ -330,12 +157,15 @@ Sequence Info:
 #
 # 반환값: 
 #   - result : LLM이 생성한 Repository 메서드 정보
-def convert_repository_code(repository_nodes: dict, used_variable_nodes: dict, data_count: int, global_variable_nodes: dict, sequence_data: str, orm_type: str) -> dict:
+def convert_repository_code(repository_nodes: dict, used_variable_nodes: dict, data_count: int, global_variable_nodes: dict, sequence_data: str, api_key: str) -> dict:
     
     try: 
         repository_nodes = json.dumps(repository_nodes, ensure_ascii=False, indent=2)
         used_variable_nodes = json.dumps(used_variable_nodes, ensure_ascii=False, indent=2)
         global_variable_nodes = json.dumps(global_variable_nodes, ensure_ascii=False, indent=2)
+        
+        llm = ChatAnthropic(model="claude-3-7-sonnet-latest", max_tokens=8000, temperature=0.1, api_key=api_key)
+        
         prompt_data = {
             "repository_nodes": repository_nodes,
             "used_variable_nodes": used_variable_nodes,
@@ -346,7 +176,7 @@ def convert_repository_code(repository_nodes: dict, used_variable_nodes: dict, d
 
 
         # * 프레임워크별 프롬프트 선택
-        selected_prompt = jpa_prompt if orm_type == "jpa" else myBatis_prompt   
+        selected_prompt = jpa_prompt
   
 
         chain = (
@@ -363,183 +193,3 @@ def convert_repository_code(repository_nodes: dict, used_variable_nodes: dict, d
         logging.error(err_msg)
         raise LLMCallError(err_msg)
     
-
-# 역할 : 엔티티 클래스와 테이블 정보를 기반으로 save 메서드를 생성하는 함수입니다.
-#
-# 매개변수:
-#   - table_info : 테이블 및 엔티티 클래스 정보
-#
-# 반환값:
-#   - result : LLM이 생성한 save 메서드 정보
-def convert_save_method(table_info: dict) -> dict:
-    try:
-        # * JSON 데이터 준비
-        table_info_json = json.dumps(table_info, ensure_ascii=False, indent=2)
-        
-        prompt_data = {
-            "table_json_data": table_info_json
-        }
-
-        # * LangChain 체인 구성 및 실행
-        chain = (
-            RunnablePassthrough()
-            | myBatis_save_prompt
-            | llm
-            | JsonOutputParser()
-        )
-        
-        result = chain.invoke(prompt_data)
-        return result
-
-    except Exception as e:
-        err_msg = f"save 메서드 생성을 위한 LLM 호출 중 오류가 발생했습니다: {str(e)}"
-        logging.error(err_msg)
-        raise LLMCallError(err_msg)
-    
-
-
-# SQLAlchemy Repository 클래스 생성 프롬프트
-sqlalchemy_repository_prompt = PromptTemplate.from_template(
-"""
-당신은 클린 아키텍처 원칙을 따르는 파이썬 애플리케이션을 개발하는 소프트웨어 엔지니어입니다. 
-주어진 데이터를 기반으로 SQLAlchemy를 사용한 Repository 메서드를 생성하는 작업을 맡았습니다.
-
-
-Stored Procedure Code:
-{repository_nodes}
-
-
-Used Variable:
-{used_variable_nodes}
-
-
-Global Variable:
-{global_variable_nodes}
-
-
-Sequence Info:
-{sequence_data}
-
-
-생성될 Repository 메서드는 {count}개입니다.
-'Global Variable'들은 애플리케이션 전반에서 전역적으로 사용되는 변수들로 필요한 경우 활용하세요.
-
-
-[SECTION 1] SQLAlchemy Repository 메서드 생성 지침
-===============================================
-1. 변환 범위
-   - 각 JSON 객체는 독립적으로 Repository 메서드로 변환
-   - ...code... 표시된 부분은 제외하고 변환
-
-2. 변환 규칙
-   - 각 JSON 객체는 자신의 Stored Procedure Code만 참조
-   - 다른 객체의 코드는 참고하지 않음
-   - 엔티티 명명 규칙: 단수형 파스칼 케이스 (예: Employee)
-   - 메서드 명명 규칙: find_by_*, get_*, count_*, save_* 등 (스네이크 케이스)
-
-3. 매개변수 처리
-   - 'Used Variable' 목록의 모든 변수는 메서드 매개변수로 포함
-   - 누락된 매개변수 없이 완전한 매핑 필요
-   - 숫자 타입은 모두 int로 통일
-
-4. 시퀀스 처리
-   - 별도의 시퀀스 조회 메서드 생성
-   - 시퀀스 메서드 명명 규칙: get_next_[시퀀스명] (스네이크 케이스)
-   - 반환 타입은 int로 통일
-    
-[SECTION 2] Repository 메서드 필수 구현 규칙
-===============================================
-1. 반환 타입 규칙
-   - SELECT 단건 조회: Optional[엔티티명]
-   - SELECT 목록 조회: List[엔티티명]
-   - COUNT 조회: int
-   - 엔티티 이름은 전달된 테이블 명을 그대로 파스칼 케이스로 전환하여 사용하세요. (예: TPJ_EMPLOYEE -> TpjEmployee)
-
-2. SQLAlchemy 쿼리 작성법
-   - Session 객체를 통한 쿼리 실행
-   - filter(), filter_by() 메서드를 사용한 조건 지정
-   - 예시: session.query(TpjEmployee).filter(TpjEmployee.emp_key == emp_key).first()
-
-3. 복잡한 쿼리 처리
-   - text() 함수를 사용한 원시 SQL 쿼리 실행 가능
-   - 파라미터 바인딩은 콜론(:) 사용
-   - 예시: session.execute(text("SELECT * FROM tpj_employee WHERE emp_key = :emp_key"), {{"emp_key": emp_key}})
-
-
-[SECTION 3] SQLAlchemy Repository 메서드 작성 예시
-===============================================
-출력 형식:
-- 클래스 정의는 제외하고 메서드만 포함
-- self 매개변수는 항상 포함
-- 순수 메서드만 'method'에 포함
-
-예시 출력:
-def find_by_emp_key(self, emp_key: int) -> Optional[TpjEmployee]:\\n    return self.session.query(TpjEmployee).filter(TpjEmployee.emp_key == emp_key).first()
-
-
-[SECTION 4] JSON 출력 형식
-===============================================
-부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요:
-{{
-    "analysis": [
-        {{
-            "tableName": "테이블명",
-            "method": "def method_name(self, param1: type, param2: type) -> ReturnType:\\n    return self.session.query(Entity).filter(Entity.column == param1).all()",
-            "range": [
-               {{
-                  "startLine": 시작라인번호,
-                  "endLine": 끝라인번호,
-               }},
-            ],
-        }}
-    ],
-    "seq_method": [
-        {{
-            "method": "def get_next_sequence(self) -> int:\\n    result = self.session.execute(text(\"SELECT SEQ.NEXTVAL FROM DUAL\"))\\n    return result.scalar()",
-            "field": "필드명",
-        }}
-    ]
-}}
-"""
-)
-
-# 역할: 테이블과 직접 연결된 PL/SQL 노드를 분석하여 Repository 인터페이스를 생성하는 함수입니다.
-#
-# 매개변수: 
-#   - repository_nodes : 테이블과 직접 연결된 PL/SQL 노드 정보
-#   - used_variable_nodes : SQL에서 사용된 변수들의 정보
-#   - convert_data_count : 하나의 SQL 문에서 생성될 Query Method의 수
-#   - global_variable_nodes : 전역 변수 노드 정보
-#   - sequence_data : 시퀀스 정보
-#   - orm_type : 사용할 ORM 유형
-#
-# 반환값: 
-#   - result : LLM이 생성한 Repository 메서드 정보
-def convert_repository_code_python(repository_nodes: dict, used_variable_nodes: dict, data_count: int, global_variable_nodes: dict, sequence_data: str) -> dict:
-    
-    try: 
-        repository_nodes = json.dumps(repository_nodes, ensure_ascii=False, indent=2)
-        used_variable_nodes = json.dumps(used_variable_nodes, ensure_ascii=False, indent=2)
-        global_variable_nodes = json.dumps(global_variable_nodes, ensure_ascii=False, indent=2)
-        prompt_data = {
-            "repository_nodes": repository_nodes,
-            "used_variable_nodes": used_variable_nodes,
-            "count": data_count,
-            "global_variable_nodes": global_variable_nodes,
-            "sequence_data": sequence_data
-        }
-  
-
-        chain = (
-            RunnablePassthrough()
-            | sqlalchemy_repository_prompt
-            | llm
-            | JsonOutputParser()
-        )
-        result = chain.invoke(prompt_data)
-        return result
-    
-    except Exception as e:
-        err_msg = f"리포지토리 인터페이스 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다: {str(e)}"
-        logging.error(err_msg)
-        raise LLMCallError(err_msg)

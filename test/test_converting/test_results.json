@@ -1,11 +1,7 @@
 {
   "entity_name_list": {
-    "TPX_UPDATE_SALARY": [],
     "TPX_EMPLOYEE": [
       "TpjEmployee"
-    ],
-    "TPX_SALARY": [
-      "TpjSalary"
     ],
     "TPX_ATTENDANCE": [
       "TpjAttendance"
@@ -108,439 +104,219 @@
     }
   },
   "repository_methods": {
-    "TPX_UPDATE_SALARY": {},
     "TPX_EMPLOYEE": {
-      "12~15": "def count_by_emp_key(self, emp_key: int) -> int:\n    return self.session.query(func.count()).select_from(TpjEmployee).filter(TpjEmployee.emp_key == emp_key).scalar() or 0",
-      "33~36": "def get_regular_yn_by_emp_key(self, emp_key: int) -> Optional[str]:\n    result = self.session.query(TpjEmployee.regular_yn).filter(TpjEmployee.emp_key == emp_key).first()\n    return result[0] if result else None"
-    },
-    "TPX_SALARY": {
-      "12~16": "def count_by_emp_key_and_pay_date(self, emp_key: int, pay_date: datetime) -> int:\n    return self.session.query(func.count()).select_from(TpjSalary).filter(\n        TpjSalary.emp_key == emp_key,\n        TpjSalary.pay_date == func.date_trunc('day', pay_date)\n    ).scalar() or 0",
-      "62~66": "def get_amount_by_emp_key_and_pay_date(self, emp_key: int, pay_date: datetime) -> Optional[float]:\n    result = self.session.query(TpjSalary.amount).filter(\n        TpjSalary.emp_key == emp_key,\n        TpjSalary.pay_date == func.date_trunc('day', pay_date)\n    ).first()\n    return result[0] if result else None",
-      "141~144": "def update_amount_by_emp_key_and_pay_date(self, emp_key: int, pay_date: datetime, final_amount: float) -> bool:\n    result = self.session.query(TpjSalary).filter(\n        TpjSalary.emp_key == emp_key,\n        TpjSalary.pay_date == func.date_trunc('day', pay_date)\n    ).update({TpjSalary.amount: final_amount})\n    return result > 0"
+      "44~47": "@Query(\"SELECT COUNT(e) FROM TpjEmployee e WHERE e.empKey = :empKey\")\nLong countByEmpKey(@Param(\"empKey\") String empKey);",
+      "64~67": "@Query(\"SELECT e.regularYn FROM TpjEmployee e WHERE e.empKey = :empKey\")\nString findRegularYnByEmpKey(@Param(\"empKey\") String empKey);"
     },
     "TPX_ATTENDANCE": {
-      "55~60": "def count_absences_by_emp_key_and_date_range(self, emp_key: int, start_date: date, end_date: date) -> int:\n    return self.session.query(func.count()).filter(\n        TpjAttendance.emp_key == emp_key,\n        TpjAttendance.work_date.between(start_date, end_date),\n        TpjAttendance.status == 'AB'\n    ).scalar() or 0"
+      "80~85": "@Query(\"SELECT COUNT(a) FROM TpjAttendance a WHERE a.empKey = :empKey AND a.workDate BETWEEN :startDate AND :endDate AND a.status = 'AB'\")\nLong countByEmpKeyAndWorkDateBetweenAndStatusEquals(@Param(\"empKey\") String empKey, @Param(\"startDate\") Date startDate, @Param(\"endDate\") Date endDate);"
     }
   },
   "global_variables": {
-    "TPX_UPDATE_SALARY": [],
     "TPX_EMPLOYEE": [],
-    "TPX_SALARY": [],
     "TPX_ATTENDANCE": []
   },
   "all_query_methods": {
-    "TPX_UPDATE_SALARY": {},
     "TPX_EMPLOYEE": {
       "TpjEmployee": [
-        "def count_by_emp_key(self, emp_key: int) -> int:\n    return self.session.query(func.count()).select_from(TpjEmployee).filter(TpjEmployee.emp_key == emp_key).scalar() or 0",
-        "def get_regular_yn_by_emp_key(self, emp_key: int) -> Optional[str]:\n    result = self.session.query(TpjEmployee.regular_yn).filter(TpjEmployee.emp_key == emp_key).first()\n    return result[0] if result else None"
-      ]
-    },
-    "TPX_SALARY": {
-      "TpjSalary": [
-        "def count_by_emp_key_and_pay_date(self, emp_key: int, pay_date: datetime) -> int:\n    return self.session.query(func.count()).select_from(TpjSalary).filter(\n        TpjSalary.emp_key == emp_key,\n        TpjSalary.pay_date == func.date_trunc('day', pay_date)\n    ).scalar() or 0",
-        "def get_amount_by_emp_key_and_pay_date(self, emp_key: int, pay_date: datetime) -> Optional[float]:\n    result = self.session.query(TpjSalary.amount).filter(\n        TpjSalary.emp_key == emp_key,\n        TpjSalary.pay_date == func.date_trunc('day', pay_date)\n    ).first()\n    return result[0] if result else None",
-        "def update_amount_by_emp_key_and_pay_date(self, emp_key: int, pay_date: datetime, final_amount: float) -> bool:\n    result = self.session.query(TpjSalary).filter(\n        TpjSalary.emp_key == emp_key,\n        TpjSalary.pay_date == func.date_trunc('day', pay_date)\n    ).update({TpjSalary.amount: final_amount})\n    return result > 0"
+        "@Query(\"SELECT COUNT(e) FROM TpjEmployee e WHERE e.empKey = :empKey\")\nLong countByEmpKey(@Param(\"empKey\") String empKey);",
+        "@Query(\"SELECT e.regularYn FROM TpjEmployee e WHERE e.empKey = :empKey\")\nString findRegularYnByEmpKey(@Param(\"empKey\") String empKey);"
       ]
     },
     "TPX_ATTENDANCE": {
       "TpjAttendance": [
-        "def count_absences_by_emp_key_and_date_range(self, emp_key: int, start_date: date, end_date: date) -> int:\n    return self.session.query(func.count()).filter(\n        TpjAttendance.emp_key == emp_key,\n        TpjAttendance.work_date.between(start_date, end_date),\n        TpjAttendance.status == 'AB'\n    ).scalar() or 0"
+        "@Query(\"SELECT COUNT(a) FROM TpjAttendance a WHERE a.empKey = :empKey AND a.workDate BETWEEN :startDate AND :endDate AND a.status = 'AB'\")\nLong countByEmpKeyAndWorkDateBetweenAndStatusEquals(@Param(\"empKey\") String empKey, @Param(\"startDate\") Date startDate, @Param(\"endDate\") Date endDate);"
       ]
     }
   },
   "sequence_methods": {
-    "TPX_UPDATE_SALARY": [],
     "TPX_EMPLOYEE": [],
-    "TPX_SALARY": [],
     "TPX_ATTENDANCE": []
   },
   "service_skeleton_list": {
-    "TPX_UPDATE_SALARY": [
-      {
-        "command_class_variable": [
-          "str:emp_key",
-          "str:emp_name",
-          "str:dept_code",
-          "int:base_amount",
-          "date:pay_date",
-          "str:regular_yn"
-        ],
-        "command_class_name": "TpxUpdateSalaryCommand",
-        "method_skeleton_name": "tpx_update_salary",
-        "method_skeleton_code": "    def tpx_update_salary(self, p_base_amount: int, p_dept_code: str, p_emp_key: str, p_emp_name: str, p_pay_date: date, p_regular_yn: str) -> None:\n        v_exists: bool\n        v_salary_exists: bool\n    \n        CodePlaceHolder",
-        "method_signature": "tpx_update_salary(self, p_base_amount: int, p_dept_code: str, p_emp_key: str, p_emp_name: str, p_pay_date: date, p_regular_yn: str) -> None",
-        "service_method_skeleton": "from sqlalchemy.orm import Session\nfrom sqlalchemy import text\nfrom typing import List, Optional, Dict, Any\n\n\nfrom app.service.TpxEmployeeService import TpxEmployeeService\nfrom app.service.TpxSalaryService import TpxSalaryService\n\nfrom fastapi import HTTPException, status\nfrom datetime import datetime, date, timedelta\nimport calendar\nimport uuid\n\n\nclass TpxUpdateSalaryService:\n    def __init__(self, db: Session, tpxEmployee_service: Optional[TpxEmployeeService] = None, tpxSalary_service: Optional[TpxSalaryService] = None):\n        self.db = db\n        self.tpxEmployee_service = tpxEmployee_service or TpxEmployeeService(db)\n        self.tpxSalary_service = tpxSalary_service or TpxSalaryService(db)\n\n    def tpx_update_salary(self, p_base_amount: int, p_dept_code: str, p_emp_key: str, p_emp_name: str, p_pay_date: date, p_regular_yn: str) -> None:\n        v_exists: bool\n        v_salary_exists: bool\n    \n        CodePlaceHolder\n",
-        "node_type": "PROCEDURE",
-        "procedure_name": "tpx_update_salary"
-      }
-    ],
     "TPX_EMPLOYEE": [
       {
         "command_class_variable": null,
         "command_class_name": null,
-        "method_skeleton_name": "exists_employee",
-        "method_skeleton_code": "    def exists_employee(self, i_emp_key: str) -> bool:\n        v_count: int\n    \n        CodePlaceHolder",
-        "method_signature": "exists_employee(self, i_emp_key: str) -> bool",
-        "service_method_skeleton": "from sqlalchemy.orm import Session\nfrom sqlalchemy import text\nfrom typing import List, Optional, Dict, Any\nfrom app.entity.TpjEmployee import TpjEmployee\n\nfrom app.repository.TpjEmployeeRepository import TpjEmployeeRepository\n\n\nfrom fastapi import HTTPException, status\nfrom datetime import datetime, date, timedelta\nimport calendar\nimport uuid\n\n\nclass TpxEmployeeService:\n    def __init__(self, db: Session):\n        self.db = db\n        self.tpjEmployee_repository = TpjEmployeeRepository(db)\n\n    def exists_employee(self, i_emp_key: str) -> bool:\n        v_count: int\n    \n        CodePlaceHolder\n",
+        "method_skeleton_name": "existsEmployee",
+        "method_skeleton_code": "    public Boolean existsEmployee(String iEmpKey) {\n        Long vCount;\n\n        CodePlaceHolder\n    }",
+        "method_signature": "Boolean existsEmployee(String iEmpKey)",
+        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjEmployee;\nimport com.example.demo.repository.TpjEmployeeRepository;\nimport com.example.demo.command.tpxEmployee.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport org.springframework.stereotype.Service;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\n@Service\npublic class TpxEmployeeService {\n    @Autowired\n    private TpjEmployeeRepository tpjEmployeeRepository;\n\n    public Boolean existsEmployee(String iEmpKey) {\n        Long vCount;\n\n        CodePlaceHolder\n    }\n}",
         "node_type": "FUNCTION",
-        "procedure_name": "exists_employee"
+        "procedure_name": "EXISTS_EMPLOYEE"
       },
       {
         "command_class_variable": null,
         "command_class_name": null,
-        "method_skeleton_name": "is_regular_employee",
-        "method_skeleton_code": "    def is_regular_employee(self, i_emp_key: str) -> str:\n        v_regular_yn: str\n    \n        CodePlaceHolder",
-        "method_signature": "is_regular_employee(self, i_emp_key: str) -> str",
-        "service_method_skeleton": "from sqlalchemy.orm import Session\nfrom sqlalchemy import text\nfrom typing import List, Optional, Dict, Any\nfrom app.entity.TpjEmployee import TpjEmployee\n\nfrom app.repository.TpjEmployeeRepository import TpjEmployeeRepository\n\n\nfrom fastapi import HTTPException, status\nfrom datetime import datetime, date, timedelta\nimport calendar\nimport uuid\n\n\nclass TpxEmployeeService:\n    def __init__(self, db: Session):\n        self.db = db\n        self.tpjEmployee_repository = TpjEmployeeRepository(db)\n\n    def is_regular_employee(self, i_emp_key: str) -> str:\n        v_regular_yn: str\n    \n        CodePlaceHolder\n",
+        "method_skeleton_name": "isRegularEmployee",
+        "method_skeleton_code": "    public String isRegularEmployee(String iEmpKey) {\n        String vRegularYn;\n    \n        CodePlaceHolder\n    }",
+        "method_signature": "String isRegularEmployee(String iEmpKey)",
+        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjEmployee;\nimport com.example.demo.repository.TpjEmployeeRepository;\nimport com.example.demo.command.tpxEmployee.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport org.springframework.stereotype.Service;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\n@Service\npublic class TpxEmployeeService {\n    @Autowired\n    private TpjEmployeeRepository tpjEmployeeRepository;\n\n    public String isRegularEmployee(String iEmpKey) {\n        String vRegularYn;\n    \n        CodePlaceHolder\n    }\n}",
         "node_type": "FUNCTION",
-        "procedure_name": "is_regular_employee"
+        "procedure_name": "IS_REGULAR_EMPLOYEE"
       },
       {
         "command_class_variable": [
-          "str:emp_key",
-          "str:emp_name",
-          "str:dept_code",
-          "str:regular_yn"
+          "String:empKey",
+          "String:empName",
+          "String:deptCode",
+          "String:regularYn"
         ],
         "command_class_name": "InsEmployeeCommand",
-        "method_skeleton_name": "ins_employee",
-        "method_skeleton_code": "    def ins_employee(self, i_dept_code: str, i_emp_key: str, i_emp_name: str, i_regular_yn: str) -> None:\n        v_exists: bool\n    \n        CodePlaceHolder",
-        "method_signature": "ins_employee(self, i_dept_code: str, i_emp_key: str, i_emp_name: str, i_regular_yn: str) -> None",
-        "service_method_skeleton": "from sqlalchemy.orm import Session\nfrom sqlalchemy import text\nfrom typing import List, Optional, Dict, Any\nfrom app.entity.TpjEmployee import TpjEmployee\n\nfrom app.repository.TpjEmployeeRepository import TpjEmployeeRepository\n\n\nfrom fastapi import HTTPException, status\nfrom datetime import datetime, date, timedelta\nimport calendar\nimport uuid\n\n\nclass TpxEmployeeService:\n    def __init__(self, db: Session):\n        self.db = db\n        self.tpjEmployee_repository = TpjEmployeeRepository(db)\n\n    def ins_employee(self, i_dept_code: str, i_emp_key: str, i_emp_name: str, i_regular_yn: str) -> None:\n        v_exists: bool\n    \n        CodePlaceHolder\n",
+        "method_skeleton_name": "insEmployee",
+        "method_skeleton_code": "    public void insEmployee(String iEmpKey, String iEmpName, String iDeptCode, String iRegularYn) {\n        Boolean vExists;\n    \n        CodePlaceHolder\n    }",
+        "method_signature": "void insEmployee(String iEmpKey, String iEmpName, String iDeptCode, String iRegularYn)",
+        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjEmployee;\nimport com.example.demo.repository.TpjEmployeeRepository;\nimport com.example.demo.command.tpxEmployee.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport org.springframework.stereotype.Service;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\n@Service\npublic class TpxEmployeeService {\n    @Autowired\n    private TpjEmployeeRepository tpjEmployeeRepository;\n\n    public void insEmployee(String iEmpKey, String iEmpName, String iDeptCode, String iRegularYn) {\n        Boolean vExists;\n    \n        CodePlaceHolder\n    }\n}",
         "node_type": "PROCEDURE",
-        "procedure_name": "ins_employee"
-      }
-    ],
-    "TPX_SALARY": [
-      {
-        "command_class_variable": null,
-        "command_class_name": null,
-        "method_skeleton_name": "exists_salary",
-        "method_skeleton_code": "    def exists_salary(self, i_emp_key: str, i_pay_date: date) -> bool:\n        v_count: int\n    \n        CodePlaceHolder",
-        "method_signature": "exists_salary(self, i_emp_key: str, i_pay_date: date) -> bool",
-        "service_method_skeleton": "from sqlalchemy.orm import Session\nfrom sqlalchemy import text\nfrom typing import List, Optional, Dict, Any\nfrom app.entity.TpjSalary import TpjSalary\n\nfrom app.repository.TpjSalaryRepository import TpjSalaryRepository\n\nfrom app.service.TpxEmployeeService import TpxEmployeeService\nfrom app.service.TpxAttendanceService import TpxAttendanceService\n\nfrom fastapi import HTTPException, status\nfrom datetime import datetime, date, timedelta\nimport calendar\nimport uuid\n\n\nclass TpxSalaryService:\n    def __init__(self, db: Session, tpxEmployee_service: Optional[TpxEmployeeService] = None, tpxAttendance_service: Optional[TpxAttendanceService] = None):\n        self.db = db\n        self.tpjSalary_repository = TpjSalaryRepository(db)\n        self.tpxEmployee_service = tpxEmployee_service or TpxEmployeeService(db)\n        self.tpxAttendance_service = tpxAttendance_service or TpxAttendanceService(db)\n\n    def exists_salary(self, i_emp_key: str, i_pay_date: date) -> bool:\n        v_count: int\n    \n        CodePlaceHolder\n",
-        "node_type": "FUNCTION",
-        "procedure_name": "exists_salary"
-      },
-      {
-        "command_class_variable": null,
-        "command_class_name": null,
-        "method_skeleton_name": "p_calculate_deduction",
-        "method_skeleton_code": "    def p_calculate_deduction(self, i_emp_key: str, i_absent_days: int) -> int:\n        v_deduction: int\n        v_deduction_per_day: int\n        v_regular_yn: str\n    \n        CodePlaceHolder",
-        "method_signature": "p_calculate_deduction(self, i_emp_key: str, i_absent_days: int) -> int",
-        "service_method_skeleton": "from sqlalchemy.orm import Session\nfrom sqlalchemy import text\nfrom typing import List, Optional, Dict, Any\nfrom app.entity.TpjSalary import TpjSalary\n\nfrom app.repository.TpjSalaryRepository import TpjSalaryRepository\n\nfrom app.service.TpxEmployeeService import TpxEmployeeService\nfrom app.service.TpxAttendanceService import TpxAttendanceService\n\nfrom fastapi import HTTPException, status\nfrom datetime import datetime, date, timedelta\nimport calendar\nimport uuid\n\n\nclass TpxSalaryService:\n    def __init__(self, db: Session, tpxEmployee_service: Optional[TpxEmployeeService] = None, tpxAttendance_service: Optional[TpxAttendanceService] = None):\n        self.db = db\n        self.tpjSalary_repository = TpjSalaryRepository(db)\n        self.tpxEmployee_service = tpxEmployee_service or TpxEmployeeService(db)\n        self.tpxAttendance_service = tpxAttendance_service or TpxAttendanceService(db)\n\n    def p_calculate_deduction(self, i_emp_key: str, i_absent_days: int) -> int:\n        v_deduction: int\n        v_deduction_per_day: int\n        v_regular_yn: str\n    \n        CodePlaceHolder\n",
-        "node_type": "FUNCTION",
-        "procedure_name": "p_calculate_deduction"
-      },
-      {
-        "command_class_variable": null,
-        "command_class_name": null,
-        "method_skeleton_name": "get_salary",
-        "method_skeleton_code": "    def get_salary(self, i_emp_key: str, i_pay_date: date) -> int:\n        v_amount: int\n    \n        CodePlaceHolder",
-        "method_signature": "get_salary(self, i_emp_key: str, i_pay_date: date) -> int",
-        "service_method_skeleton": "from sqlalchemy.orm import Session\nfrom sqlalchemy import text\nfrom typing import List, Optional, Dict, Any\nfrom app.entity.TpjSalary import TpjSalary\n\nfrom app.repository.TpjSalaryRepository import TpjSalaryRepository\n\nfrom app.service.TpxEmployeeService import TpxEmployeeService\nfrom app.service.TpxAttendanceService import TpxAttendanceService\n\nfrom fastapi import HTTPException, status\nfrom datetime import datetime, date, timedelta\nimport calendar\nimport uuid\n\n\nclass TpxSalaryService:\n    def __init__(self, db: Session, tpxEmployee_service: Optional[TpxEmployeeService] = None, tpxAttendance_service: Optional[TpxAttendanceService] = None):\n        self.db = db\n        self.tpjSalary_repository = TpjSalaryRepository(db)\n        self.tpxEmployee_service = tpxEmployee_service or TpxEmployeeService(db)\n        self.tpxAttendance_service = tpxAttendance_service or TpxAttendanceService(db)\n\n    def get_salary(self, i_emp_key: str, i_pay_date: date) -> int:\n        v_amount: int\n    \n        CodePlaceHolder\n",
-        "node_type": "FUNCTION",
-        "procedure_name": "get_salary"
-      },
-      {
-        "command_class_variable": [
-          "str:i_emp_key",
-          "date:i_pay_date",
-          "int:i_base_amount"
-        ],
-        "command_class_name": "InsSalaryCommand",
-        "method_skeleton_name": "ins_salary",
-        "method_skeleton_code": "    def ins_salary(self, i_base_amount: int, i_emp_key: str, i_pay_date: date) -> None:\n        v_exists: bool\n    \n        CodePlaceHolder",
-        "method_signature": "ins_salary(self, i_base_amount: int, i_emp_key: str, i_pay_date: date) -> None",
-        "service_method_skeleton": "from sqlalchemy.orm import Session\nfrom sqlalchemy import text\nfrom typing import List, Optional, Dict, Any\nfrom app.entity.TpjSalary import TpjSalary\n\nfrom app.repository.TpjSalaryRepository import TpjSalaryRepository\n\nfrom app.service.TpxEmployeeService import TpxEmployeeService\nfrom app.service.TpxAttendanceService import TpxAttendanceService\n\nfrom fastapi import HTTPException, status\nfrom datetime import datetime, date, timedelta\nimport calendar\nimport uuid\n\n\nclass TpxSalaryService:\n    def __init__(self, db: Session, tpxEmployee_service: Optional[TpxEmployeeService] = None, tpxAttendance_service: Optional[TpxAttendanceService] = None):\n        self.db = db\n        self.tpjSalary_repository = TpjSalaryRepository(db)\n        self.tpxEmployee_service = tpxEmployee_service or TpxEmployeeService(db)\n        self.tpxAttendance_service = tpxAttendance_service or TpxAttendanceService(db)\n\n    def ins_salary(self, i_base_amount: int, i_emp_key: str, i_pay_date: date) -> None:\n        v_exists: bool\n    \n        CodePlaceHolder\n",
-        "node_type": "PROCEDURE",
-        "procedure_name": "ins_salary"
-      },
-      {
-        "command_class_variable": [
-          "str:i_emp_key",
-          "date:i_pay_date"
-        ],
-        "command_class_name": "UpdSalaryByAbsentCommand",
-        "method_skeleton_name": "upd_salary_by_absent",
-        "method_skeleton_code": "    def upd_salary_by_absent(self, i_emp_key: str, i_pay_date: date) -> None:\n        v_base_amount: int\n        v_absent_days: int\n        v_final_amount: int\n        v_exists: bool\n    \n        CodePlaceHolder",
-        "method_signature": "upd_salary_by_absent(self, i_emp_key: str, i_pay_date: date) -> None",
-        "service_method_skeleton": "from sqlalchemy.orm import Session\nfrom sqlalchemy import text\nfrom typing import List, Optional, Dict, Any\nfrom app.entity.TpjSalary import TpjSalary\n\nfrom app.repository.TpjSalaryRepository import TpjSalaryRepository\n\nfrom app.service.TpxEmployeeService import TpxEmployeeService\nfrom app.service.TpxAttendanceService import TpxAttendanceService\n\nfrom fastapi import HTTPException, status\nfrom datetime import datetime, date, timedelta\nimport calendar\nimport uuid\n\n\nclass TpxSalaryService:\n    def __init__(self, db: Session, tpxEmployee_service: Optional[TpxEmployeeService] = None, tpxAttendance_service: Optional[TpxAttendanceService] = None):\n        self.db = db\n        self.tpjSalary_repository = TpjSalaryRepository(db)\n        self.tpxEmployee_service = tpxEmployee_service or TpxEmployeeService(db)\n        self.tpxAttendance_service = tpxAttendance_service or TpxAttendanceService(db)\n\n    def upd_salary_by_absent(self, i_emp_key: str, i_pay_date: date) -> None:\n        v_base_amount: int\n        v_absent_days: int\n        v_final_amount: int\n        v_exists: bool\n    \n        CodePlaceHolder\n",
-        "node_type": "PROCEDURE",
-        "procedure_name": "upd_salary_by_absent"
+        "procedure_name": "INS_EMPLOYEE"
       }
     ],
     "TPX_ATTENDANCE": [
       {
         "command_class_variable": [
-          "str:i_emp_key",
-          "date:i_work_date",
-          "str:i_status"
+          "String:empKey",
+          "LocalDate:workDate",
+          "String:status"
         ],
         "command_class_name": "InsAttendanceCommand",
-        "method_skeleton_name": "ins_attendance",
-        "method_skeleton_code": "    def ins_attendance(self, i_emp_key: str, i_status: str, i_work_date: date) -> None:\n        v_exists: bool\n    \n        CodePlaceHolder",
-        "method_signature": "ins_attendance(self, i_emp_key: str, i_status: str, i_work_date: date) -> None",
-        "service_method_skeleton": "from sqlalchemy.orm import Session\nfrom sqlalchemy import text\nfrom typing import List, Optional, Dict, Any\nfrom app.entity.TpjAttendance import TpjAttendance\n\nfrom app.repository.TpjAttendanceRepository import TpjAttendanceRepository\n\nfrom app.service.TpxEmployeeService import TpxEmployeeService\n\nfrom fastapi import HTTPException, status\nfrom datetime import datetime, date, timedelta\nimport calendar\nimport uuid\n\n\nclass TpxAttendanceService:\n    def __init__(self, db: Session, tpxEmployee_service: Optional[TpxEmployeeService] = None):\n        self.db = db\n        self.tpjAttendance_repository = TpjAttendanceRepository(db)\n        self.tpxEmployee_service = tpxEmployee_service or TpxEmployeeService(db)\n\n    def ins_attendance(self, i_emp_key: str, i_status: str, i_work_date: date) -> None:\n        v_exists: bool\n    \n        CodePlaceHolder\n",
+        "method_skeleton_name": "insAttendance",
+        "method_skeleton_code": "    public void insAttendance(String iEmpKey, LocalDate iWorkDate, String iStatus) {\n        Boolean vExists;\n    \n        CodePlaceHolder\n    }",
+        "method_signature": "void insAttendance(String iEmpKey, LocalDate iWorkDate, String iStatus)",
+        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjAttendance;\nimport com.example.demo.repository.TpjAttendanceRepository;\nimport com.example.demo.command.tpxAttendance.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport org.springframework.stereotype.Service;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\n@Service\npublic class TpxAttendanceService {\n    @Autowired\n    private TpjAttendanceRepository tpjAttendanceRepository;\n\n    public void insAttendance(String iEmpKey, LocalDate iWorkDate, String iStatus) {\n        Boolean vExists;\n    \n        CodePlaceHolder\n    }\n}",
         "node_type": "PROCEDURE",
-        "procedure_name": "ins_attendance"
+        "procedure_name": "INS_ATTENDANCE"
       },
       {
         "command_class_variable": null,
         "command_class_name": null,
-        "method_skeleton_name": "get_absent_days",
-        "method_skeleton_code": "    def get_absent_days(self, i_emp_key: str, i_start_date: date, i_end_date: date) -> int:\n        v_count: int\n        v_exists: bool\n    \n        CodePlaceHolder",
-        "method_signature": "get_absent_days(self, i_emp_key: str, i_start_date: date, i_end_date: date) -> int",
-        "service_method_skeleton": "from sqlalchemy.orm import Session\nfrom sqlalchemy import text\nfrom typing import List, Optional, Dict, Any\nfrom app.entity.TpjAttendance import TpjAttendance\n\nfrom app.repository.TpjAttendanceRepository import TpjAttendanceRepository\n\nfrom app.service.TpxEmployeeService import TpxEmployeeService\n\nfrom fastapi import HTTPException, status\nfrom datetime import datetime, date, timedelta\nimport calendar\nimport uuid\n\n\nclass TpxAttendanceService:\n    def __init__(self, db: Session, tpxEmployee_service: Optional[TpxEmployeeService] = None):\n        self.db = db\n        self.tpjAttendance_repository = TpjAttendanceRepository(db)\n        self.tpxEmployee_service = tpxEmployee_service or TpxEmployeeService(db)\n\n    def get_absent_days(self, i_emp_key: str, i_start_date: date, i_end_date: date) -> int:\n        v_count: int\n        v_exists: bool\n    \n        CodePlaceHolder\n",
+        "method_skeleton_name": "getAbsentDays",
+        "method_skeleton_code": "    public Long getAbsentDays(String iEmpKey, LocalDate iStartDate, LocalDate iEndDate) {\n        Long vCount;\n        Boolean vExists;\n    \n        CodePlaceHolder\n    }",
+        "method_signature": "Long getAbsentDays(String iEmpKey, LocalDate iStartDate, LocalDate iEndDate)",
+        "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjAttendance;\nimport com.example.demo.repository.TpjAttendanceRepository;\nimport com.example.demo.command.tpxAttendance.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport org.springframework.stereotype.Service;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\n@Service\npublic class TpxAttendanceService {\n    @Autowired\n    private TpjAttendanceRepository tpjAttendanceRepository;\n\n    public Long getAbsentDays(String iEmpKey, LocalDate iStartDate, LocalDate iEndDate) {\n        Long vCount;\n        Boolean vExists;\n    \n        CodePlaceHolder\n    }\n}",
         "node_type": "FUNCTION",
-        "procedure_name": "get_absent_days"
+        "procedure_name": "GET_ABSENT_DAYS"
       }
     ]
   },
   "service_skeleton": {
-    "TPX_UPDATE_SALARY": "from sqlalchemy.orm import Session\nfrom sqlalchemy import text\nfrom typing import List, Optional, Dict, Any\n\n\nfrom app.service.TpxEmployeeService import TpxEmployeeService\nfrom app.service.TpxSalaryService import TpxSalaryService\n\nfrom fastapi import HTTPException, status\nfrom datetime import datetime, date, timedelta\nimport calendar\nimport uuid\n\n\nclass TpxUpdateSalaryService:\n    def __init__(self, db: Session, tpxEmployee_service: Optional[TpxEmployeeService] = None, tpxSalary_service: Optional[TpxSalaryService] = None):\n        self.db = db\n        self.tpxEmployee_service = tpxEmployee_service or TpxEmployeeService(db)\n        self.tpxSalary_service = tpxSalary_service or TpxSalaryService(db)\n\nCodePlaceHolder\n",
-    "TPX_EMPLOYEE": "from sqlalchemy.orm import Session\nfrom sqlalchemy import text\nfrom typing import List, Optional, Dict, Any\nfrom app.entity.TpjEmployee import TpjEmployee\n\nfrom app.repository.TpjEmployeeRepository import TpjEmployeeRepository\n\n\nfrom fastapi import HTTPException, status\nfrom datetime import datetime, date, timedelta\nimport calendar\nimport uuid\n\n\nclass TpxEmployeeService:\n    def __init__(self, db: Session):\n        self.db = db\n        self.tpjEmployee_repository = TpjEmployeeRepository(db)\n\nCodePlaceHolder\n",
-    "TPX_SALARY": "from sqlalchemy.orm import Session\nfrom sqlalchemy import text\nfrom typing import List, Optional, Dict, Any\nfrom app.entity.TpjSalary import TpjSalary\n\nfrom app.repository.TpjSalaryRepository import TpjSalaryRepository\n\nfrom app.service.TpxEmployeeService import TpxEmployeeService\nfrom app.service.TpxAttendanceService import TpxAttendanceService\n\nfrom fastapi import HTTPException, status\nfrom datetime import datetime, date, timedelta\nimport calendar\nimport uuid\n\n\nclass TpxSalaryService:\n    def __init__(self, db: Session, tpxEmployee_service: Optional[TpxEmployeeService] = None, tpxAttendance_service: Optional[TpxAttendanceService] = None):\n        self.db = db\n        self.tpjSalary_repository = TpjSalaryRepository(db)\n        self.tpxEmployee_service = tpxEmployee_service or TpxEmployeeService(db)\n        self.tpxAttendance_service = tpxAttendance_service or TpxAttendanceService(db)\n\nCodePlaceHolder\n",
-    "TPX_ATTENDANCE": "from sqlalchemy.orm import Session\nfrom sqlalchemy import text\nfrom typing import List, Optional, Dict, Any\nfrom app.entity.TpjAttendance import TpjAttendance\n\nfrom app.repository.TpjAttendanceRepository import TpjAttendanceRepository\n\nfrom app.service.TpxEmployeeService import TpxEmployeeService\n\nfrom fastapi import HTTPException, status\nfrom datetime import datetime, date, timedelta\nimport calendar\nimport uuid\n\n\nclass TpxAttendanceService:\n    def __init__(self, db: Session, tpxEmployee_service: Optional[TpxEmployeeService] = None):\n        self.db = db\n        self.tpjAttendance_repository = TpjAttendanceRepository(db)\n        self.tpxEmployee_service = tpxEmployee_service or TpxEmployeeService(db)\n\nCodePlaceHolder\n"
+    "TPX_EMPLOYEE": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjEmployee;\nimport com.example.demo.repository.TpjEmployeeRepository;\nimport com.example.demo.command.tpxEmployee.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport org.springframework.stereotype.Service;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\n@Service\npublic class TpxEmployeeService {\n    @Autowired\n    private TpjEmployeeRepository tpjEmployeeRepository;\n\nCodePlaceHolder\n}",
+    "TPX_ATTENDANCE": "package com.example.demo.service;\n\nimport com.example.demo.entity.TpjAttendance;\nimport com.example.demo.repository.TpjAttendanceRepository;\nimport com.example.demo.command.tpxAttendance.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport org.springframework.stereotype.Service;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\n@Service\npublic class TpxAttendanceService {\n    @Autowired\n    private TpjAttendanceRepository tpjAttendanceRepository;\n\nCodePlaceHolder\n}"
   },
   "service_class_name": {
-    "TPX_UPDATE_SALARY": "TpxUpdateSalaryService",
     "TPX_EMPLOYEE": "TpxEmployeeService",
-    "TPX_SALARY": "TpxSalaryService",
     "TPX_ATTENDANCE": "TpxAttendanceService"
   },
   "exist_command_class": {
-    "TPX_UPDATE_SALARY": true,
     "TPX_EMPLOYEE": true,
-    "TPX_SALARY": true,
     "TPX_ATTENDANCE": true
   },
   "variable_nodes": {
-    "TPX_UPDATE_SALARY": {
-      "tpx_update_salary": [
-        {
-          "v": {
-            "procedure_name": "tpx_update_salary",
-            "role": "변수 선언및 초기화",
-            "object_name": "TPX_UPDATE_SALARY",
-            "scope": "Local",
-            "name": "v_exists",
-            "type": "BOOLEAN",
-            "value": "None"
-          }
-        },
-        {
-          "v": {
-            "procedure_name": "tpx_update_salary",
-            "role": "변수 선언및 초기화",
-            "object_name": "TPX_UPDATE_SALARY",
-            "scope": "Local",
-            "name": "v_salary_exists",
-            "type": "BOOLEAN",
-            "value": "None"
-          }
-        }
-      ]
-    },
     "TPX_EMPLOYEE": {
-      "exists_employee": [
+      "EXISTS_EMPLOYEE": [
         {
           "v": {
-            "procedure_name": "exists_employee",
+            "44_49": "Used",
+            "procedure_name": "EXISTS_EMPLOYEE",
             "role": "변수 선언및 초기화",
+            "user_id": "e37f4668-8d1e-4650-bc95-2328a76cf594",
+            "value_tracking": "Initial NULL -> Count result from TpjEmployee query -> Used in comparison for return value",
             "object_name": "TPX_EMPLOYEE",
             "scope": "Local",
-            "name": "v_count",
-            "type": "INTEGER",
-            "value": "None"
+            "44_47": "Used",
+            "49_49": "Used",
+            "name": "vCount",
+            "type": "NUMBER",
+            "value": "null"
           }
         }
       ],
-      "is_regular_employee": [
+      "IS_REGULAR_EMPLOYEE": [
         {
           "v": {
-            "procedure_name": "is_regular_employee",
+            "64_67": "Used",
+            "procedure_name": "IS_REGULAR_EMPLOYEE",
             "role": "변수 선언및 초기화",
+            "user_id": "e37f4668-8d1e-4650-bc95-2328a76cf594",
+            "value_tracking": "초기값 NULL -> TpjEmployee 테이블 조회 결과(Y/N) 할당 -> 리턴값으로 사용",
+            "64_69": "Used",
             "object_name": "TPX_EMPLOYEE",
             "scope": "Local",
-            "name": "v_regular_yn",
+            "name": "vRegularYn",
+            "69_69": "Used",
             "type": "CHAR(1)",
             "value": "None"
           }
         }
       ],
-      "ins_employee": [
+      "INS_EMPLOYEE": [
         {
           "v": {
-            "procedure_name": "ins_employee",
+            "procedure_name": "INS_EMPLOYEE",
             "role": "변수 선언및 초기화",
+            "user_id": "e37f4668-8d1e-4650-bc95-2328a76cf594",
+            "value_tracking": "초기값 NULL -> existsEmployee 메서드 호출 결과 할당 -> 직원 존재 여부 확인 조건에서 사용",
+            "89_91": "Used",
             "object_name": "TPX_EMPLOYEE",
             "scope": "Local",
-            "name": "v_exists",
+            "name": "vExists",
             "type": "BOOLEAN",
-            "value": "None"
-          }
-        }
-      ]
-    },
-    "TPX_SALARY": {
-      "exists_salary": [
-        {
-          "v": {
-            "procedure_name": "exists_salary",
-            "role": "변수 선언및 초기화",
-            "object_name": "TPX_SALARY",
-            "scope": "Local",
-            "name": "v_count",
-            "type": "INTEGER",
-            "value": "None"
-          }
-        }
-      ],
-      "p_calculate_deduction": [
-        {
-          "v": {
-            "procedure_name": "p_calculate_deduction",
-            "role": "변수 선언및 초기화",
-            "object_name": "TPX_SALARY",
-            "scope": "Local",
-            "name": "v_deduction",
-            "type": "NUMERIC",
-            "value": "None"
-          }
-        },
-        {
-          "v": {
-            "procedure_name": "p_calculate_deduction",
-            "role": "변수 선언및 초기화",
-            "object_name": "TPX_SALARY",
-            "scope": "Local",
-            "name": "v_deduction_per_day",
-            "type": "NUMERIC",
-            "value": "None"
-          }
-        },
-        {
-          "v": {
-            "procedure_name": "p_calculate_deduction",
-            "role": "변수 선언및 초기화",
-            "object_name": "TPX_SALARY",
-            "scope": "Local",
-            "name": "v_regular_yn",
-            "type": "CHAR(1)",
-            "value": "None"
-          }
-        }
-      ],
-      "get_salary": [
-        {
-          "v": {
-            "procedure_name": "get_salary",
-            "role": "변수 선언및 초기화",
-            "object_name": "TPX_SALARY",
-            "scope": "Local",
-            "name": "v_amount",
-            "type": "NUMERIC",
-            "value": "None"
-          }
-        }
-      ],
-      "ins_salary": [
-        {
-          "v": {
-            "procedure_name": "ins_salary",
-            "role": "변수 선언및 초기화",
-            "object_name": "TPX_SALARY",
-            "scope": "Local",
-            "name": "v_exists",
-            "type": "BOOLEAN",
-            "value": "None"
-          }
-        }
-      ],
-      "upd_salary_by_absent": [
-        {
-          "v": {
-            "procedure_name": "upd_salary_by_absent",
-            "role": "변수 선언및 초기화",
-            "object_name": "TPX_SALARY",
-            "scope": "Local",
-            "name": "v_base_amount",
-            "type": "NUMERIC",
-            "value": "None"
-          }
-        },
-        {
-          "v": {
-            "procedure_name": "upd_salary_by_absent",
-            "role": "변수 선언및 초기화",
-            "object_name": "TPX_SALARY",
-            "scope": "Local",
-            "name": "v_absent_days",
-            "type": "INTEGER",
-            "value": "None"
-          }
-        },
-        {
-          "v": {
-            "procedure_name": "upd_salary_by_absent",
-            "role": "변수 선언및 초기화",
-            "object_name": "TPX_SALARY",
-            "scope": "Local",
-            "name": "v_final_amount",
-            "type": "NUMERIC",
-            "value": "None"
-          }
-        },
-        {
-          "v": {
-            "procedure_name": "upd_salary_by_absent",
-            "role": "변수 선언및 초기화",
-            "object_name": "TPX_SALARY",
-            "scope": "Local",
-            "name": "v_exists",
-            "type": "BOOLEAN",
-            "value": "None"
+            "value": "None",
+            "88_97": "Used",
+            "88_88": "Used"
           }
         }
       ]
     },
     "TPX_ATTENDANCE": {
-      "ins_attendance": [
+      "INS_ATTENDANCE": [
         {
           "v": {
-            "procedure_name": "ins_attendance",
+            "procedure_name": "INS_ATTENDANCE",
             "role": "변수 선언및 초기화",
+            "43_45": "Used",
+            "user_id": "e37f4668-8d1e-4650-bc95-2328a76cf594",
+            "42_55": "Used",
+            "value_tracking": "프로시저 호출 결과값 저장 -> 직원 존재 여부 체크 조건에서 사용",
             "object_name": "TPX_ATTENDANCE",
             "scope": "Local",
-            "name": "v_exists",
+            "name": "vExists",
+            "42_42": "Used",
             "type": "BOOLEAN",
             "value": "None"
           }
         }
       ],
-      "get_absent_days": [
+      "GET_ABSENT_DAYS": [
         {
           "v": {
-            "procedure_name": "get_absent_days",
+            "87_87": "Used",
+            "74_87": "Used",
+            "procedure_name": "GET_ABSENT_DAYS",
             "role": "변수 선언및 초기화",
+            "user_id": "e37f4668-8d1e-4650-bc95-2328a76cf594",
+            "value_tracking": "초기값 NULL -> JPA 쿼리 메서드 실행 결과 할당 -> 반환값으로 사용",
             "object_name": "TPX_ATTENDANCE",
             "scope": "Local",
-            "name": "v_count",
-            "type": "INTEGER",
+            "name": "vCount",
+            "80_85": "Used",
+            "type": "NUMBER",
             "value": "None"
           }
         },
         {
           "v": {
-            "procedure_name": "get_absent_days",
+            "74_87": "Used",
+            "75_77": "Used",
+            "procedure_name": "GET_ABSENT_DAYS",
             "role": "변수 선언및 초기화",
+            "user_id": "e37f4668-8d1e-4650-bc95-2328a76cf594",
+            "value_tracking": "초기값 NULL -> tpxEmployeeService.existsEmployee 호출 결과 할당 -> 조건문에서 사용",
             "object_name": "TPX_ATTENDANCE",
             "scope": "Local",
-            "name": "v_exists",
+            "name": "vExists",
             "type": "BOOLEAN",
-            "value": "None"
+            "value": "None",
+            "74_74": "Used"
           }
         }
       ]

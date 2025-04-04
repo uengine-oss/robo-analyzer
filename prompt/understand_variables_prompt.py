@@ -14,13 +14,6 @@ import openai
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
 
-api_key = os.getenv("OPENAI_API_KEY")
-if api_key is None:
-    raise ValueError("OPENAI_API_KEY 환경 변수가 설정되지 않았습니다.")
-
-# llm = ChatOpenAI(api_key=api_key, model_name="gpt-4o")
-llm = ChatAnthropic(model="claude-3-7-sonnet-20250219", max_tokens=8000, temperature=0.1)
-
 prompt = PromptTemplate.from_template(
 """
 당신은 SQL 프로시저의 변수를 분석하는 전문가입니다. 주어진 코드에서 모든 변수 선언을 찾아 변수명과 데이터 타입을 추출하는 작업을 수행합니다.
@@ -96,12 +89,21 @@ prompt = PromptTemplate.from_template(
 # 매개변수: 
 #   - declaration_code: 분석할 PL/SQL 코드의 변수 선언부 (DECLARE 섹션, 파라미터 선언, 커서 선언 등)
 #   - ddl_tables: 테이블 DDL 정보
+#   - api_key: OpenAI API 키
 # 반환값: 
 #   - result: LLM이 분석한 변수 정보 목록 (각 변수의 이름, 데이터 타입, 용도 등이 포함된 구조화된 데이터)
-def understand_variables(declaration_code, ddl_tables):
+def understand_variables(declaration_code, ddl_tables, api_key):
 
     try:
         ddl_tables = json.dumps(ddl_tables, ensure_ascii=False, indent=2)
+
+        # 전달받은 API 키로 Anthropic Claude LLM 인스턴스 생성
+        llm = ChatAnthropic(
+            model="claude-3-7-sonnet-latest", 
+            max_tokens=8192,
+            api_key=api_key
+        )
+
         chain = (
             RunnablePassthrough()
             | prompt

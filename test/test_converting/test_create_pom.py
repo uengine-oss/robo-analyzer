@@ -4,7 +4,7 @@ import os
 import logging
 import unittest
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-from convert.create_pomxml import start_pipfile_processing, start_pomxml_processing
+from convert.create_pomxml import start_pomxml_processing
 
 
 # * 로그 레벨 설정
@@ -32,9 +32,7 @@ for logger_name in noisy_loggers:
 
 
 # * 테스트할 세션 및 orm 타입 설정
-session_uuid = "d654a0db-6038-40a8-bea5-5c6a1b183883"
-orm_type = "jpa"
-
+session_uuid = "e37f4668-8d1e-4650-bc95-2328a76cf594"
 
 # 스프링부트 기반의 자바 pom.xml를 생성하는 테스트
 class TestPomGeneration(unittest.IsolatedAsyncioTestCase):
@@ -42,8 +40,7 @@ class TestPomGeneration(unittest.IsolatedAsyncioTestCase):
 
         try:
             # * pom.xml 생성 테스트 시작
-            # await start_pomxml_processing(orm_type, session_uuid)
-            await start_pipfile_processing(session_uuid)
+            await start_pomxml_processing(session_uuid)
             self.assertTrue(True, "pom.xml 프로세스가 성공적으로 완료되었습니다.")
         except Exception:
             self.fail(f"pom.xml 생성 테스트 중 예외 발생")
