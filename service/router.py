@@ -8,7 +8,7 @@ from service.service import generate_and_execute_cypherQuery
 from service.service import generate_spring_boot_project
 
 
-router = APIRouter()
+router = APIRouter(prefix="/api/backend")
 logger = logging.getLogger(__name__)  
 
 

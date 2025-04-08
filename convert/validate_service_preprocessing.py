@@ -138,7 +138,7 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
             # * 코드 정보를 추출하고, 자바 코드 업데이트를 위한 사이퍼 쿼리 생성
             for key, service_code in code_info.items():
                 start_line, end_line = map(int, key.replace('-','~').split('~'))
-                escaped_code = service_code.replace('\n', '\\n').replace("'", "\\'")
+                # escaped_code = service_code.replace('\n', '\\n').replace("'", "\\'")
 
 
                 # * 노드 업데이트 쿼리 생성
@@ -148,7 +148,7 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
                     f"AND n.procedure_name = '{procedure_name}' "
                     f"AND n.endLine = {end_line} "
                     f"AND n.user_id = '{user_id}' "
-                    f"SET n.java_code = '{escaped_code}', "
+                    f"SET n.java_code = {json.dumps(service_code)} "
                 )  
 
 

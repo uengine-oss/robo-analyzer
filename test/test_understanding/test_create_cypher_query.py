@@ -18,7 +18,7 @@ class TestCypherQueryGeneration(unittest.IsolatedAsyncioTestCase):
         # * 테스트할 파일 이름 및 유저 id와 프로시저 이름을 설정
         file_names = [
             # ("TPX_UPDATE_SALARY.sql", "TPX_UPDATE_SALARY"),
-            ("TPX_EMPLOYEE.sql", "TPX_EMPLOYEE"),
+            ("process_payroll.sql", "TPX_EMPLOYEE"),
             # ("TPX_SALARY.sql", "TPX_SALARY"),
             ("TPX_ATTENDANCE.sql", "TPX_ATTENDANCE"),
             # ("TPX_PROJECT.sql", "TPX_PROJECT"),
@@ -31,7 +31,7 @@ class TestCypherQueryGeneration(unittest.IsolatedAsyncioTestCase):
             # ("calculate_payroll.txt", "calculate_payroll"),
         ]
 
-        session_uuid = "e37f4668-8d1e-4650-bc95-2328a76cf594"
+        session_uuid = "84b14f67-07ae-49a8-9473-b1c72bb0a57c"
         api_key = ""
 
 

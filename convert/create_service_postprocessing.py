@@ -122,11 +122,20 @@ async def traverse_node_for_merging_service(node_list:list, connection:Neo4jConn
 
             # * EXCEPTION 노드 처리
             if is_exception_node:
-                try_catch_code = try_catch_code.replace("        CodePlaceHolder", "CodePlaceHolder")
-                indented_code = textwrap.indent(try_catch_code, '    ')
-                java_code = java_code.replace("CodePlaceHolder", indented_code)
-                all_java_code += java_code + "\n"
-                try_catch_code = ""
+                # TRY 노드가 없었거나 식별되지 않은 경우
+                if not try_catch_code:
+                    # 현재까지 쌓인 Java 코드를 exception의 CodePlaceHolder에 사용
+                    indented_code = textwrap.indent(all_java_code, '    ')
+                    java_code = java_code.replace("CodePlaceHolder", indented_code)
+                    # all_java_code를 초기화하고 exception 코드만 유지
+                    all_java_code = java_code + "\n"
+                else:
+                    # 기존 TRY 노드가 있는 경우 원래 로직 수행
+                    try_catch_code = try_catch_code.replace("        CodePlaceHolder", "CodePlaceHolder")
+                    indented_code = textwrap.indent(try_catch_code, '    ')
+                    java_code = java_code.replace("CodePlaceHolder", indented_code)
+                    all_java_code += java_code + "\n"
+                    try_catch_code = ""
                 print("EXCEPTION 노드 처리 중입니다.") 
                 continue
             

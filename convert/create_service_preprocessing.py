@@ -171,11 +171,11 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
             # * 코드 정보를 추출하고, 자바 속성 추가를 위한 사이퍼쿼리를 생성합니다.
             for key, service_code in code_info.items():
                 start_line, end_line = map(int, key.replace('-','~').split('~'))
-                escaped_code = service_code.replace('\n', '\\n').replace("'", "\\'")
+                # escaped_code = service_code.replace('\n', '\\n').replace("'", "\\'")
                 node_update_query.append(
                     f"MATCH (n) WHERE n.startLine = {start_line} "
                     f"AND n.object_name = '{object_name}' AND n.endLine = {end_line} AND n.user_id = '{user_id}' "
-                    f"SET n.java_code = '{escaped_code}'"
+                    f"SET n.java_code = {json.dumps(service_code)}"
                 )    
 
 
@@ -258,8 +258,8 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
 
 
             # * 각 노드의 타입에 따른 조건(매우 큰 부모 노드 소속인지, 작은 부모 노드 소속인지, 단일 노드 소속인지)
-            is_big_parent_and_small_child = relationship == "PARENT_OF" and start_node['token'] > 1700 and end_node['token'] < 1700
-            is_small_parent = relationship == "PARENT_OF" and start_node['token'] < 1700 and not small_parent_info
+            is_big_parent_and_small_child = relationship == "PARENT_OF" and start_node['token'] > 200 and end_node['token'] < 2000
+            is_small_parent = relationship == "PARENT_OF" and start_node['token'] < 2000 and not small_parent_info
             is_single_node = relationship == "NEXT" and not small_parent_info and not big_parent_info
 
 
@@ -271,7 +271,7 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
 
 
             # * 총 토큰 수 및 결과 개수 초과 여부를 확인하는 조건
-            is_token_limit_exceeded = (current_tokens + node_tokens >= 1500) and context_range 
+            is_token_limit_exceeded = (current_tokens + node_tokens >= 2000) and context_range 
 
 
             # * 총 토큰 수 검사를 진행합니다.
@@ -293,11 +293,11 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
             if relationship == "PARENT_OF":
                 
                 # * 부모 노드의 크기가 매우 큰 경우 처리 
-                if start_node['token'] >= 1700:
+                if start_node['token'] >= 2000:
                     if not big_parent_info: 
                         await process_over_size_node(start_node['startLine'], start_node['summarized_code'])
                         big_parent_info = {"startLine": start_node['startLine'], "nextLine": 0}
-                    if end_node['token'] >= 1700:
+                    if end_node['token'] >= 2000:
                         await process_over_size_node(end_node['startLine'], end_node['summarized_code'])
                     else:
                         another_big_parent_startLine = start_node['startLine']
