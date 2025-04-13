@@ -2,7 +2,7 @@ import json
 import logging
 from typing import List, Dict, Tuple
 from convert.create_repository import extract_used_variable_nodes
-from understand.neo4j_connection import Neo4jConnection
+from internal.neo4j_connection import Neo4jConnection
 from util.converting_utlis import extract_used_query_methods
 from util.exception import ConvertingError, HandleResultError, Neo4jError, PrepareDataError, ProcessResultError, ServiceCreationError
 from prompt.convert_service_prompt import convert_service_code

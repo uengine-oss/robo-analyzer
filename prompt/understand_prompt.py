@@ -85,7 +85,7 @@ prompt = PromptTemplate.from_template(
             "endLine": endLine,
             "summary": "summary of the code",
             "tableNames": ["tableName1", "tableName2"],
-            "calls": ["procedure1", "function1", "package1"], 
+            "calls": ["procedure1", "function1"], 
             "variables": ["variable1", "variable2"]
         }}
     ],

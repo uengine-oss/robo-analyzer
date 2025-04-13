@@ -3,7 +3,7 @@ import os
 import logging
 import textwrap
 from prompt.convert_repository_prompt import convert_repository_code, convert_repository_code_python
-from understand.neo4j_connection import Neo4jConnection
+from internal.neo4j_connection import Neo4jConnection
 from util.converting_utlis import extract_used_variable_nodes
 from util.exception import ConvertingError, LLMCallError, ProcessResultError, RepositoryCreationError, SaveFileError, StringConversionError, TemplateGenerationError, TraverseCodeError
 from util.file_utils import save_file

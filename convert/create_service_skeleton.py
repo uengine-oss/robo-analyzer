@@ -6,7 +6,7 @@ import tiktoken
 from prompt.convert_variable_prompt import convert_variables, convert_variables_python
 from prompt.convert_service_skeleton_prompt import convert_method_code, convert_method_code_python
 from prompt.convert_command_prompt import convert_command_code, convert_command_code_python
-from understand.neo4j_connection import Neo4jConnection
+from internal.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError, ExtractNodeInfoError, FilePathError, Neo4jError, ProcessResultError, SaveFileError, SkeletonCreationError, StringConversionError, TemplateGenerationError
 from util.file_utils import save_file
 from util.string_utils import convert_to_camel_case, convert_to_pascal_case

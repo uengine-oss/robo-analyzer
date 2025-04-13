@@ -47,20 +47,19 @@ class Neo4jConnection:
             raise Neo4jError(error_message)
 
 
-    async def fetch_graph_data(self, user_id: str, package_names: list, custom_query=None) -> dict:
+    async def fetch_graph_data(self, user_id: str, package_names: list) -> dict:
         """그래프 데이터베이스의 노드와 관계를 그래프 형태로 조회합니다.
 
         Args:
             user_id (str): 사용자 ID
             package_names (list): 패키지 이름 목록
-            custom_query (str, optional): 사용자가 정의한 조회 쿼리
 
         Returns:
             dict: 노드와 관계 정보를 포함하는 그래프 데이터 딕셔너리
         """
         try:
             # 기본 쿼리 설정
-            default_query = custom_query or f"""
+            default_query = f"""
             MATCH (n)-[r]->(m) 
             WHERE NOT n:Variable AND NOT n:PACKAGE_VARIABLE
             AND NOT m:Variable AND NOT m:PACKAGE_VARIABLE
@@ -125,7 +124,6 @@ class Neo4jConnection:
             bool: 노드 존재 여부 (True 또는 False)
         """
         try:
-            
             # 노드 존재 여부 확인 쿼리
             query = """
             MATCH (n)

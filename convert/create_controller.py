@@ -4,7 +4,7 @@ import os
 import textwrap
 import tiktoken
 from prompt.convert_controller_prompt import convert_controller_method_code, convert_controller_method_code_python
-from understand.neo4j_connection import Neo4jConnection
+from internal.neo4j_connection import Neo4jConnection
 from util.exception import ControllerCreationError, ConvertingError, FilePathError, LLMCallError, Neo4jError, ProcessResultError, SaveFileError, StringConversionError
 from util.file_utils import save_file
 from util.string_utils import convert_to_pascal_case

@@ -4,7 +4,7 @@ import os
 import logging
 import unittest
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-from service.service import generate_and_execute_cypherQuery
+from internal.service import generate_and_execute_cypherQuery
 
 # * 로그 레벨을 INFO로 설정
 logging.basicConfig(level=logging.INFO) 

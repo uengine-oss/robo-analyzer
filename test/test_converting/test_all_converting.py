@@ -5,7 +5,7 @@ import logging
 import asyncio
 
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..', '..')))
-from service.service import generate_spring_boot_project
+from internal.service import generate_spring_boot_project
 
 # 로그 레벨을 INFO로 설정
 logging.basicConfig(level=logging.INFO, format='%(levelname)s: %(message)s')

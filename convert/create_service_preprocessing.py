@@ -3,7 +3,7 @@ import logging
 
 from prompt.convert_service_prompt import convert_service_code, convert_service_code_python
 from prompt.convert_summarized_service_skeleton_prompt import convert_summarized_code
-from understand.neo4j_connection import Neo4jConnection
+from internal.neo4j_connection import Neo4jConnection
 from util.converting_utlis import extract_used_query_methods
 from util.exception import ConvertingError, HandleResultError, LLMCallError, Neo4jError, ProcessResultError, ServiceCreationError, StringConversionError, TraverseCodeError, VariableNodeError
 

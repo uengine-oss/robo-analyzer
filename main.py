@@ -2,7 +2,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-from service.router import router
+from external.router import router
 
 # API 엔드포인트를 정의하고 요청을 처리하기 위해 FastAPI 애플리케이션을 생성
 app = FastAPI()

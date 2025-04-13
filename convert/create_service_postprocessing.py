@@ -2,7 +2,7 @@ import logging
 import os
 import textwrap
 import tiktoken
-from understand.neo4j_connection import Neo4jConnection
+from internal.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError, FilePathError, ProcessResultError, SaveFileError, ServiceCreationError, TraverseCodeError
 from util.file_utils import save_file
 from util.string_utils import convert_to_pascal_case

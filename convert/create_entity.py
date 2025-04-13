@@ -2,7 +2,7 @@ import os
 import logging
 import tiktoken
 from prompt.convert_entity_prompt import convert_entity_code, convert_entity_code_python
-from understand.neo4j_connection import Neo4jConnection
+from internal.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError, EntityCreationError, FilePathError, Neo4jError, ProcessResultError, SaveFileError, TokenCountError
 from util.file_utils import save_file
 from util.token_utils import calculate_code_token
