@@ -6,6 +6,9 @@ from typing import Any, AsyncGenerator
 import zipfile
 import aiofiles
 import os
+
+import httpx
+import requests
 from convert.create_controller import generate_controller_class, start_controller_processing
 from convert.create_controller_skeleton import start_controller_skeleton_processing
 from convert.create_pomxml import start_pomxml_processing
@@ -23,7 +26,7 @@ from understand.analysis import analysis
 from util.exception import ConvertingError, Java2dethsError, LLMCallError, Neo4jError, ProcessResultError, UnderstandingError
 from util.file_utils import read_sequence_file
 from util.string_utils import add_line_numbers
-
+from anthropic import Anthropic
 
 # 환경에 따라 저장 경로 설정
 if os.getenv('DOCKER_COMPOSE_CONTEXT'):
@@ -71,7 +74,7 @@ async def generate_and_execute_cypherQuery(file_names: list, user_id: str, api_k
         # 이전에 사용자가 생성한 노드 존재 여부를 확인
         node_exists = await connection.node_exists(user_id, object_names)
         if node_exists:
-            already_analyzed = {"type": "ALARM", "MESSAGE" : "ALREADY ANALYZED"}
+            already_analyzed = {"type": "ALARM", "MESSAGE": "ALREADY ANALYZED"}
             yield json.dumps(already_analyzed).encode('utf-8') + b"send_stream"
             graph_data = await connection.execute_query_and_return_graph(user_id, object_names)
             stream_data = {"type": "DATA", "graph": graph_data, "analysis_progress": 100}
@@ -83,14 +86,14 @@ async def generate_and_execute_cypherQuery(file_names: list, user_id: str, api_k
             plsql_file_path = os.path.join(dirs['plsql'], file_name)
             base_name = os.path.splitext(file_name)[0]
             analysis_file_path = os.path.join(dirs['analysis'], f"{base_name}.json")
-            ddl_file_name = file_name.replace('TPX_', 'TPJ_')
+            ddl_file_name = file_name.replace('SP_', 'DDL_')
             ddl_file_path = os.path.join(dirs['ddl'], ddl_file_name)
             has_ddl_info = False
             ddl_results = None
 
             # DDL 파일 처리
             if os.path.exists(ddl_file_path):
-                ddl_start = {"type": "ALARM", "MESSAGE" : "START DDL PROCESSING", "file": ddl_file_name}
+                ddl_start = {"type": "ALARM", "MESSAGE": "START DDL PROCESSING", "file": ddl_file_name}
                 yield json.dumps(ddl_start).encode('utf-8') + b"send_stream"
                 logging.info(f"DDL 파일 처리 시작: {ddl_file_name}")
                 ddl_results = await process_ddl_and_table_nodes(ddl_file_path, connection, object_name, user_id, api_key)
@@ -112,6 +115,16 @@ async def generate_and_execute_cypherQuery(file_names: list, user_id: str, api_k
                     
                     if analysis_result.get('type') == 'end_analysis':
                         logging.info(f"Understanding Completed for {file_name}\n")
+                        # 파일 분석이 종료되었으므로 마지막 결과를 포함하여 마지막 라인 번호와 함께 전달
+                        graph_result = await connection.execute_query_and_return_graph(user_id, object_names)
+                        stream_data = {
+                            "type": "DATA", 
+                            "graph": graph_result, 
+                            "line_number": last_line, 
+                            "analysis_progress": 100, 
+                            "current_file": object_name
+                        }
+                        yield json.dumps(stream_data).encode('utf-8') + b"send_stream"
                         break
                     
                     elif analysis_result.get('type') == 'error':
@@ -142,11 +155,10 @@ async def generate_and_execute_cypherQuery(file_names: list, user_id: str, api_k
             # 태스크 생성 및 실행
             analysis_task = asyncio.create_task(
                 analysis(antlr_data, plsql_content, receive_queue, send_queue, 
-                        last_line, object_name, ddl_results, has_ddl_info, user_id, api_key)
+                         last_line, object_name, ddl_results, has_ddl_info, user_id, api_key)
             )
             
             # 단순화된 예외 처리 - 기본 로직 흐름 유지하면서 예외는 상위로 전파
-            # 제너레이터가 값을 yield하는 동안 예외가 발생하면 자동으로 상위로 전파됨
             async for stream_data_chunk in process_analysis_code():
                 yield stream_data_chunk
             
@@ -161,6 +173,7 @@ async def generate_and_execute_cypherQuery(file_names: list, user_id: str, api_k
         yield json.dumps({"error": str(e)}).encode('utf-8') + b"send_stream"
     finally:
         await connection.close()
+
 
 
 # 역할: 처리할 DDL 파일을 읽어서 테이블 구조를 분석하고 Neo4j 그래프 데이터베이스에 저장합니다
@@ -381,21 +394,21 @@ async def delete_all_temp_data(user_id:str):
     neo4j = Neo4jConnection()
     
     try:
-        # * 삭제할 사용자 기본 디렉토리 경로 설정
-        user_base_dir = os.path.join(BASE_DIR, 'data', user_id)
-        user_target_dir = os.path.join(BASE_DIR, 'target', 'java', user_id)
+        # # * 삭제할 사용자 기본 디렉토리 경로 설정
+        # user_base_dir = os.path.join(BASE_DIR, 'data', user_id)
+        # user_target_dir = os.path.join(BASE_DIR, 'target', 'java', user_id)
         
         
-        # * 삭제할 디렉토리 목록
-        dirs_to_delete = [user_base_dir, user_target_dir]
+        # # * 삭제할 디렉토리 목록
+        # dirs_to_delete = [user_base_dir, user_target_dir]
 
 
-        # * 디렉토리 삭제 및 재생성
-        for dir_path in dirs_to_delete:
-            if os.path.exists(dir_path):
-                shutil.rmtree(dir_path)
-                os.makedirs(dir_path)
-                logging.info(f"디렉토리 삭제 및 재생성 완료: {dir_path}")
+        # # * 디렉토리 삭제 및 재생성
+        # for dir_path in dirs_to_delete:
+        #     if os.path.exists(dir_path):
+        #         shutil.rmtree(dir_path)
+        #         os.makedirs(dir_path)
+        #         logging.info(f"디렉토리 삭제 및 재생성 완료: {dir_path}")
         
         
         # * Neo4j 데이터 삭제 (해당 사용자의 데이터만 삭제)
@@ -409,3 +422,36 @@ async def delete_all_temp_data(user_id:str):
         err_msg = f"파일 삭제 및 그래프 데이터 삭제 중 오류 발생: {str(e)}"
         logging.exception(err_msg)
         raise OSError(err_msg)
+
+
+# 역할: Anthropic API 키가 유효한지 검증합니다.
+#
+# 매개변수:
+#   - api_key: 검증할 Anthropic API 키
+#
+# 반환값:
+#   - bool: API 키가 유효하면 True, 그렇지 않으면 False
+async def validate_anthropic_api_key(api_key: str) -> bool:
+    headers = {
+        "Content-Type": "application/json",
+        "x-api-key": api_key,
+        "anthropic-version": "2023-06-01"
+    }
+    
+    payload = {
+        "model": "claude-3-7-sonnet-latest",
+        "max_tokens": 10,
+        "messages": [
+            {"role": "user", "content": "test"}
+        ]
+    }
+    
+    url = "https://api.anthropic.com/v1/messages"
+    
+    try:
+        async with httpx.AsyncClient(timeout=60) as client:
+            response = await client.post(url, headers=headers, json=payload)
+            return response.status_code == 200
+    except Exception as e:
+        logging.error("API 키 검증 중 오류 발생: %s", e)
+        return False

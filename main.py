@@ -2,7 +2,7 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
-from service.router import router
+from service.router import router  # service.router.py 파일에서 정의한 라우터 가져오기
 
 # API 엔드포인트를 정의하고 요청을 처리하기 위해 FastAPI 애플리케이션을 생성
 app = FastAPI()
@@ -26,6 +26,12 @@ logging.basicConfig(
     format='%(levelname)s: %(message)s',
     force=True  # 기존 로깅 설정을 덮어쓰기
 )
+
+
+# 헬스 체크 엔드포인트 추가 (루트 경로)
+@app.get("/")
+async def health_check():
+    return {"status": "ok"}
 
 
 # 애플리케이션 실행: 개발 시 uvicorn을 사용하여 로컬 서버를 실행

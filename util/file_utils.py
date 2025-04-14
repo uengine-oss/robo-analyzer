@@ -47,7 +47,7 @@ async def save_file(content: str, filename: str, base_path: Optional[str] = None
 async def read_sequence_file(object_name: str, user_id: str) -> str:
     try:
         # * 시퀀스 파일명 생성
-        seq_file_name = object_name.replace('TPX_', 'SEQ_')
+        seq_file_name = object_name.replace('SP_', 'SEQ_')
 
 
         # * 환경에 따라 저장 경로  설정
@@ -58,7 +58,8 @@ async def read_sequence_file(object_name: str, user_id: str) -> str:
         
 
         # * 시퀀스 파일 경로
-        seq_file_path = os.path.join(base_dir, 'data', user_id, 'sequence', f'{seq_file_name}.sql')
+        # base_dir가 이미 '/app/data'를 포함하는지 확인
+        seq_file_path = os.path.join(base_dir, user_id, 'sequence', f'{seq_file_name}.sql') if base_dir.endswith('/data') or base_dir.endswith('\\data') else os.path.join(base_dir, 'data', user_id, 'sequence', f'{seq_file_name}.sql')
         logging.info(f"현재 디렉토리: {base_dir}")
         logging.info(f"시퀀스 파일 경로: {seq_file_path}")
         

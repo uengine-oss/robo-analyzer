@@ -255,6 +255,7 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
     sp_token_count = 0                # 토큰 수
 
     print(f"\n[{object_name}] 사이퍼 쿼리 생성 시작")
+    print(f"last_line: {last_line}")
 
 
     # 역할: llm에게 분석할 코드를 전달한 뒤, 분석 결과를 간단히 처리 및 결정하는 함수
@@ -419,38 +420,52 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
 
                 # * CALL 호출 관계를 생성합니다
                 if statement_type in ["CALL", "ASSIGNMENT"]:
-                    for name in called_nodes:
-                        if '.' in name:  # 다른 패키지 호출인 경우
-                            package_name, proc_name = name.split('.')
-                            package_name = package_name.upper()
-                            proc_name = proc_name.upper()
-                            
-                            call_relation_query = f"""
-                                MATCH (c:{statement_type} {{startLine: {start_line}, object_name: '{object_name}', user_id: '{user_id}'}}) 
-                                OPTIONAL MATCH (p)
-                                WHERE (p:PROCEDURE OR p:FUNCTION)
-                                AND p.object_name = '{package_name}' 
-                                AND p.procedure_name = '{proc_name}'
-                                AND p.user_id = '{user_id}'
-                                WITH c, p
-                                FOREACH(ignoreMe IN CASE WHEN p IS NULL THEN [1] ELSE [] END |
-                                    CREATE (new:PROCEDURE:FUNCTION {{object_name: '{package_name}', procedure_name: '{proc_name}', user_id: '{user_id}'}})
-                                    MERGE (c)-[:CALL {{scope: 'external'}}]->(new)
-                                )
-                                FOREACH(ignoreMe IN CASE WHEN p IS NOT NULL THEN [1] ELSE [] END |
-                                    MERGE (c)-[:CALL {{scope: 'external'}}]->(p)
-                                )
-                            """
-                            cypher_query.append(call_relation_query)
-                        else:            # 자신 패키지 내부 호출인 경우
-                            call_relation_query = f"""
-                                MATCH (c:{statement_type} {{startLine: {start_line}, object_name: '{object_name}', user_id: '{user_id}'}})
-                                WITH c
-                                MATCH (p {{object_name: '{object_name}', procedure_name: '{name}', user_id: '{user_id}'}} )
-                                WHERE p:PROCEDURE OR p:FUNCTION
-                                MERGE (c)-[:CALL {{scope: 'internal'}}]->(p)
-                            """
-                            cypher_query.append(call_relation_query)
+                    # 호출 노드가 있을 때만 변환
+                    if statement_type == "ASSIGNMENT" and called_nodes:
+                        label_change_query = f"""
+                            MATCH (a:ASSIGNMENT {{startLine: {start_line}, object_name: '{object_name}', user_id: '{user_id}'}})
+                            REMOVE a:ASSIGNMENT
+                            SET a:CALL, a.name = 'CALL[{start_line}]'
+                        """
+                        cypher_query.append(label_change_query)
+                        # 아래 로직에서는 statement_type을 CALL으로 변경해서 사용
+                        statement_type = "CALL"
+                        
+                    # called_nodes가 존재할 때에만 호출 관계를 생성합니다.
+                    if called_nodes:
+                        for name in called_nodes:
+                            if '.' in name:  # 다른 패키지 호출인 경우
+                                package_name, proc_name = name.split('.')
+                                package_name = package_name.upper()
+                                proc_name = proc_name.upper()
+                                
+                                call_relation_query = f"""
+                                    MATCH (c:{statement_type} {{startLine: {start_line}, object_name: '{object_name}', user_id: '{user_id}'}}) 
+                                    OPTIONAL MATCH (p)
+                                    WHERE (p:PROCEDURE OR p:FUNCTION)
+                                    AND p.object_name = '{package_name}' 
+                                    AND p.procedure_name = '{proc_name}'
+                                    AND p.user_id = '{user_id}'
+                                    WITH c, p
+                                    FOREACH(ignoreMe IN CASE WHEN p IS NULL THEN [1] ELSE [] END |
+                                        CREATE (new:PROCEDURE:FUNCTION {{object_name: '{package_name}', procedure_name: '{proc_name}', user_id: '{user_id}'}})
+                                        MERGE (c)-[:CALL {{scope: 'external'}}]->(new)
+                                    )
+                                    FOREACH(ignoreMe IN CASE WHEN p IS NOT NULL THEN [1] ELSE [] END |
+                                        MERGE (c)-[:CALL {{scope: 'external'}}]->(p)
+                                    )
+                                """
+                                cypher_query.append(call_relation_query)
+                            else:  # 자신 패키지 내부 호출인 경우
+                                call_relation_query = f"""
+                                    MATCH (c:{statement_type} {{startLine: {start_line}, object_name: '{object_name}', user_id: '{user_id}'}})
+                                    WITH c
+                                    MATCH (p {{object_name: '{object_name}', procedure_name: '{name}', user_id: '{user_id}'}} )
+                                    WHERE p:PROCEDURE OR p:FUNCTION
+                                    MERGE (c)-[:CALL {{scope: 'internal'}}]->(p)
+                                """
+                                cypher_query.append(call_relation_query)
+
                     
 
                 # * 테이블과 노드간의 관계를 생성합니다
@@ -699,7 +714,7 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
             if (statement_type in PROCEDURE_TYPES) and (context_range and focused_code):
                 extract_code, line_number = extract_code_within_range(focused_code, context_range)
                 logging.info(f"[{object_name}] {procedure_name} 프로시저 끝 분석 시작")
-                await signal_for_process_analysis(last_line, statement_type)
+                await signal_for_process_analysis(line_number, statement_type)
             elif statement_type not in NON_ANALYSIS_TYPES:
                 context_range.append({"startLine": start_line, "endLine": end_line})
 
@@ -717,7 +732,7 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
         if context_range and focused_code:
             extract_code, _ = extract_code_within_range(focused_code, context_range)
             await signal_for_process_analysis(last_line)
-
+            
 
         # * 분석이 끝났다는 의미를 가진 이벤트를 송신합니다.
         logging.info(f"[{object_name}] 전체 분석 완료")

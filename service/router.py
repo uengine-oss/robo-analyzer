@@ -6,6 +6,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from service.service import delete_all_temp_data, process_project_zipping
 from service.service import generate_and_execute_cypherQuery
 from service.service import generate_spring_boot_project
+from service.service import validate_anthropic_api_key
 
 
 router = APIRouter(prefix="/api/backend")
@@ -32,11 +33,15 @@ async def understand_data(request: Request):
         if not api_key:
             raise HTTPException(status_code=400, detail="Anthropic API 키가 없습니다.")
 
+        # * API 키 유효성 검증
+        is_valid_key = await validate_anthropic_api_key(api_key)
+        if not is_valid_key:
+            raise HTTPException(status_code=401, detail="유효하지 않은 Anthropic API 키입니다.")
+
         # * 파일 정보 추출  
         file_data = await request.json()
         if not file_data:
             raise HTTPException(status_code=400, detail="파일 정보가 없습니다.")
-
 
         # * 파일 이름 추출
         file_names = [(item['fileName'], item['objectName']) for item in file_data['fileInfos']]
@@ -72,6 +77,11 @@ async def covnert_spring_project(request: Request):
         api_key = request.headers.get('Anthropic-Api-Key')
         if not api_key:
             raise HTTPException(status_code=400, detail="Anthropic API 키가 없습니다.")
+
+        # * API 키 유효성 검증
+        is_valid_key = await validate_anthropic_api_key(api_key)
+        if not is_valid_key:
+            raise HTTPException(status_code=401, detail="유효하지 않은 Anthropic API 키입니다.")
 
         # * 요청 객체에서 파일 이름 정보 추출 (filename, objectName)
         file_data = await request.json()
@@ -114,7 +124,8 @@ async def download_spring_project(request: Request):
         else:
             base_dir = os.path.dirname(os.getcwd())
         target_path = os.path.join(base_dir, 'target', 'java', user_id)
-        zipfile_dir = os.path.join(base_dir, 'data', user_id, 'zipfile')
+        # base_dir가 이미 '/app/data'를 포함하는지 확인
+        zipfile_dir = os.path.join(base_dir, user_id, 'zipfile') if base_dir.endswith('/data') or base_dir.endswith('\\data') else os.path.join(base_dir, 'data', user_id, 'zipfile')
         
 
         # * 디렉토리 존재 여부 확인 및 생성
