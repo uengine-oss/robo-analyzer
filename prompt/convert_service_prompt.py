@@ -7,7 +7,7 @@ from langchain.prompts import PromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
 from langchain_anthropic import ChatAnthropic
 from util.exception import LLMCallError
-import pyjson5 as json5
+from langchain_core.output_parsers import JsonOutputParser
 
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
@@ -276,12 +276,20 @@ Sequence Method List:
 [SECTION 9] 자바 코드 생성시 JSON 문자열 처리 규칙
 ===============================================
 1. 특수 문자 이스케이프 처리
+   줄바꿈은 반드시 \n으로 표현할 것 (실제 줄바꿈 사용 금지)
+   특수 문자 이스케이프 처리 규칙
    - 줄바꿈: \\n
    - 큰따옴표: \\"
    - 백슬래시: \\\\
    - 작은따옴표: \\'
+   올바르게 이스케이프 처리된 예시 : 
+   {{
+    "method": "    @PostMapping(\\\"/insEmployee\\\")\\n    public ResponseEntity<String> insEmployee(@RequestBody InsEmployeeCommand command) {{\\n        tpxEmployeeService.insEmployee(command.getEmpKey(), command.getEmpName(), command.getDeptCode(), command.getRegularYn());\\n        return ResponseEntity.ok(\\\"Employee inserted successfully\\\");\\n    }}"
+   }}
 
-2. 문자열 작성 규칙
+2. 절대로 코드블록(```)이나 추가 설명을 포함하지 말 것.
+   
+3. 문자열 작성 규칙
    - 문자열 연결 시 '+' 연산자 사용 금지
    - 하나의 연속된 문자열로 작성
    - 모든 따옴표 이스케이프 처리 확인
@@ -356,35 +364,17 @@ def convert_service_code(convert_sp_code: str, service_skeleton: str, variable_l
           api_key=api_key
       )
 
+      parser = JsonOutputParser()
+
+
       chain = (
          RunnablePassthrough()
-         | jpa_prompt
+         | jpa_prompt.partial(format_instructions=parser.get_format_instructions())
          | llm
+         | parser
       )
       result = chain.invoke(prompt_data)
-
-      # TODO 여기서 최대 토큰이 4096이 넘은 경우 처리가 필요
-      logging.info(f"토큰 수: {result.usage_metadata}") 
-      output_tokens = result.usage_metadata['output_tokens']
-      if output_tokens > 4096:
-         logging.warning(f"출력 토큰 수가 4096을 초과했습니다: {output_tokens}")
-
-      # 백틱으로 감싸진 코드 블록 처리
-      content = result.content
-      # 코드 블록(```json ... ```) 형식 처리
-      if content.startswith('```json') and '```' in content[7:]:
-         content = content[7:].split('```', 1)[0].strip()
-      # 일반 코드 블록(``` ... ```) 형식 처리
-      elif content.startswith('```') and '```' in content[3:]:
-         content = content[3:].split('```', 1)[0].strip()
-      # 단일 백틱(` ... `) 형식 처리
-      elif content.startswith('`') and content.endswith('`'):
-         content = content[1:-1].strip()
-      
-      logging.info(f"백틱 제거 후 파싱 시도: {content[:100]}...")
-      
-      json_parsed_content = json5.loads(content)
-      return json_parsed_content
+      return result
 
    except Exception as e:
       err_msg = f"(전처리) 서비스 코드 생성 과정에서 LLM 호출 중 오류 발생: {str(e)}"

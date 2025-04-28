@@ -38,7 +38,7 @@ class TestPreServiceGeneration(unittest.IsolatedAsyncioTestCase):
         
         # * 테스트할 객체 이름들을 설정
         object_names = [
-            "process_payroll",
+            "TPX_LIBRARY_OPERATION",
             # "TPX_UPDATE_SALARY",
             # "TPX_EMPLOYEE",
             # "TPX_SALARY",
@@ -52,9 +52,11 @@ class TestPreServiceGeneration(unittest.IsolatedAsyncioTestCase):
             # "TPX_ALARM_RECIPIENT"
         ]
 
-        # * 테스트할 세션 및 orm 타입 설정
-        session_uuid = "84b14f67-07ae-49a8-9473-b1c72bb0a57c"
-        api_key = ""
+
+        session_uuid = "TestSession"
+        api_key = "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"
+
+
 
 
         try:

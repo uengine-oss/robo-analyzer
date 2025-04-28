@@ -7,7 +7,7 @@ from util.exception import ConvertingError, FilePathError, ProcessResultError, S
 from util.file_utils import save_file
 
 encoder = tiktoken.get_encoding("cl100k_base")
-SERVICE_PATH = 'demo/src/main/java/com/example/demo/service'
+# SERVICE_PATH = 'demo/src/main/java/com/example/demo/service'
 
 
 # 역할: 토큰 수가 1700개 이상인 큰 부모 노드의 요약된 코드를 실제 자식 노드들의 코드로 대체하는 함수입니다.
@@ -168,18 +168,24 @@ async def traverse_node_for_merging_service(node_list:list, connection:Neo4jConn
 #   - service_class_name : 생성할 서비스 클래스의 이름
 #   - merge_method_code : 서비스 클래스에 추가될 메서드 코드
 #   - user_id : 사용자 ID
-async def generate_service_class(service_skeleton: str, service_class_name: str, merge_method_code: str, user_id:str) -> None:
+#   - project_name : 프로젝트 이름
+#
+# 반환값:
+#   - str : 생성된 서비스 파일의 경로
+async def generate_service_class(service_skeleton: str, service_class_name: str, merge_method_code: str, user_id: str, project_name: str = "demo") -> str:
     try:
         # * 병합된 메서드 코드를 들여쓰기 처리
         service_skeleton = service_skeleton.replace("CodePlaceHolder", merge_method_code)
 
+        # * 서비스 경로 설정
+        service_path = f'{project_name}/src/main/java/com/example/{project_name}/service'
 
         # * 저장 경로 설정
         if os.getenv('DOCKER_COMPOSE_CONTEXT'):
-            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', 'java', user_id, SERVICE_PATH)
+            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', 'java', user_id, service_path)
         else:
             current_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            save_path = os.path.join(current_dir, 'target', 'java', user_id, SERVICE_PATH)
+            save_path = os.path.join(current_dir, 'target', 'java', user_id, service_path)
 
 
         # * 서비스 클래스 파일 생성
@@ -190,6 +196,9 @@ async def generate_service_class(service_skeleton: str, service_class_name: str,
         )
 
         logging.info(f"[{service_class_name}] Success Create Service Java File")
+        
+        # * 생성된 파일 내용 반환
+        return service_skeleton
 
     except SaveFileError:
         raise

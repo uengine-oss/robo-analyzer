@@ -73,7 +73,7 @@ prompt = PromptTemplate.from_template(
         {{
             "name": "변수명",
             "type": "데이터타입",
-            "value": "할당값 또는 null, 0",
+            "value": "할당값 또는, 0, 빈 문자열",
             "parameter_type": "IN/OUT/IN_OUT/LOCAL",
         }}
     ],

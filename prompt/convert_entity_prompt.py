@@ -33,8 +33,11 @@ jpa_prompt = PromptTemplate.from_template(
    - JSON 객체의 'name' 필드를 파스칼 케이스로 변환
    - 복수형을 단수형으로 변경
    - entityName도 동일한 규칙 적용
+   - TPJ_ , DDL_ 같은 접두사를 절대적으로 유지하세요
    예시) B_Plcy_Month -> BPlcyMonth
         Employees -> Employee
+        TPJ_PLCY_MONTH -> TpjPlcyMonth
+        DDL_PLCY_MONTH -> DdlPlcyMonth
 
 3. 필드 규칙
    - 접근제한자: private
@@ -69,7 +72,7 @@ jpa_prompt = PromptTemplate.from_template(
    
 [SECTION 2] Entity 클래스 기본 템플릿
 ===============================================
-package com.example.demo.entity;
+package com.example.{project_name}.entity;
 
 import jakarta.persistence.*;
 import lombok.*;
@@ -114,10 +117,11 @@ public class EntityName {{
 # 매개변수: 
 #   - table_data : 테이블 노드의 메타데이터 정보
 #   - api_key : OpenAI API 키
+#   - project_name : 프로젝트 이름
 #
 # 반환값: 
 #   - result : LLM이 생성한 Entity 클래스 정보
-def convert_entity_code(table_data: dict, api_key: str) -> dict:
+def convert_entity_code(table_data: dict, api_key: str, project_name: str) -> dict:
     
     try:
         llm = ChatAnthropic(
@@ -128,7 +132,8 @@ def convert_entity_code(table_data: dict, api_key: str) -> dict:
 
         table_json_data = json.dumps(table_data, ensure_ascii=False, indent=2)
         prompt_data = {
-                "table_json_data": table_json_data
+                "table_json_data": table_json_data,
+                "project_name": project_name
             }
 
         chain = (

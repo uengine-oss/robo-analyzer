@@ -85,9 +85,9 @@ def understand_ddl(ddl_content, api_key):
     try:
         # 전달받은 API 키로 Anthropic Claude LLM 인스턴스 생성
         llm = ChatAnthropic(
+            anthropic_api_key=api_key.strip(),
             model="claude-3-7-sonnet-latest", 
             max_tokens=8192,
-            api_key=api_key
         )
 
         ddl_content = json.dumps(ddl_content, indent=2, ensure_ascii=False)

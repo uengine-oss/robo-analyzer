@@ -65,10 +65,16 @@ def extract_code_within_range(code: str, context_range: list[dict]) -> tuple[str
         
 
         # * 지정된 라인 번호를 기준으로 코드를 추출합니다.
-        extracted_lines = [
-            line for line in code_lines 
-            if ':' in line and start_line <= int(line.split(':')[0].split('~')[0].strip()) <= end_line
-        ]
+        # * 라인 번호 패턴을 찾아서 처리합니다 - 숫자: 또는 숫자~숫자: 형태
+        line_number_pattern = r'^(\d+)(?:~\d+)?:\s'
+        
+        extracted_lines = []
+        for line in code_lines:
+            match = re.match(line_number_pattern, line)
+            if match:
+                line_number = int(match.group(1))
+                if start_line <= line_number <= end_line:
+                    extracted_lines.append(line)
 
         extracted_code = '\n'.join(extracted_lines)
         return extracted_code, end_line
@@ -123,18 +129,40 @@ def extract_and_summarize_code(file_content: str, node: dict) -> str:
         summarized_code = []
         last_end_line = start_line - 1
 
+        # * 이미 라인 번호가 있는지 확인하는 정규식 패턴
+        line_number_pattern = r'^\d+\s*:'
 
         # * 각 자식 노드에 대해 코드를 추출한 뒤, 요약 처리를 반복합니다.
         for child in children:
             before_child_code = code_lines[last_end_line-start_line+1:child['startLine']-start_line]
-            summarized_code.extend([f"{i+last_end_line+1}: {line}\n" for i, line in enumerate(before_child_code)])
+            
+            # 자식 노드 앞의 코드를 처리합니다
+            for i, line in enumerate(before_child_code):
+                line_number = i + last_end_line + 1
+                if re.match(line_number_pattern, line):
+                    # 이미 라인 번호가 있는 경우 그대로 사용
+                    summarized_code.append(f"{line}\n")
+                else:
+                    # 라인 번호가 없는 경우 추가
+                    summarized_code.append(f"{line_number}: {line}\n")
+            
             summarized_code.append(f"{child['startLine']}: ... code ...\n")
             last_end_line = child['endLine']
 
 
         # * 마지막 자식 노드 이후 부터 끝나는 지점까지의 코드를 추가합니다
         after_last_child_code = code_lines[last_end_line-start_line+1:]
-        summarized_code.extend([f"{i+last_end_line+1}: {line}\n" for i, line in enumerate(after_last_child_code)])
+        
+        # 마지막 자식 이후 코드를 처리합니다
+        for i, line in enumerate(after_last_child_code):
+            line_number = i + last_end_line + 1
+            if re.match(line_number_pattern, line):
+                # 이미 라인 번호가 있는 경우 그대로 사용
+                summarized_code.append(f"{line}\n")
+            else:
+                # 라인 번호가 없는 경우 추가
+                summarized_code.append(f"{line_number}: {line}\n")
+        
         return ''.join(summarized_code)
     
 
@@ -143,7 +171,22 @@ def extract_and_summarize_code(file_content: str, node: dict) -> str:
         if not node.get('children'):
             lines = file_content.split('\n')  
             code_lines = lines[node['startLine']-1:node['endLine']] 
-            return ''.join([f"{i+node['startLine']}: {line}\n" for i, line in enumerate(code_lines)])
+            
+            # 이미 라인 번호가 있는지 확인하는 정규식 패턴
+            line_number_pattern = r'^\d+\s*:'
+            
+            # 각 라인을 처리합니다
+            result = []
+            for i, line in enumerate(code_lines):
+                line_number = i + node['startLine']
+                if re.match(line_number_pattern, line):
+                    # 이미 라인 번호가 있는 경우 그대로 사용
+                    result.append(f"{line}\n")
+                else:
+                    # 라인 번호가 없는 경우 추가
+                    result.append(f"{line_number}: {line}\n")
+            
+            return ''.join(result)
         else:
             # * 자식 노드가 있는 경우, summarize_code 함수를 호출하여 처리합니다.
             return summarize_code(node['startLine'], node['endLine'], node.get('children', []))
@@ -206,10 +249,20 @@ def extract_node_code(file_content: str, start_line: int, end_line: int) -> str:
         lines = file_content.split('\n')
         extracted_lines = lines[start_line-1:end_line]
 
+        # * 이미 라인 번호가 있는지 확인하는 정규식 패턴
+        line_number_pattern = r'^\d+\s*:'
 
-        # * 추출된 라인들 앞에 라인 번호를 추가하고 하나의 문자열로 연결합니다.
-        extracted_node_code = '\n'.join(f"{i + start_line}: {line}" for i, line in enumerate(extracted_lines))
-        return extracted_node_code
+        # * 추출된 라인들을 하나의 문자열로 연결합니다.
+        extracted_node_code = []
+        for i, line in enumerate(extracted_lines):
+            if re.match(line_number_pattern, line):
+                # 이미 라인 번호가 있는 경우 그대로 사용
+                extracted_node_code.append(line)
+            else:
+                # 라인 번호가 없는 경우 추가
+                extracted_node_code.append(f"{i + start_line}: {line}")
+        
+        return '\n'.join(extracted_node_code)
     
     except Exception as e:
         err_msg = f"Understanding 과정에서 노드에 맞게 코드를 추출 도중에 오류가 발생했습니다: {str(e)}"
@@ -341,14 +394,15 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
                 table_name = table.split('.')[-1].upper()  # 테이블명을 대문자로 변환
                 table_fields[table_name].update(fields)
                 if not fields or '*' in fields:
-                    table_query = f"MERGE (t:Table {{name: '{table.upper()}', object_name: '{object_name}', user_id: '{user_id}'}})"
+                    table_query = f"MERGE (t:Table {{name: '{table.upper()}', user_id: '{user_id}'}}) ON MATCH SET t.object_names = CASE WHEN t.object_names IS NULL THEN ['{object_name}'] ELSE CASE WHEN '{object_name}' IN t.object_names THEN t.object_names ELSE t.object_names + ['{object_name}'] END END"
                     cypher_query.append(table_query)
                 else:
                     for field in fields:
                         field_name = clean_field_name(field.split(':')[1])
                         field_type = field.split(':')[0]
                         update_query = f"""
-                            MERGE (t:Table {{name: '{table.upper()}', object_name: '{object_name}', user_id: '{user_id}'}})
+                            MERGE (t:Table {{name: '{table.upper()}', user_id: '{user_id}'}})
+                            ON MATCH SET t.object_names = CASE WHEN t.object_names IS NULL THEN ['{object_name}'] ELSE CASE WHEN '{object_name}' IN t.object_names THEN t.object_names ELSE t.object_names + ['{object_name}'] END END
                             WITH t 
                             WHERE t.{field_name} IS NULL 
                             SET t.{field_name} = '{field_type}'
@@ -364,9 +418,11 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
                 # * 자기 자신의 테이블을 참조하는 경우 무시합니다
                 if source_table != target_table:
                     table_reference_query = f"""
-                    MERGE (source:Table {{name: '{source_table}', object_name: '{object_name}', user_id: '{user_id}'}})
+                    MERGE (source:Table {{name: '{source_table}', user_id: '{user_id}'}})
+                    ON MATCH SET source.object_names = CASE WHEN source.object_names IS NULL THEN ['{object_name}'] ELSE CASE WHEN '{object_name}' IN source.object_names THEN source.object_names ELSE source.object_names + ['{object_name}'] END END
                     WITH source
-                    MERGE (target:Table {{name: '{target_table}', object_name: '{object_name}', user_id: '{user_id}'}})
+                    MERGE (target:Table {{name: '{target_table}', user_id: '{user_id}'}})
+                    ON MATCH SET target.object_names = CASE WHEN target.object_names IS NULL THEN ['{object_name}'] ELSE CASE WHEN '{object_name}' IN target.object_names THEN target.object_names ELSE target.object_names + ['{object_name}'] END END
                     MERGE (source)-[:REFERENCES]->(target)
                     """
                     cypher_query.append(table_reference_query)
@@ -474,7 +530,7 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
                     table_relationship_query = f"""
                         MERGE (n:{statement_type} {{startLine: {start_line}, object_name: '{object_name}', user_id: '{user_id}'}})
                         WITH n
-                        MERGE (t:Table {{name: '{first_table_name}', object_name: '{object_name}', user_id: '{user_id}'}})
+                        MERGE (t:Table {{name: '{first_table_name}', user_id: '{user_id}'}})
                         MERGE (n)-[:{table_relationship_type}]->(t)
                     """
                     cypher_query.append(table_relationship_query)
@@ -511,10 +567,12 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
                 var_name = variable["name"]
                 var_type = variable["type"]
                 var_value = variable["value"]
+                var_value = '' if var_value is None else var_value
+
                 
                 if statement_type == 'DECLARE':
                     cypher_query.extend([
-                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', procedure_name: '{procedure_name}', role: '{role}', scope: 'Local', value: '{var_value}', user_id: '{user_id}'}}) ",
+                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', procedure_name: '{procedure_name}', role: '{role}', scope: 'Local', value: {json.dumps(var_value)}, user_id: '{user_id}'}}) ",
                         f"MATCH (p:{statement_type} {{startLine: {node_startLine}, object_name: '{object_name}', procedure_name: '{procedure_name}', user_id: '{user_id}'}}) "
                         f"SET p.summary = {var_summary}"
                         f"WITH p "
@@ -523,7 +581,7 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
                     ])
                 elif statement_type == 'PACKAGE_VARIABLE':
                     cypher_query.extend([
-                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', role: '{role}', scope: 'Global', value: '{var_value}', user_id: '{user_id}'}}) ",
+                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', role: '{role}', scope: 'Global', value: {json.dumps(var_value)}, user_id: '{user_id}'}}) ",
                         f"MATCH (p:{statement_type} {{startLine: {node_startLine}, object_name: '{object_name}', user_id: '{user_id}'}}) "
                         f"SET p.summary = {var_summary}"
                         f"WITH p "
@@ -532,7 +590,7 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
                     ])
                 else:
                     cypher_query.extend([
-                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', parameter_type: '{var_parameter_type}', procedure_name: '{procedure_name}', role: '{role}', scope: 'Local', value: '{var_value}', user_id: '{user_id}'}}) ",
+                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{object_name}', type: '{var_type}', parameter_type: '{var_parameter_type}', procedure_name: '{procedure_name}', role: '{role}', scope: 'Local', value: {json.dumps(var_value)}, user_id: '{user_id}'}}) ",
                         f"MATCH (p:{statement_type} {{startLine: {node_startLine}, object_name: '{object_name}', procedure_name: '{procedure_name}', user_id: '{user_id}'}}) "
                         f"SET p.summary = {var_summary}"
                         f"WITH p "
@@ -618,7 +676,7 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
 
         # * 노드 크기 및 토큰 수 체크를 하여, 분석 여부를 결정합니다
         sp_token_count = count_tokens_in_text(extract_code)
-        if (node_size >= 1000 and context_range and node_size + sp_token_count >= 2300) or (sp_token_count >= 2300 and context_range):
+        if (node_size >= 1000 and context_range and node_size + sp_token_count >= 1200) or (sp_token_count >= 1200 and context_range) or (len(context_range) >= 10 and sp_token_count >= 1200):
             await signal_for_process_analysis(line_number)
 
 

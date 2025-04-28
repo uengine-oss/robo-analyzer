@@ -3,55 +3,55 @@ import logging
 from util.exception import MainCreationError, SaveFileError
 from util.file_utils import save_file
 
-MAIN_CLASS_NAME = "DemoApplication.java"
-MAIN_CLASS_PATH = 'demo/src/main/java/com/example/demo'
+# 프로젝트 이름은 함수 매개변수로 받음
 
-# JPA용 메인 클래스 템플릿
-JPA_MAIN_CLASS_TEMPLATE = """
-package com.example.demo;
+# 역할: Spring Boot 애플리케이션의 시작점이 되는 메인 클래스 파일을 생성합니다.
+#
+# 매개변수:
+#   - user_id : 사용자 ID
+#   - project_name : 프로젝트 이름
+async def start_main_processing(user_id:str, project_name:str) -> str:
+    logging.info("메인 클래스 생성을 시작합니다.")
+
+    try:
+        # 메인 클래스명과 경로 생성
+        main_class_name = f"{project_name.capitalize()}Application.java"
+        main_class_path = f'{project_name}/src/main/java/com/example/{project_name}'
+        
+        # JPA 메인 클래스 템플릿 생성
+        main_template = f"""
+package com.example.{project_name};
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 
 @SpringBootApplication
-public class DemoApplication {
+public class {project_name.capitalize()}Application {{
 
-    public static void main(String[] args) {
-        SpringApplication.run(DemoApplication.class, args);
-    }
+    public static void main(String[] args) {{
+        SpringApplication.run({project_name.capitalize()}Application.class, args);
+    }}
 
-}
+}}
 """
-
-
-# 역할: Spring Boot 애플리케이션의 시작점이 되는 메인 클래스 파일을 생성합니다.
-#
-# 매개변수:
-#   - orm_type : ORM 유형 (jpa, mybatis)
-#   - user_id : 사용자 ID
-async def start_main_processing(user_id:str):
-    logging.info("메인 클래스 생성을 시작합니다.")
-
-    try:
-        # * 템플릿 선택
-        main_template = JPA_MAIN_CLASS_TEMPLATE
 
         # * 저장 경로 설정
         if os.getenv('DOCKER_COMPOSE_CONTEXT'):
-            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', 'java', user_id, MAIN_CLASS_PATH)
+            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', 'java', user_id, main_class_path)
         else:
             parent_workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            save_path = os.path.join(parent_workspace_dir, 'target', 'java', user_id, MAIN_CLASS_PATH)
+            save_path = os.path.join(parent_workspace_dir, 'target', 'java', user_id, main_class_path)
 
 
         # * 메인 클래스 파일 생성
         await save_file(
             content=main_template, 
-            filename=MAIN_CLASS_NAME, 
+            filename=main_class_name, 
             base_path=save_path
         )
         
         logging.info("메인 클래스가 생성되었습니다.\n")
+        return main_template
     
     except SaveFileError:
         raise

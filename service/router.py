@@ -128,7 +128,8 @@ async def covnert_spring_project(request: Request):
 
  
 # 역할: 생성된 스프링 부트 프로젝트를 ZIP 파일로 압축하여 다운로드를 제공합니다
-# 매개변수: 없음
+# 매개변수: 
+#   - request: project_name을 포함하는 요청 객체
 # 반환값: 
 #   - FileResponse: 압축된 프로젝트 파일
 @router.post("/downloadJava/")
@@ -138,14 +139,19 @@ async def download_spring_project(request: Request):
         user_id = request.headers.get('Session-UUID')
         if not user_id:
             raise HTTPException(status_code=400, detail="사용자 ID가 없습니다.")
-    
+        
+        # * project_name 추출
+        request_data = await request.json()
+        project_name = request_data.get('projectName', 'project')
+        print("project_name: ", project_name)
+
     
         # * 환경에 따라 저장 경로 설정
         if os.getenv('DOCKER_COMPOSE_CONTEXT'):
             base_dir = os.getenv('DOCKER_COMPOSE_CONTEXT')
         else:
             base_dir = os.path.dirname(os.getcwd())
-        target_path = os.path.join(base_dir, 'target', 'java', user_id)
+        target_path = os.path.join(base_dir, 'target', 'java', user_id, project_name)
         # base_dir가 이미 '/app/data'를 포함하는지 확인
         zipfile_dir = os.path.join(base_dir, user_id, 'zipfile') if base_dir.endswith('/data') or base_dir.endswith('\\data') else os.path.join(base_dir, 'data', user_id, 'zipfile')
         
@@ -156,7 +162,7 @@ async def download_spring_project(request: Request):
 
 
         # * 압축 파일 경로
-        output_zip_path = os.path.join(zipfile_dir, 'project.zip')
+        output_zip_path = os.path.join(zipfile_dir, f'{project_name}.zip')
         
 
         # * 프로젝트 압축
@@ -165,7 +171,7 @@ async def download_spring_project(request: Request):
 
         return FileResponse(
             path=output_zip_path, 
-            filename="project.zip", 
+            filename=f"{project_name}.zip", 
             media_type='application/octet-stream'
         )
     

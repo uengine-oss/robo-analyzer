@@ -35,6 +35,7 @@ async def get_nodes_without_java_code(connection: Neo4jConnection, object_name: 
         AND NOT n:PACKAGE_VARIABLE
         AND NOT n:Variable
         AND NOT n:PROCEDURE_SPEC
+        AND NOT n:FUNCTION_SPEC
         AND NOT n:PACKAGE_BODY
         AND NOT n:FUNCTION
         AND NOT n:SPEC
@@ -114,6 +115,12 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
 
             # * 결과 처리 및 노드 업데이트
             await handle_convert_result(analysis_result)
+
+            context_range.clear()
+            used_query_method_dict.clear()
+            used_variables.clear()
+            current_code = ""
+            current_token = 0
 
         except ConvertingError:
             raise

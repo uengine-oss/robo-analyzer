@@ -8,7 +8,7 @@ from langchain_core.output_parsers import JsonOutputParser
 from langchain.prompts import PromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
 from util.exception import LLMCallError
-
+import pyjson5 as json5
 
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
@@ -86,6 +86,23 @@ public ResponseEntity<String> updateEmployee(@RequestBody UpdateEmployeeCommand 
 }}
 
 
+잊지말고 꼭 주의해야할 사항:
+1. JSON 문자열로 출력할 때는 다음 이스케이프 규칙을 반드시 준수하시오.
+
+   줄바꿈은 반드시 \n으로 표현할 것 (실제 줄바꿈 사용 금지)
+   특수 문자 이스케이프 처리 규칙
+   - 줄바꿈: \\n
+   - 큰따옴표: \\"
+   - 백슬래시: \\\\
+   - 작은따옴표: \\'
+   올바르게 이스케이프 처리된 예시 : 
+   {{
+    "method": "    @PostMapping(\\\"/insEmployee\\\")\\n    public ResponseEntity<String> insEmployee(@RequestBody InsEmployeeCommand command) {{\\n        tpxEmployeeService.insEmployee(command.getEmpKey(), command.getEmpName(), command.getDeptCode(), command.getRegularYn());\\n        return ResponseEntity.ok(\\\"Employee inserted successfully\\\");\\n    }}"
+   }}
+2. 절대로 코드블록(```)이나 추가 설명을 포함하지 말 것.
+
+--
+
 [JSON 출력 형식]
 ===============================================
 부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요:
@@ -93,6 +110,7 @@ public ResponseEntity<String> updateEmployee(@RequestBody UpdateEmployeeCommand 
     "method": "작성된 컨트롤러 메서드 코드"
 }}
 """
+
 )
 
 
@@ -117,17 +135,26 @@ def convert_controller_method_code(method_signature: str, procedure_name: str, c
             max_tokens=8192,
             api_key=api_key
         )
-
+        parser = JsonOutputParser()
         command_class_variable = json.dumps(command_class_variable, ensure_ascii=False, indent=2)
 
         chain = (
             RunnablePassthrough()
-            | prompt
+            | prompt.partial(format_instructions=parser.get_format_instructions())
             | llm
-            | JsonOutputParser()
+            | parser
         )
-        result = chain.invoke({"method_signature": method_signature, "procedure_name": procedure_name, "command_class_variable": command_class_variable, "command_class_name": command_class_name, "controller_skeleton": controller_skeleton})
+
+        result = chain.invoke({
+            "method_signature": method_signature,
+            "procedure_name": procedure_name,
+            "command_class_variable": command_class_variable,
+            "command_class_name": command_class_name,
+            "controller_skeleton": controller_skeleton
+        })
+    
         return result
+
     except Exception as e:
         err_msg = f"컨트롤러 메서드 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)

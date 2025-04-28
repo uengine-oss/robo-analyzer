@@ -8,7 +8,6 @@ import aiofiles
 import os
 
 import httpx
-import requests
 from convert.create_controller import generate_controller_class, start_controller_processing
 from convert.create_controller_skeleton import start_controller_skeleton_processing
 from convert.create_pomxml import start_pomxml_processing
@@ -16,17 +15,17 @@ from convert.create_properties import start_APLproperties_processing
 from convert.create_repository import start_repository_processing
 from convert.create_entity import start_entity_processing
 from convert.create_service_preprocessing import start_service_preprocessing
-from convert.create_service_postprocessing import generate_service_class, start_service_postprocessing 
+from convert.create_service_postprocessing import generate_service_class, start_service_postprocessing
 from convert.create_service_skeleton import start_service_skeleton_processing
-from convert.validate_service_preprocessing import start_validate_service_preprocessing
 from convert.create_main import start_main_processing
+from convert.validate_service_preprocessing import start_validate_service_preprocessing
+from prompt.convert_project_name_prompt import generate_project_name_prompt
 from prompt.understand_ddl import understand_ddl
 from understand.neo4j_connection import Neo4jConnection
 from understand.analysis import analysis
-from util.exception import ConvertingError, Java2dethsError, LLMCallError, Neo4jError, ProcessResultError, UnderstandingError
+from util.exception import ConvertingError, Neo4jError, ProcessResultError, UnderstandingError
 from util.file_utils import read_sequence_file
 from util.string_utils import add_line_numbers
-from anthropic import Anthropic
 
 # 환경에 따라 저장 경로 설정
 if os.getenv('DOCKER_COMPOSE_CONTEXT'):
@@ -48,7 +47,6 @@ def get_user_directories(user_id: str):
         'plsql': os.path.join(user_base, "src"),
         'analysis': os.path.join(user_base, "analysis"),
         'ddl': os.path.join(user_base, "ddl"),
-        'target': os.path.join(BASE_DIR, 'target', 'java', user_id, 'demo', 'src', 'main', 'java', 'com', 'example', 'demo', 'command')
     }
 
 
@@ -65,6 +63,7 @@ async def generate_and_execute_cypherQuery(file_names: list, user_id: str, api_k
     connection = Neo4jConnection()
     receive_queue = asyncio.Queue()
     send_queue = asyncio.Queue()
+    
     dirs = get_user_directories(user_id)
 
     try:
@@ -148,6 +147,7 @@ async def generate_and_execute_cypherQuery(file_names: list, user_id: str, api_k
                         "analysis_progress": analysis_progress, 
                         "current_file": object_name
                     }
+                    print("안녕", stream_data.get('current_file'))
                     await send_queue.put({'type': 'process_completed'})
                     logging.info(f"Send Response for {file_name}")
                     yield json.dumps(stream_data).encode('utf-8') + b"send_stream"
@@ -165,6 +165,10 @@ async def generate_and_execute_cypherQuery(file_names: list, user_id: str, api_k
             # 태스크 완료 대기
             await analysis_task
 
+        # 모든 파일 처리가 완료된 후 최종 메시지 전송
+        completion_message = {"type": "ALARM", "MESSAGE": "ALL_ANALYSIS_COMPLETED"}
+        yield json.dumps(completion_message).encode('utf-8') + b"send_stream"
+    
     # 예외 처리부 - 모든 예외는 여기서 처리
     except UnderstandingError as e:
         yield json.dumps({"error": str(e)}).encode('utf-8') + b"send_stream"
@@ -234,7 +238,6 @@ async def process_ddl_and_table_nodes(ddl_file_path: str, connection: Neo4jConne
             return ddl_result
     
     except UnderstandingError as e:
-        logging.error(f"여기까지왔나? service")
         raise
     except Exception as e:
         err_msg = f"DDL 파일 처리 중 오류가 발생했습니다: {str(e)}"
@@ -254,39 +257,110 @@ async def process_ddl_and_table_nodes(ddl_file_path: str, connection: Neo4jConne
 #   - 스트림 : 각 변환 단계의 진행 상태 메시지
 async def generate_spring_boot_project(file_names: list, user_id: str, api_key: str) -> AsyncGenerator[Any, None]:
     try:
+        #==================================================================
+        # 유틸리티 함수 정의
+        #==================================================================
+        def create_message(data_type, **kwargs):
+            """스트림 메시지를 생성하는 유틸리티 함수"""
+            message = {"data_type": data_type, **kwargs}
+            return json.dumps(message).encode('utf-8') + b"send_stream"
         
-        # * 패키지 이름 별로, 각 단계를 처리합니다
+        #==================================================================
+        # 1. 프로젝트 이름 생성
+        #==================================================================
+        project_name = await generate_project_name_prompt(file_names, api_key)
+        logging.info(f"프로젝트 이름 생성 완료: {project_name}")
+        
+        yield create_message("data", file_type="project_name", project_name=project_name)
+        
+        #==================================================================
+        # 2. 엔티티 클래스 생성
+        #==================================================================
+        yield create_message("message", step=1, content="Generating Entity Class")
+        
+        entity_result_list = await start_entity_processing(file_names, user_id, api_key, project_name)
+        
+        for entity in entity_result_list:
+            yield create_message(
+                "data", 
+                file_type="entity_class",
+                file_name=f"{entity['entityName']}.java",
+                code=entity['entityCode']
+            )
+        
+        yield create_message("Done", step=1)
+        
+        #==================================================================
+        # 3. 리포지토리 인터페이스 생성
+        #==================================================================
+        yield create_message("message", step=2, content="Generating Repository Interface")
+        
+        used_query_methods, global_variables, sequence_methods, repository_list = await start_repository_processing(
+            file_names, user_id, api_key, project_name
+        )
+        
+        for repo in repository_list:
+            yield create_message(
+                "data",
+                file_type="repository_class",
+                file_name=f"{repo['repositoryName']}.java",
+                code=repo['code']
+            )
+        
+        yield create_message("Done", step=2)
+        
+        #==================================================================
+        # 4. 서비스, 컨트롤러 생성
+        #==================================================================
+        file_count = len(file_names)
+        current_file_index = 0
+        logging.info(f"변환할 파일 개수: {file_count}")
         for file_name, object_name in file_names:
             merge_method_code = ""
             merge_controller_method_code = ""
+            current_file_index += 1
 
-            yield f"Start converting {object_name}\n"
+            yield create_message("message", step=3, 
+                content=f"Business Logic Processing")
             print(f"Start converting {object_name}\n")
 
-
-            # * 시퀀스 파일을 읽어 시퀀스 목록을 반환합니다
-            sequence_data = await read_sequence_file(object_name, user_id)
-
-
-            # * 1 단계 : 엔티티 클래스 생성
-            entity_name_list = await start_entity_processing(object_name, user_id, api_key) 
-            yield f"{file_name}-Step1 completed\n"
+            #--------------------------------------------------------------
+            # 4.1 서비스, 컨트롤러 스켈레톤 생성
+            #--------------------------------------------------------------
+            yield create_message("message", step=3, content=f"{object_name} - Service Skeleton")
             
-
-            # * 2 단계 : 리포지토리 인터페이스 생성
-            used_query_methods, global_variables, all_query_methods, sequence_methods = await start_repository_processing(object_name, sequence_data, user_id, api_key) 
-            yield f"{file_name}-Step2 completed\n"
+            service_creation_info, service_skeleton, service_class_name, exist_command_class, command_class_list = (
+                await start_service_skeleton_processing(
+                    entity_result_list, object_name, global_variables, user_id, api_key, project_name
+                )
+            )
             
+            controller_skeleton, controller_class_name = await start_controller_skeleton_processing(
+                object_name, exist_command_class, project_name
+            )
 
-            # * 3 단계 : 서비스, 컨트롤러 스켈레톤 생성
-            service_creation_info, service_skeleton, service_class_name, exist_command_class = await start_service_skeleton_processing(entity_name_list, object_name, global_variables, user_id, api_key)
-            controller_skeleton, controller_class_name = await start_controller_skeleton_processing(object_name, exist_command_class)
-            yield f"{file_name}-Step3 completed\n"
+            #--------------------------------------------------------------
+            # 4.2 커맨드 클래스 생성 및 전송
+            #--------------------------------------------------------------
+            yield create_message("message", step=3, content=f"{object_name} - Command Class")
+            
+            for command_class in command_class_list:
+                yield create_message(
+                    "data",
+                    file_type="command_class",
+                    file_name=f"{command_class['commandName']}.java",
+                    code=command_class['commandCode']
+                )
+            
+            yield create_message("Done", step=3, file_count=file_count, current_count=current_file_index)
 
-
-            # * 4 단계 : 각 프로시저별 서비스 및 컨트롤러 생성
+            #--------------------------------------------------------------
+            # 4.3 프로시저별 서비스 및 컨트롤러 메서드 생성
+            #--------------------------------------------------------------
+            yield create_message("message", step=4, content=f"{object_name} - Service Controller Processing")
+            
             for service_data in service_creation_info:
-
+                # 서비스 전처리
                 variable_nodes = await start_service_preprocessing(
                     service_data['service_method_skeleton'],
                     service_data['command_class_variable'],
@@ -298,6 +372,7 @@ async def generate_spring_boot_project(file_names: list, user_id: str, api_key: 
                     api_key
                 )
 
+                # 서비스 검증
                 await start_validate_service_preprocessing(
                     variable_nodes,
                     service_data['service_method_skeleton'],
@@ -310,6 +385,7 @@ async def generate_spring_boot_project(file_names: list, user_id: str, api_key: 
                     api_key
                 )
 
+                # 서비스 후처리
                 merge_method_code = await start_service_postprocessing(
                     service_data['method_skeleton_code'],
                     service_data['procedure_name'],
@@ -318,6 +394,7 @@ async def generate_spring_boot_project(file_names: list, user_id: str, api_key: 
                     user_id,
                 )
 
+                # 컨트롤러 처리
                 merge_controller_method_code = await start_controller_processing(
                     service_data['method_signature'],
                     service_data['procedure_name'],
@@ -328,38 +405,92 @@ async def generate_spring_boot_project(file_names: list, user_id: str, api_key: 
                     controller_skeleton,
                     object_name,
                     user_id,
-                    api_key
+                    api_key,
+                    project_name
                 )
 
+            #--------------------------------------------------------------
+            # 4.4 최종 서비스 및 컨트롤러 클래스 생성
+            #--------------------------------------------------------------
+            service_code = await generate_service_class(
+                service_skeleton, service_class_name, merge_method_code, user_id, project_name
+            )
+            
+            controller_code = await generate_controller_class(
+                controller_skeleton, controller_class_name, merge_controller_method_code, user_id, project_name
+            )
 
-            # * 서비스 및 컨트롤러 클래스 생성
-            await generate_service_class(service_skeleton, service_class_name, merge_method_code, user_id)            
-            await generate_controller_class(controller_skeleton, controller_class_name, merge_controller_method_code, user_id)            
-            yield f"{file_name}-Step4 completed\n"
+            # 결과 전송
+            yield create_message(
+                "data",
+                file_type="service_class",
+                file_name=f"{service_class_name}.java",
+                code=service_code
+            )
 
+            yield create_message(
+                "data",
+                file_type="controller_class",
+                file_name=f"{controller_class_name}.java",
+                code=controller_code
+            )
+            
+        yield create_message("Done", step=4)
 
-        # * 5 단계 : pom.xml 생성
-        await start_pomxml_processing(user_id)
-        yield f"{file_name}-Step5 completed\n"
+        #==================================================================
+        # 5. pom.xml 생성
+        #==================================================================
+        yield create_message("message", step=5, content="Generating pom.xml")
         
+        pom_xml_code = await start_pomxml_processing(user_id, project_name)
+        
+        yield create_message(
+            "data",
+            file_type="pom",
+            file_name="pom.xml",
+            code=pom_xml_code
+        )
+        
+        yield create_message("Done", step=5)
 
-        # * 6 단계 : application.properties 생성
-        await start_APLproperties_processing(user_id)
-        yield f"Step6 completed\n"
+        #==================================================================
+        # 6. application.properties 생성
+        #==================================================================
+        yield create_message("message", step=6, content="Generating application.properties")
+        
+        properties_code = await start_APLproperties_processing(user_id, project_name)
+        
+        yield create_message(
+            "data",
+            file_type="properties",
+            file_name="application.properties",
+            code=properties_code
+        )
+        
+        yield create_message("Done", step=6)
 
-
-        # * 7 단계 : StartApplication.java 생성
-        await start_main_processing(user_id)
-        yield f"Step7 completed\n"
-        yield f"Completed Converting {file_name}.\n\n"
-
+        #==================================================================
+        # 7. 메인 어플리케이션 클래스 생성
+        #==================================================================
+        yield create_message("message", step=7, content="Generating Main Application")
+        
+        main_code = await start_main_processing(user_id, project_name)
+        
+        yield create_message(
+            "data",
+            file_type="main",
+            file_name=f"{project_name.capitalize()}Application.java",
+            code=main_code
+        )
+        
+        yield create_message("Done", step=7)
 
     except ConvertingError as e:
-        yield json.dumps({"error": str(e)}).encode('utf-8') + b"send_stream"
+        raise
     except Exception as e:
         err_msg = f"스프링 부트 프로젝트로 전환하는 도중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
-        yield json.dumps({"error": str(e)}).encode('utf-8') + b"send_stream"
+        raise RuntimeError(err_msg)
 
 
 # 역할: 생성된 스프링 부트 프로젝트를 ZIP 파일로 압축합니다.
@@ -394,21 +525,21 @@ async def delete_all_temp_data(user_id:str):
     neo4j = Neo4jConnection()
     
     try:
-        # # * 삭제할 사용자 기본 디렉토리 경로 설정
-        # user_base_dir = os.path.join(BASE_DIR, 'data', user_id)
-        # user_target_dir = os.path.join(BASE_DIR, 'target', 'java', user_id)
+        # * 삭제할 사용자 기본 디렉토리 경로 설정
+        user_base_dir = os.path.join(BASE_DIR, 'data', user_id)
+        user_target_dir = os.path.join(BASE_DIR, 'target', 'java', user_id)
         
         
-        # # * 삭제할 디렉토리 목록
-        # dirs_to_delete = [user_base_dir, user_target_dir]
+        # * 삭제할 디렉토리 목록
+        dirs_to_delete = [user_base_dir, user_target_dir]
 
 
-        # # * 디렉토리 삭제 및 재생성
-        # for dir_path in dirs_to_delete:
-        #     if os.path.exists(dir_path):
-        #         shutil.rmtree(dir_path)
-        #         os.makedirs(dir_path)
-        #         logging.info(f"디렉토리 삭제 및 재생성 완료: {dir_path}")
+        # * 디렉토리 삭제 및 재생성
+        for dir_path in dirs_to_delete:
+            if os.path.exists(dir_path):
+                shutil.rmtree(dir_path)
+                os.makedirs(dir_path)
+                logging.info(f"디렉토리 삭제 및 재생성 완료: {dir_path}")
         
         
         # * Neo4j 데이터 삭제 (해당 사용자의 데이터만 삭제)
@@ -432,9 +563,17 @@ async def delete_all_temp_data(user_id:str):
 # 반환값:
 #   - bool: API 키가 유효하면 True, 그렇지 않으면 False
 async def validate_anthropic_api_key(api_key: str) -> bool:
-    headers = {
+    # 방법 1: x-api-key 헤더 방식
+    headers_1 = {
         "Content-Type": "application/json",
         "x-api-key": api_key,
+        "anthropic-version": "2023-06-01"
+    }
+    
+    # 방법 2: Authorization Bearer 방식
+    headers_2 = {
+        "Content-Type": "application/json",
+        "Authorization": f"Bearer {api_key}",
         "anthropic-version": "2023-06-01"
     }
     
@@ -450,8 +589,21 @@ async def validate_anthropic_api_key(api_key: str) -> bool:
     
     try:
         async with httpx.AsyncClient(timeout=60) as client:
-            response = await client.post(url, headers=headers, json=payload)
-            return response.status_code == 200
+            # 먼저 x-api-key 방식 시도
+            response = await client.post(url, headers=headers_1, json=payload)
+            if response.status_code == 200:
+                logging.info("x-api-key 방식으로 인증 성공")
+                return True
+                
+            # 실패하면 Bearer 방식 시도
+            logging.info(f"x-api-key 방식 실패 (상태 코드: {response.status_code}), Bearer 방식으로 시도")
+            response = await client.post(url, headers=headers_2, json=payload)
+            if response.status_code == 200:
+                logging.info("Bearer 방식으로 인증 성공")
+                return True
+                
+            logging.error(f"두 인증 방식 모두 실패. 마지막 상태 코드: {response.status_code}")
+            return False
     except Exception as e:
         logging.error("API 키 검증 중 오류 발생: %s", e)
         return False

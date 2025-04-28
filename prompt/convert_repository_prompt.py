@@ -32,10 +32,6 @@ Global Variable:
 {global_variable_nodes}
 
 
-Sequence Info:
-{sequence_data}
-
-
 생성될 JPA Query Methods는 {count}개입니다.
 'Global Variable'들은 애플리케이션 전반에서 전역적으로 사용되는 변수들로 필요한 경우 활용하세요.
 
@@ -62,11 +58,15 @@ Sequence Info:
    
   
 5. 시퀀스 처리
-  - 별도의 시퀀스 조회 메서드 생성
+  - 'Stored Procedure Code'에서 시퀀스 사용 패턴 식별:
+    * [시퀀스명].NEXTVAL 패턴 검색
+    * SELECT [시퀀스명].NEXTVAL FROM DUAL 구문 식별
+    * INSERT 문에서 VALUES 절에 [시퀀스명].NEXTVAL 사용 확인
+    * 테이블 컬럼에 시퀀스 할당되는 패턴 검색 (예: table_column = [시퀀스명].NEXTVAL)
+    * 시퀀스 사용이 발견되면 해당 시퀀스명을 추출하여 getNext[시퀀스명] 형태의 조회 메서드 생성
+  - 시퀀스 사용 위치 파악하여 해당 엔티티의 어떤 필드에 사용되는지 'field' 항목에 명시
   - 시퀀스 메서드 명명 규칙: getNext[시퀀스명]
   - 반환 타입은 Long으로 통일
-  - @Select 어노테이션으로 직접 시퀀스 조회
-  - 시퀀스가 사용되는 필드를 식별하여 'field' 필드에 포함
   - 예시: "@Query(value = "SELECT SAMPLE_SEQ.NEXTVAL FROM DUAL", nativeQuery = true)\nLong getSequenceNextVal();"
 
 
@@ -124,7 +124,7 @@ Sequence Info:
 {{
     "analysis": [
         {{
-            "tableName": "테이블명",
+            "tableName": "원본 테이블 명(예: TPJ_EMPLOYEE)",
             "method": "@Query(\"SELECT e FROM Entity e WHERE e.column = :param\")\nType methodName(@Param(\"param\") Type param);"
             "range": [
                {{
@@ -157,7 +157,7 @@ Sequence Info:
 #
 # 반환값: 
 #   - result : LLM이 생성한 Repository 메서드 정보
-def convert_repository_code(repository_nodes: dict, used_variable_nodes: dict, data_count: int, global_variable_nodes: dict, sequence_data: str, api_key: str) -> dict:
+def convert_repository_code(repository_nodes: dict, used_variable_nodes: dict, data_count: int, global_variable_nodes: dict, api_key: str) -> dict:
     
     try: 
         repository_nodes = json.dumps(repository_nodes, ensure_ascii=False, indent=2)
@@ -171,7 +171,6 @@ def convert_repository_code(repository_nodes: dict, used_variable_nodes: dict, d
             "used_variable_nodes": used_variable_nodes,
             "count": data_count,
             "global_variable_nodes": global_variable_nodes,
-            "sequence_data": sequence_data
         }
 
 

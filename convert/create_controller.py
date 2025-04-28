@@ -10,7 +10,7 @@ from util.file_utils import save_file
 from util.string_utils import convert_to_pascal_case
 
 encoder = tiktoken.get_encoding("cl100k_base")
-CONTROLLER_PATH = 'demo/src/main/java/com/example/demo/controller'
+# 프로젝트 이름은 함수 매개변수로 받음
 
 
 # 역할: 생성된 컨트롤러 코드를 지정된 경로에 Java 파일로 저장하는 함수입니다.
@@ -21,25 +21,28 @@ CONTROLLER_PATH = 'demo/src/main/java/com/example/demo/controller'
 #   - controller_class_name : 생성할 컨트롤러 클래스의 이름
 #   - merge_controller_method_code : 컨트롤러 클래스에 추가될 메서드 코드
 #   - user_id : 사용자 ID
-#   - api_key : Claude API 키
-async def generate_controller_class(controller_skeleton: str, controller_class_name: str, merge_controller_method_code: str, user_id:str):
+#   - project_name : 프로젝트 이름
+async def generate_controller_class(controller_skeleton: str, controller_class_name: str, merge_controller_method_code: str, user_id:str, project_name:str) -> str:
     try:
         # * 컨트롤러 코드 생성
         merge_controller_method_code = textwrap.indent(merge_controller_method_code.strip(), '        ')
         controller_code = controller_skeleton.replace("CodePlaceHolder", merge_controller_method_code)
 
-
+        # 컨트롤러 경로 생성
+        controller_path = f'{project_name}/src/main/java/com/example/{project_name}/controller'
+        
         # * 저장 경로 설정
         if os.getenv('DOCKER_COMPOSE_CONTEXT'):
-            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', 'java', user_id, CONTROLLER_PATH)
+            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', 'java', user_id, controller_path)
         else:
             project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            save_path = os.path.join(project_root, 'target', 'java', user_id, CONTROLLER_PATH)
+            save_path = os.path.join(project_root, 'target', 'java', user_id, controller_path)
 
 
         # * 파일 저장
         await save_file(content=controller_code, filename=f"{controller_class_name}.java", base_path=save_path)
         logging.info(f"[{controller_class_name}] Success Create Controller Java File\n")
+        return controller_code
 
     except SaveFileError:
         raise
@@ -59,7 +62,9 @@ async def generate_controller_class(controller_skeleton: str, controller_class_n
 #   - command_class_variable: Command DTO 필드 목록
 #   - command_class_name: Command 클래스 이름
 #   - controller_skeleton: 컨트롤러 클래스 기본 구조
-#   - user_id: 사용자 ID    
+#   - user_id: 사용자 ID
+#   - api_key: API 키
+#   - project_name: 프로젝트 이름
 #
 # 반환값: 
 #   - method_skeleton_code: 생성된 컨트롤러 메서드 코드
@@ -105,10 +110,11 @@ async def process_controller_method_code(method_signature: str, procedure_name: 
 #   - object_name: 대상 객체 이름 (로깅용)
 #   - user_id: 사용자 ID
 #   - api_key: Claude API 키
+#   - project_name: 프로젝트 이름
 #
 # 반환값:
 #   - controller_method_code: 생성된 컨트롤러 메서드 코드
-async def start_controller_processing(method_signature: str, procedure_name: str, command_class_variable: str, command_class_name: str, node_type: str, merge_controller_method_code: str, controller_skeleton: str, object_name: str, user_id: str, api_key: str) -> str:
+async def start_controller_processing(method_signature: str, procedure_name: str, command_class_variable: str, command_class_name: str, node_type: str, merge_controller_method_code: str, controller_skeleton: str, object_name: str, user_id: str, api_key: str, project_name: str) -> str:
 
     logging.info(f"[{object_name}] {procedure_name} 프로시저의 컨트롤러 생성을 시작합니다.")
 

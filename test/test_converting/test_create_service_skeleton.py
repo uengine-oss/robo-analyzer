@@ -38,10 +38,12 @@ class TestServiceSkeletonGeneration(unittest.IsolatedAsyncioTestCase):
         
         # * 테스트할 객체 이름들을 설정
         object_names = [
+            # "TPX_LIBRARY_OPERATION",
+            "TPX_BOOK",
             # "TPX_UPDATE_SALARY",
-            "TPX_EMPLOYEE",
+            # "TPX_EMPLOYEE",
             # "TPX_SALARY",
-            "TPX_ATTENDANCE",
+            # "TPX_ATTENDANCE",
             # "TPX_PROJECT",
             # "TPX_TMF_SYNC_JOB_STATUS",
             # "TPX_TMF_SYNC_JOB",
@@ -52,9 +54,10 @@ class TestServiceSkeletonGeneration(unittest.IsolatedAsyncioTestCase):
         ]
 
 
-        # * 테스트할 세션 설정
-        session_uuid = "e37f4668-8d1e-4650-bc95-2328a76cf594"
-        api_key = ""
+        session_uuid = "TestSession"
+        api_key = "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"
+
+
 
 
         try:

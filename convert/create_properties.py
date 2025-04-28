@@ -4,51 +4,45 @@ from util.exception import AplPropertiesCreationError, SaveFileError
 from util.file_utils import save_file
 
 PROPERTIES_FILE_NAME = "application.properties"
-PROPERTIES_PATH = 'demo/src/main/resources'
+# 프로젝트 경로는 함수 매개변수로 받음
 
-# JPA 템플릿
-JPA_PROPERTIES_TEMPLATE = """spring.application.name=demo
-server.port=8082
-spring.jpa.hibernate.naming.physical-strategy=org.hibernate.boot.model.naming.PhysicalNamingStrategyStandardImpl
-spring.jpa.hibernate.ddl-auto=create
-spring.jpa.properties.hibernate.show_sql=true
-spring.jpa.properties.hibernate.format_sql=true
-spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.OracleDialect
-
-spring.datasource.url=jdbc:oracle:thin:@localhost:1521/javadb
-spring.datasource.username=c##debezium
-spring.datasource.password=dbz
-spring.datasource.driver-class-name=oracle.jdbc.OracleDriver"""
-
-# 역할: Spring Boot 애플리케이션의 설정 파일인 application.properties를 생성합니다.
-#     
+# 역할: Spring Boot 애플리케이션의 설정 정보를 담은 properties 파일을 생성합니다.
+#
 # 매개변수:
-#   - orm_type : 사용할 ORM 유형 (jpa, mybatis)
 #   - user_id : 사용자 ID
-async def start_APLproperties_processing(user_id:str):
+#   - project_name : 프로젝트 이름
+async def start_APLproperties_processing(user_id:str, project_name:str) -> str:
     logging.info("application.properties 생성을 시작합니다.")
-
+    
     try:
-        # * 템플릿 선택
-        properties_template = JPA_PROPERTIES_TEMPLATE
-
+        # application.properties 템플릿 생성
+        properties_template = f"""spring.application.name={project_name}
+spring.h2.console.enabled=true
+spring.datasource.url=jdbc:h2:mem:testdb
+spring.datasource.driverClassName=org.h2.Driver
+spring.jpa.database-platform=org.hibernate.dialect.H2Dialect
+spring.jpa.hibernate.ddl-auto=create-drop"""
+        
+        # 리소스 경로 설정
+        properties_path = f'{project_name}/src/main/resources'
 
         # * 저장 경로 설정
         if os.getenv('DOCKER_COMPOSE_CONTEXT'):
-            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', 'java', user_id, PROPERTIES_PATH)
+            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', 'java', user_id, properties_path)
         else:
             parent_workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            save_path = os.path.join(parent_workspace_dir, 'target', 'java', user_id, PROPERTIES_PATH)
+            save_path = os.path.join(parent_workspace_dir, 'target', 'java', user_id, properties_path)
 
 
         # * application.properties 파일 생성
         await save_file(
-            content=properties_template,
+            content=properties_template, 
             filename=PROPERTIES_FILE_NAME, 
             base_path=save_path
         )
         
-        logging.info("application.properties 파일이 생성되었습니다.\n")
+        logging.info("application.properties가 생성되었습니다.\n")
+        return properties_template
 
     except SaveFileError:
         raise

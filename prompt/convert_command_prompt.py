@@ -58,18 +58,18 @@ prompt = PromptTemplate.from_template(
      * java.time.*  
      * lombok.Getter
      * lombok.Setter
-     * com.example.demo.entity.EntityName
+     * com.example.{project_name}.entity.EntityName
    - 추가적인 import문은 반드시 필요에 따라 작성하세요.
 
 
 [SECTION 2] Command 클래스 예시
 ===============================================
 예시:
-package com.example.demo.command.{dir_name};
+package com.example.{project_name}.command.{dir_name};
 import java.time.*;
 import lombok.Getter;
 import lombok.Setter;
-import com.example.demo.entity.*;
+import com.example.{project_name}.entity.*;
 
 @Getter
 @Setter
@@ -107,7 +107,7 @@ public class ExampleCommand {{
 #   - dir_name : 클래스가 저장될 디렉토리 이름
 # 반환값: 
 #   - result : LLM이 생성한 Command 클래스 정보
-def convert_command_code(command_class_data, dir_name, api_key):
+def convert_command_code(command_class_data, dir_name, api_key, project_name):
     
     try:
         llm = ChatAnthropic(
@@ -124,7 +124,7 @@ def convert_command_code(command_class_data, dir_name, api_key):
             | llm
             | JsonOutputParser()
         )
-        result = chain.invoke({"command_class_data": command_class_data, "dir_name": dir_name})
+        result = chain.invoke({"command_class_data": command_class_data, "dir_name": dir_name, "project_name": project_name})
         return result
     except Exception as e:
         err_msg = f"Command 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다: {str(e)}"

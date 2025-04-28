@@ -4,11 +4,19 @@ from util.exception import PomXmlCreationError, SaveFileError
 from util.file_utils import save_file
 
 POM_FILE_NAME = "pom.xml"
-POM_PATH = 'demo'
 
 
-# JPA 템플릿
-JPA_POM_XML_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
+# 역할: Spring Boot 프로젝트의 필수 설정 파일인 pom.xml을 생성합니다.
+#
+# 매개변수: 
+#   - user_id : 사용자 ID
+#   - project_name : 프로젝트 이름
+async def start_pomxml_processing(user_id:str, project_name:str) -> str:
+    logging.info("pom.xml 생성을 시작합니다.")
+    
+    try:       
+        # JPA POM 템플릿 생성
+        pom_xml_template = f"""<?xml version="1.0" encoding="UTF-8"?>
 <project xmlns="http://maven.apache.org/POM/4.0.0" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
     xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
@@ -19,10 +27,10 @@ JPA_POM_XML_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
         <relativePath/> <!-- lookup parent from repository -->
     </parent>
     <groupId>com.example</groupId>
-    <artifactId>demo</artifactId>
+    <artifactId>{project_name}</artifactId>
     <version>0.0.1-SNAPSHOT</version>
-    <name>demo</name>
-    <description>demo project for Spring Boot</description>
+    <name>{project_name}</name>
+    <description>{project_name} project for Spring Boot</description>
     <url/>
     <licenses>
         <license/>
@@ -93,27 +101,15 @@ JPA_POM_XML_TEMPLATE = """<?xml version="1.0" encoding="UTF-8"?>
 </project>
 """
 
-
-
-
-# 역할: Spring Boot 프로젝트의 필수 설정 파일인 pom.xml을 생성합니다.
-#
-# 매개변수: 
-#   - orm_type : 사용할 ORM 유형 (jpa, mybatis)
-#   - user_id : 사용자 ID
-async def start_pomxml_processing(user_id:str):
-    logging.info("pom.xml 생성을 시작합니다.")
-    
-    try:       
-        # * 템플릿 선택
-        pom_xml_template = JPA_POM_XML_TEMPLATE
+        # POM 경로 설정
+        pom_path = project_name
 
         # * 저장 경로 설정
         if os.getenv('DOCKER_COMPOSE_CONTEXT'):
-            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', 'java', user_id, POM_PATH)
+            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', 'java', user_id, pom_path)
         else:
             parent_workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            save_path = os.path.join(parent_workspace_dir, 'target', 'java', user_id, POM_PATH)
+            save_path = os.path.join(parent_workspace_dir, 'target', 'java', user_id, pom_path)
 
 
         # * pom.xml 파일 생성
@@ -124,6 +120,7 @@ async def start_pomxml_processing(user_id:str):
         )
         
         logging.info("Pom.xml이 생성되었습니다.\n")
+        return pom_xml_template
 
     except SaveFileError:
         raise

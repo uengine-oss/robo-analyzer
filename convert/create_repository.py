@@ -8,23 +8,12 @@ from util.converting_utlis import extract_used_variable_nodes
 from util.exception import ConvertingError, LLMCallError, ProcessResultError, RepositoryCreationError, SaveFileError, StringConversionError, TemplateGenerationError, TraverseCodeError
 from util.file_utils import save_file
 from util.string_utils import convert_to_camel_case, convert_to_pascal_case
+import json
 
 
 MAX_TOKENS = 1000
-REPOSITORY_PATH = 'demo/src/main/java/com/example/demo/repository'
-JPA_TEMPLATE = """package com.example.demo.repository;
-import java.util.List;
-import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
-import org.springframework.data.rest.core.annotation.RepositoryRestResource;
-import com.example.demo.entity.{entity_pascal_name};
-import java.time.*;
-
-@RepositoryRestResource(collectionResourceRel = "{entity_camel_name}s", path = "{entity_camel_name}s")
-public interface {entity_pascal_name}Repository extends JpaRepository<{entity_pascal_name}, Long> {{
-{merged_methods}
-}}"""
+# 프로젝트 이름을 파라미터로 받도록 수정
+# JPA_TEMPLATE는 함수 내에서 동적으로 생성
 
 
 # 역할: Spring Data 리포지토리 인터페이스 파일을 생성합니다.
@@ -34,14 +23,34 @@ public interface {entity_pascal_name}Repository extends JpaRepository<{entity_pa
 #   - sequence_methods : 사용 가능한 시퀀스 메서드 목록
 #   - user_id : 사용자 ID
 #   - api_key : Claude API 키
-async def generate_repository_interface(all_query_methods: dict, sequence_methods: list, user_id: str, api_key: str) -> None:
+#   - project_name : 프로젝트 이름
+async def generate_repository_interface(all_query_methods: dict, sequence_methods: list, user_id: str, api_key: str, project_name: str) -> list:
+    repository_list = []
     try:
+        # 리포지토리 경로 생성
+        repository_path = f'{project_name}/src/main/java/com/example/{project_name}/repository'
+        
+        # * JPA 템플릿 동적 생성
+        jpa_template = """package com.example.{project_name}.repository;
+import java.util.List;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.data.rest.core.annotation.RepositoryRestResource;
+import com.example.{project_name}.entity.{entity_pascal_name};
+import java.time.*;
+
+@RepositoryRestResource(collectionResourceRel = "{entity_camel_name}s", path = "{entity_camel_name}s")
+public interface {entity_pascal_name}Repository extends JpaRepository<{entity_pascal_name}, Long> {{
+{merged_methods}
+}}"""
+
         # * 저장 경로 설정
         if os.getenv('DOCKER_COMPOSE_CONTEXT'):
-            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', 'java', user_id, REPOSITORY_PATH)
+            save_path = os.path.join(os.getenv('DOCKER_COMPOSE_CONTEXT'), 'target', 'java', user_id, repository_path)
         else:
             parent_workspace_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            save_path = os.path.join(parent_workspace_dir, 'target', 'java', user_id, REPOSITORY_PATH)
+            save_path = os.path.join(parent_workspace_dir, 'target', 'java', user_id, repository_path)
 
 
         # * 시퀀스 메서드 들여쓰기 처리
@@ -63,13 +72,12 @@ async def generate_repository_interface(all_query_methods: dict, sequence_method
                 for method in query_method
             )
 
-            # * ORM 타입에 따른 템플릿 선택 및 데이터 삽입
-            template = JPA_TEMPLATE
-            repository_interface_template = template.format(
+            # * 데이터 삽입
+            repository_interface_template = jpa_template.format(
+                project_name=project_name,
                 entity_pascal_name=entity_pascal_name,
                 entity_camel_name=entity_camel_name,
-                merged_methods=merged_methods,
-                sequence_methods=formatted_sequence_methods
+                merged_methods=merged_methods
             )
 
             # * 파일 저장
@@ -79,6 +87,14 @@ async def generate_repository_interface(all_query_methods: dict, sequence_method
                 filename=filename, 
                 base_path=save_path
             )
+            
+            # * 생성된 리포지토리 정보 저장
+            repository_list.append({
+                "repositoryName": f"{entity_pascal_name}Repository",
+                "code": repository_interface_template
+            })
+
+        return repository_list
 
     except (SaveFileError, StringConversionError):
         raise
@@ -94,13 +110,13 @@ async def generate_repository_interface(all_query_methods: dict, sequence_method
 #   - repository_nodes : 테이블과 직접 연결된 Neo4j 노드 리스트
 #   - local_variable_nodes : 모든 지역 변수 노드 정보 리스트
 #   - global_variable_nodes : 모든 전역 변수 노드 정보 리스트
-#   - sequence_data : 시퀀스 정보
 #   - user_id : 사용자 ID
 #   - api_key : Claude API 키
+#   - project_name : 프로젝트 이름
 #
 # 반환값: 
 #   - used_repository_methodss_list : 생성된 쿼리 메서드들의 정보 리스트
-async def process_repository_by_token_limit(repository_nodes: list, local_variable_nodes: list, global_variable_nodes: list, sequence_data: str, user_id: str, api_key: str) -> list:
+async def process_repository_by_token_limit(repository_nodes: list, local_variable_nodes: list, global_variable_nodes: list, user_id: str, api_key: str, project_name: str) -> list:
     
     try:
         current_tokens = 0
@@ -122,7 +138,6 @@ async def process_repository_by_token_limit(repository_nodes: list, local_variab
                     used_variable_nodes, 
                     len(repository_data_chunk),
                     global_variable_nodes,
-                    sequence_data,
                     api_key
                 )
 
@@ -162,11 +177,14 @@ async def process_repository_by_token_limit(repository_nodes: list, local_variab
 
         # * 리포지토리 노드 처리
         for node in repository_nodes:
-
             # * 노드 정보 추출
-            node_tokens = node['m']['token']
-            node_code = node['m'].get('summarized_code', node['m']['node_code'])
-            node_start_line = node['m']['startLine']
+            try:
+                node_tokens = node['token']
+                node_code = node.get('summarized_code', node['node_code'])
+                node_start_line = node['startLine']
+            except KeyError as e:
+                logging.warning(f"리포지토리 노드에 필요한 속성이 없습니다: {e}")
+                continue
             
             # * 변수 노드 처리
             var_nodes, var_tokens = await extract_used_variable_nodes(node_start_line, local_variable_nodes)
@@ -188,7 +206,7 @@ async def process_repository_by_token_limit(repository_nodes: list, local_variab
 
 
         # * 리포지토리 인터페이스 및 노드 생성
-        await generate_repository_interface(all_query_methods, sequence_methods, user_id, api_key)
+        await generate_repository_interface(all_query_methods, sequence_methods, user_id, api_key, project_name)
         return used_query_methods_list, all_query_methods, sequence_methods
 
     except ConvertingError:
@@ -202,59 +220,110 @@ async def process_repository_by_token_limit(repository_nodes: list, local_variab
 # 역할: 리포지토리 인터페이스 생성 프로세스의 시작점입니다.
 #
 # 매개변수: 
-#   - object_name : 처리할 프로시저/패키지의 이름
-#   - sequence_data : 시퀀스 정보
+#   - file_names : 처리할 파일 이름과 객체 이름 튜플의 리스트 [(file_name, object_name), ...]
 #   - user_id : 사용자 ID
 #   - api_key : Claude API 키
+#   - project_name : 프로젝트 이름
 #
 # 반환값: 
 #   - query_method_list : 생성된 모든 쿼리 메서드 정보 리스트
 #   - global_variables : 전역 변수 목록
-async def start_repository_processing(object_name: str, sequence_data: str, user_id: str, api_key: str):
+async def start_repository_processing(file_names: list, user_id: str, api_key: str, project_name: str):
     
-    logging.info(f"[{object_name}] Repository Interface 생성을 시작합니다.")
+    logging.info("Repository Interface 생성을 시작합니다.")
     connection = Neo4jConnection()
+    repository_list = []
+    all_used_query_methods = {}
+    all_global_variables = []
+    all_sequence_methods = []
 
     try:
-        # * 테이블 노드와 직접적으로 연결된 노드와 모든 변수 노드들을 가지고오는 사이퍼쿼리를 준비하고 실행합니다.
-        queries = [
-            f"MATCH (n:Table {{object_name: '{object_name}', user_id: '{user_id}'}})--(m {{object_name: '{object_name}', user_id: '{user_id}'}}) WHERE NOT m:Table AND NOT m:EXECUTE_IMMEDIATE AND NOT m:INSERT RETURN m ORDER BY m.startLine",
-            f"MATCH (v:Variable {{object_name: '{object_name}', user_id: '{user_id}', scope: 'Local'}}) RETURN v",
-            f"MATCH (v:Variable {{object_name: '{object_name}', user_id: '{user_id}', scope: 'Global'}}) RETURN v"
-        ]
+        # file_names에서 object_name 추출
+        object_names = [obj_name for _, obj_name in file_names]
+        object_names_str = "', '".join(object_names)
+        
+        # 테이블과 DML 노드를 한 번에 가져오는 쿼리
+        table_dml_query = f"""
+        MATCH (t:Table {{user_id: '{user_id}'}})--(m) 
+        WHERE m.object_name IN ['{object_names_str}'] AND m.user_id = '{user_id}' 
+        AND (m:SELECT OR m:UPDATE OR m:DELETE)
+        RETURN t, COLLECT(m) as dml_nodes
+        """
+        
+        # 전역 변수와 지역 변수 가져오기
+        vars_query = f"""
+        MATCH (v:Variable) 
+        WHERE v.user_id = '{user_id}' AND v.object_name IN ['{object_names_str}']
+        RETURN v, v.scope as scope
+        """
+        
+        # 쿼리 실행
+        table_dml_results, var_results = await connection.execute_queries([table_dml_query, vars_query])
+        
+        print(table_dml_results)
 
+        # 변수 결과 처리
+        local_vars = []
+        global_variable_nodes = []
+        
+        for var in var_results:
+            var_node = var['v']
+            if var['scope'] == 'Global':
+                global_variable_nodes.append({
+                    'name': var_node['name'],
+                    'type': var_node.get('type', 'Unknown'),
+                    'role': var_node.get('role', ''),
+                    'scope': 'Global',
+                    'value': var_node.get('value', '')
+                })
+            else:
+                local_vars.append(var)
+        
+        all_global_variables.extend(global_variable_nodes)
+        
+        # 각 테이블에 대해 처리
+        for result in table_dml_results:
+            table_node = result['t']
+            dml_nodes = result['dml_nodes']
+            table_name = table_node['name']
+            
+            logging.info(f"{table_name} 테이블의 Repository Interface 생성 중...")
+            
+            if dml_nodes:
+                # 이 테이블에 대한 리포지토리 인터페이스 생성
+                used_query_methods, table_query_methods, sequence_methods = await process_repository_by_token_limit(
+                    dml_nodes, 
+                    local_vars, 
+                    global_variable_nodes,
+                    user_id,
+                    api_key,
+                    project_name
+                )
+                
+                all_used_query_methods.update(used_query_methods)
+                all_sequence_methods.extend(sequence_methods)
+                
+                # 이 테이블에 대한 리포지토리 생성
+                table_repositories = await generate_repository_interface(
+                    table_query_methods, 
+                    sequence_methods, 
+                    user_id, 
+                    api_key, 
+                    project_name
+                )
+                
+                repository_list.extend(table_repositories)
+                logging.info(f"{table_name} 테이블의 Repository Interface 생성 완료")
+            else:
+                logging.info(f"{table_name} 테이블에 연결된 DML 노드가 없습니다.")
 
-        # * 쿼리 실행 및 결과 할당
-        dml_nodes, local_variables_nodes, global_variables = await connection.execute_queries(queries)
-
-
-        # * 전역 변수 정보 가공
-        global_variable_nodes = [{
-            'name': var['v']['name'],
-            'type': var['v'].get('type', 'Unknown'),
-            'role': var['v'].get('role', ''),
-            'scope': var['v'].get('scope', 'Global'),
-            'value': var['v'].get('value', '')
-        } for var in global_variables]
-
-
-        # * 리포지토리 인터페이스 생성을 시작합니다.
-        used_query_methods, all_query_methods, sequence_methods = await process_repository_by_token_limit(
-            dml_nodes, 
-            local_variables_nodes, 
-            global_variable_nodes,
-            sequence_data,
-            user_id,
-            api_key,
-        )
-
-        logging.info(f"[{object_name}] Repository Interface를 생성했습니다.\n")
-        return used_query_methods, global_variable_nodes, all_query_methods, sequence_methods
+        logging.info("모든 Repository Interface 생성이 완료되었습니다.\n")
+        return all_used_query_methods, all_global_variables, all_sequence_methods, repository_list
     
     except ConvertingError:
         raise
     except Exception as e:
-        err_msg = f"[{object_name}] Repository Interface를 생성하는 도중 오류가 발생했습니다: {str(e)}"
+        err_msg = f"Repository Interface를 생성하는 도중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise RepositoryCreationError(err_msg)
     finally:

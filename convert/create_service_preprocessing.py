@@ -132,7 +132,7 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
                 sequence_methods,
                 api_key
             )
-            tracking_variables = await handle_convert_result(analysis_result)
+            await handle_convert_result(analysis_result)
 
 
             # * 다음 사이클을 위해 각 종 변수를 초기화합니다.
