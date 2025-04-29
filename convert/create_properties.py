@@ -1,7 +1,8 @@
 import os
 import logging
-from util.exception import AplPropertiesCreationError, SaveFileError
-from util.file_utils import save_file
+
+from util.exception import ConvertingError, GenerateTargetError
+from util.utility_tool import save_file
 
 PROPERTIES_FILE_NAME = "application.properties"
 # 프로젝트 경로는 함수 매개변수로 받음
@@ -44,9 +45,9 @@ spring.jpa.hibernate.ddl-auto=create-drop"""
         logging.info("application.properties가 생성되었습니다.\n")
         return properties_template
 
-    except SaveFileError:
+    except ConvertingError:
         raise
     except Exception as e:
         err_msg = f"스프링부트의 application.properties 파일을 생성하는 도중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
-        raise AplPropertiesCreationError(err_msg)
+        raise GenerateTargetError(err_msg)

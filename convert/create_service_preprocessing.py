@@ -4,9 +4,8 @@ import logging
 from prompt.convert_service_prompt import convert_service_code
 from prompt.convert_summarized_service_skeleton_prompt import convert_summarized_code
 from understand.neo4j_connection import Neo4jConnection
-from util.converting_utlis import extract_used_query_methods
-from util.exception import ConvertingError, HandleResultError, LLMCallError, Neo4jError, ProcessResultError, ServiceCreationError, StringConversionError, TraverseCodeError, VariableNodeError
-
+from util.exception import ConvertingError
+from util.utility_tool import extract_used_query_methods
 
 
 # 역할: 코드 변환의 핵심 함수로, 노드들을 순회하면서 Java 코드로의 변환 작업을 조율합니다.
@@ -75,7 +74,7 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
         except Exception as e:
             err_msg = f"(전처리) 서비스 코드 생성 과정에서 사용된 변수 노드 추출 도중 문제가 발생했습니다: {str(e)}"
             logging.error(err_msg)
-            raise VariableNodeError(err_msg)
+            raise ConvertingError(err_msg)
     
 
     # 역할: 토큰 수가 1700개 이상인 대형 부모 노드를 처리하는 특수 함수입니다.
@@ -102,12 +101,12 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
             # * 생성된 쿼리를 실행합니다.
             await connection.execute_queries(query)
 
-        except (Neo4jError, LLMCallError):
+        except ConvertingError:
             raise
         except Exception as e:
             err_msg = f"(전처리) 서비스 코드 생성 과정에서 사이즈가 큰 노드를 처리 도중 문제가 발생했습니다: {str(e)}"
             logging.error(err_msg)
-            raise ProcessResultError(err_msg)
+            raise ConvertingError(err_msg)
 
 
     # 역할: LLM에 코드 분석을 요청하고 그 결과를 처리하는 중심 함수입니다.
@@ -142,12 +141,12 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
             used_variables.clear()
             used_query_method_dict.clear()
         
-        except (LLMCallError, Neo4jError, HandleResultError): 
+        except ConvertingError:
             raise
         except Exception as e:
             err_msg = f"(전처리) 서비스 코드 생성 과정에서 LLM의 결과를 결정하는 도중 문제가 발생했습니다: {str(e)}"
             logging.error(err_msg)
-            raise ProcessResultError(err_msg)
+            raise ConvertingError(err_msg)
 
 
 
@@ -195,12 +194,12 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
             # * 노드 업데이트 쿼리를 실행
             await connection.execute_queries(node_update_query)
 
-        except (Neo4jError, StringConversionError): 
+        except ConvertingError: 
             raise
         except Exception as e:
             err_msg = f"(전처리) 서비스 코드 생성 과정에서 LLM의 결과를 처리하는 도중 문제가 발생했습니다: {str(e)}"
             logging.error(err_msg)
-            raise HandleResultError(err_msg)
+            raise ConvertingError(err_msg)
     
 
     # ! 노드 순회 시작
@@ -346,7 +345,7 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
     except Exception as e:
         err_msg = f"(전처리) 서비스 코드 생성 과정에서 노드를 순회하는 도중 문제가 발생했습니다: {str(e)}"
         logging.error(err_msg)
-        raise TraverseCodeError(err_msg)
+        raise ConvertingError(err_msg)
 
     
 
@@ -433,6 +432,6 @@ async def start_service_preprocessing(service_skeleton:str, command_class_variab
     except Exception as e:
         err_msg = f"(전처리) 서비스 코드 생성 과정하기 위해 준비하는 도중 문제가 발생했습니다: {str(e)}"
         logging.error(err_msg)
-        raise ServiceCreationError(err_msg)
+        raise ConvertingError(err_msg)
     finally:
         await connection.close()

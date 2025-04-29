@@ -2,11 +2,10 @@ import json
 import logging
 from typing import List, Dict, Tuple
 from convert.create_repository import extract_used_variable_nodes
-from understand.neo4j_connection import Neo4jConnection
-from util.converting_utlis import extract_used_query_methods
-from util.exception import ConvertingError, HandleResultError, Neo4jError, PrepareDataError, ProcessResultError, ServiceCreationError
 from prompt.convert_service_prompt import convert_service_code
-from util.string_utils import convert_to_pascal_case 
+from understand.neo4j_connection import Neo4jConnection
+from util.exception import ConvertingError
+from util.utility_tool import extract_used_query_methods
 
 
 # 역할 : java_code가 없는 노드들을 조회합니다.
@@ -43,6 +42,7 @@ async def get_nodes_without_java_code(connection: Neo4jConnection, object_name: 
         AND NOT n:PROCEDURE
         AND NOT n:CREATE_PROCEDURE_BODY
         RETURN n
+        ORDER BY n.startLine
         """]
 
 
@@ -57,12 +57,12 @@ async def get_nodes_without_java_code(connection: Neo4jConnection, object_name: 
         else:
             return False, []
     
-    except Neo4jError:
+    except ConvertingError:
         raise
     except Exception as e:
         err_msg = f"java_code가 없는 노드 조회 중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
-        raise PrepareDataError(err_msg)
+        raise ConvertingError(err_msg)
 
 
 # 역할 : 노드들을 순회하여 각 노드에 대해 처리하는 함수입니다.
@@ -127,7 +127,7 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
         except Exception as e:
             err_msg = f"서비스 전처리 검증 과정에서 자바로 전환 중 오류가 발생했습니다: {str(e)}"
             logging.error(err_msg)
-            raise ProcessResultError(err_msg)
+            raise ConvertingError(err_msg)
 
 
     # 역할 : 결과 처리 및 노드 업데이트
@@ -167,11 +167,10 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
         except Exception as e:
             err_msg = f"서비스 검증 과정에서 LLM의 결과를 처리하는 도중 문제가 발생했습니다: {str(e)}"
             logging.error(err_msg)
-            raise HandleResultError(err_msg)
+            raise ConvertingError(err_msg)
         
 
     # ! 메인 로직 
-    # TODO 자식의 바로 위 부모 노드를 찾아서 전달하는 방법도 고려
     try:
         # * java_code가 없는 노드 확인
         has_nodes, nodes = await get_nodes_without_java_code(connection, object_name, procedure_name, user_id)
@@ -179,7 +178,9 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
             logging.info(f"[{object_name}]의 {procedure_name}의 모든 노드가 java_code 속성을 가지고 있습니다.\n")
             return
 
-
+        # 이미 처리한 라인을 추적하는 집합 추가
+        processed_lines = set()
+        
         # * 각 노드에 대해 처리
         for node in nodes:
             logging.info(f"[{object_name}]의 {procedure_name}의 {node['n']['name']} 노드에 대해 처리합니다.")
@@ -189,22 +190,33 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
             end_line = node_data['endLine']
             token = node_data['token']
             
-
-            # * 변수 정보 추출 및 토큰 계산
+            # 범위 정보는 항상 추가
+            context_range.append({"startLine": start_line, "endLine": end_line})
+            
+            # 이 노드의 라인이 이미 처리된 라인에 포함되는지 확인
+            line_already_processed = False
+            for line in range(start_line, end_line + 1):
+                if line in processed_lines:
+                    line_already_processed = True
+                    break
+            
+            if line_already_processed:
+                # 이미 처리된 라인이 있으면 코드 추가 안함
+                continue
+            
+            # 이 노드의 모든 라인을 처리됨으로 표시
+            for line in range(start_line, end_line + 1):
+                processed_lines.add(line)
+            
+            # 나머지 코드 처리...
             used_variables, variable_token = await extract_used_variable_nodes(start_line, variable_nodes)
             
-
-            # * 토큰 제한 초과시 처리
-            if current_token + token + variable_token> MAX_TOKEN and context_range:
+            if current_token + token + variable_token > MAX_TOKEN and context_range:
                 await process_validate_service_class_code()
-
-
-            # * 현재 코드, 범위, 토큰, query 메서드 정보 업데이트
+            
             current_code += f"\n{sp_code}"
             current_token += token + variable_token
             used_query_method_dict = await extract_used_query_methods(start_line, end_line, query_method_list, used_query_method_dict)
-            context_range.append({"startLine": start_line, "endLine": end_line})
-
 
         # * 남은 코드 처리
         if current_code and context_range:
@@ -216,6 +228,6 @@ async def start_validate_service_preprocessing(variable_nodes:list, service_skel
     except Exception as e:
         err_msg = f"서비스 전처리 검증 과정에서 예상치 못한 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
-        raise ServiceCreationError(err_msg)
+        raise ConvertingError(err_msg)
     finally:
         await connection.close()

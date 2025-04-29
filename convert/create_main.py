@@ -1,7 +1,8 @@
 import os
 import logging
-from util.exception import MainCreationError, SaveFileError
-from util.file_utils import save_file
+
+from util.exception import ConvertingError, GenerateTargetError
+from util.utility_tool import save_file
 
 # 프로젝트 이름은 함수 매개변수로 받음
 
@@ -53,9 +54,9 @@ public class {project_name.capitalize()}Application {{
         logging.info("메인 클래스가 생성되었습니다.\n")
         return main_template
     
-    except SaveFileError:
+    except ConvertingError:
         raise
     except Exception as e:
         err_msg = f"스프링부트의 메인 클래스를 생성하는 도중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
-        raise MainCreationError(err_msg)
+        raise GenerateTargetError(err_msg)

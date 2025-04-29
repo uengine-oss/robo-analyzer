@@ -23,9 +23,9 @@ from prompt.convert_project_name_prompt import generate_project_name_prompt
 from prompt.understand_ddl import understand_ddl
 from understand.neo4j_connection import Neo4jConnection
 from understand.analysis import analysis
-from util.exception import ConvertingError, Neo4jError, ProcessResultError, UnderstandingError
-from util.file_utils import read_sequence_file
-from util.string_utils import add_line_numbers
+from util.exception import ConvertingError, Neo4jError, UnderstandingError, FileProcessingError
+from util.utility_tool import add_line_numbers
+
 
 # 환경에 따라 저장 경로 설정
 if os.getenv('DOCKER_COMPOSE_CONTEXT'):
@@ -69,6 +69,8 @@ async def generate_and_execute_cypherQuery(file_names: list, user_id: str, api_k
     try:
         # 패키지 별 노드를 가져오기 위한 정보를 추출
         object_names = [name[1] for name in file_names]
+        prepare_msg = {"type": "ALARM", "MESSAGE": "Preparing Analysis Data"}
+        yield json.dumps(prepare_msg).encode('utf-8') + b"send_stream"
 
         # 이전에 사용자가 생성한 노드 존재 여부를 확인
         node_exists = await connection.node_exists(user_id, object_names)
@@ -89,6 +91,7 @@ async def generate_and_execute_cypherQuery(file_names: list, user_id: str, api_k
             ddl_file_path = os.path.join(dirs['ddl'], ddl_file_name)
             has_ddl_info = False
             ddl_results = None
+
 
             # DDL 파일 처리
             if os.path.exists(ddl_file_path):
@@ -147,7 +150,6 @@ async def generate_and_execute_cypherQuery(file_names: list, user_id: str, api_k
                         "analysis_progress": analysis_progress, 
                         "current_file": object_name
                     }
-                    print("안녕", stream_data.get('current_file'))
                     await send_queue.put({'type': 'process_completed'})
                     logging.info(f"Send Response for {file_name}")
                     yield json.dumps(stream_data).encode('utf-8') + b"send_stream"
@@ -242,7 +244,7 @@ async def process_ddl_and_table_nodes(ddl_file_path: str, connection: Neo4jConne
     except Exception as e:
         err_msg = f"DDL 파일 처리 중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
-        raise ProcessResultError(err_msg)
+        raise UnderstandingError(err_msg)
     
 
 
@@ -287,6 +289,7 @@ async def generate_spring_boot_project(file_names: list, user_id: str, api_key: 
                 file_name=f"{entity['entityName']}.java",
                 code=entity['entityCode']
             )
+            logging.info(f"[디버그]entity: {entity['entityName']} 전달 완료")
         
         yield create_message("Done", step=1)
         
@@ -306,6 +309,8 @@ async def generate_spring_boot_project(file_names: list, user_id: str, api_key: 
                 file_name=f"{repo['repositoryName']}.java",
                 code=repo['code']
             )
+            logging.info(f"[디버그]repository: {repo['repositoryName']} 전달 완료")
+
         
         yield create_message("Done", step=2)
         
@@ -322,7 +327,7 @@ async def generate_spring_boot_project(file_names: list, user_id: str, api_key: 
 
             yield create_message("message", step=3, 
                 content=f"Business Logic Processing")
-            print(f"Start converting {object_name}\n")
+            logging.info(f"Start converting {object_name}\n")
 
             #--------------------------------------------------------------
             # 4.1 서비스, 컨트롤러 스켈레톤 생성
@@ -490,7 +495,7 @@ async def generate_spring_boot_project(file_names: list, user_id: str, api_key: 
     except Exception as e:
         err_msg = f"스프링 부트 프로젝트로 전환하는 도중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
-        raise RuntimeError(err_msg)
+        raise ConvertingError(err_msg)
 
 
 # 역할: 생성된 스프링 부트 프로젝트를 ZIP 파일로 압축합니다.
@@ -514,7 +519,7 @@ async def process_project_zipping(source_directory, output_zip_path):
     except Exception as e:
         err_msg = f"스프링부트 프로젝트를 Zip으로 압축하는 도중 문제가 발생했습니다: {str(e)}"
         logging.error(err_msg)
-        raise OSError(err_msg)
+        raise FileProcessingError(err_msg)
     
 
 # 역할: 임시 생성된 모든 파일과 Neo4j 데이터를 정리합니다.
@@ -552,7 +557,7 @@ async def delete_all_temp_data(user_id:str):
     except Exception as e:
         err_msg = f"파일 삭제 및 그래프 데이터 삭제 중 오류 발생: {str(e)}"
         logging.exception(err_msg)
-        raise OSError(err_msg)
+        raise FileProcessingError(err_msg)
 
 
 # 역할: Anthropic API 키가 유효한지 검증합니다.

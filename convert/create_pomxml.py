@@ -1,7 +1,9 @@
 import os
 import logging
-from util.exception import PomXmlCreationError, SaveFileError
-from util.file_utils import save_file
+
+from util.exception import ConvertingError, GenerateTargetError
+from util.utility_tool import save_file
+
 
 POM_FILE_NAME = "pom.xml"
 
@@ -122,9 +124,9 @@ async def start_pomxml_processing(user_id:str, project_name:str) -> str:
         logging.info("Pom.xml이 생성되었습니다.\n")
         return pom_xml_template
 
-    except SaveFileError:
+    except ConvertingError:
         raise
     except Exception as e:
         err_msg = f"스프링부트의 Pom.xml 파일을 생성하는 도중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
-        raise PomXmlCreationError(err_msg)
+        raise GenerateTargetError(err_msg)

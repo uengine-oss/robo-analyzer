@@ -1,7 +1,9 @@
 import logging
 import tiktoken
-from util.exception import SkeletonCreationError, StringConversionError, TemplateGenerationError
-from util.string_utils import convert_to_camel_case, convert_to_pascal_case
+
+from util.exception import ConvertingError
+from util.utility_tool import convert_to_camel_case, convert_to_pascal_case
+
 
 encoder = tiktoken.get_encoding("cl100k_base")
 # 프로젝트 이름은 함수 매개변수로 받음
@@ -52,12 +54,12 @@ CodePlaceHolder
 
         return controller_class_template ,controller_class_name
     
-    except StringConversionError:
+    except ConvertingError:
         raise
     except Exception as e:
         err_msg = f"컨트롤러 클래스 골격을 생성하는 도중 문제가 발생: {str(e)}"
         logging.error(err_msg)
-        raise TemplateGenerationError(err_msg)
+        raise ConvertingError(err_msg)
 
 
 # 역할: 컨트롤러 클래스 기본 구조를 생성 프로세스를 시작하고 관리하는 함수입니다.
@@ -71,43 +73,15 @@ CodePlaceHolder
 # 반환값:
 #   - controller_skeleton: 생성된 스프링부트 컨트롤러 클래스 코드 문자열
 #   - controller_class_name: 생성된 컨트롤러 클래스명 (예: EmployeeManagementController)
-async def start_controller_skeleton_processing(object_name: str, exist_command_class: bool, api_key: str, project_name: str) -> tuple[str, str]:
+async def start_controller_skeleton_processing(object_name: str, exist_command_class: bool, project_name: str) -> tuple[str, str]:
     try:
         controller_skeleton, controller_class_name = await generate_controller_skeleton(object_name, exist_command_class, project_name)
         logging.info(f"[{object_name}] 컨트롤러 클래스 골격이 생성되었습니다.\n")
         return controller_skeleton, controller_class_name
         
-    except (StringConversionError, TemplateGenerationError):
+    except ConvertingError:
         raise
     except Exception as e:
         err_msg = f"컨트롤러 클래스 골격 생성 중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
-        raise SkeletonCreationError(err_msg)
-
-
-# 역할: 컨트롤러 클래스 기본 구조를 생성 프로세스를 시작하고 관리하는 함수입니다.
-#
-# 매개변수:
-#   - object_name: plsql 패키지 이름
-#   - exist_command_class: 커맨드 클래스가 존재하는지 여부
-#   - project_name: 프로젝트 이름 (기본값: 'demo')
-#
-# 반환값:
-#   - controller_skeleton: 생성된 컨트롤러 클래스의 기본 구조
-#   - controller_class_name: 생성된 컨트롤러 클래스 이름
-async def start_controller_skeleton_processing(object_name: str, exist_command_class: bool, project_name: str = 'demo') -> str:
-
-    logging.info(f"[{object_name}] 컨트롤러 틀 생성을 시작합니다.")
-
-    try:
-        # * 컨트롤러 클래스의 틀을 생성합니다.
-        controller_skeleton, controller_class_name = await generate_controller_skeleton(object_name, exist_command_class, project_name)
-        logging.info(f"[{object_name}] 컨트롤러 틀 생성 완료\n")
-        return controller_skeleton, controller_class_name
-
-    except (StringConversionError, TemplateGenerationError):
-        raise
-    except Exception as e:
-        err_msg = f"컨트롤러 골격 클래스를 생성하기 위해 데이터를 준비하는 도중 문제가 발생: {str(e)}"
-        logging.error(err_msg)
-        raise SkeletonCreationError(err_msg)
+        raise ConvertingError(err_msg)

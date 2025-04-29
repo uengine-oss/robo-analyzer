@@ -3,8 +3,9 @@ import os
 import textwrap
 import tiktoken
 from understand.neo4j_connection import Neo4jConnection
-from util.exception import ConvertingError, FilePathError, ProcessResultError, SaveFileError, ServiceCreationError, TraverseCodeError
-from util.file_utils import save_file
+from util.exception import ConvertingError, GenerateTargetError
+from util.utility_tool import save_file
+
 
 encoder = tiktoken.get_encoding("cl100k_base")
 # SERVICE_PATH = 'demo/src/main/java/com/example/demo/service'
@@ -62,7 +63,7 @@ async def process_big_size_node(node_startLine:int, summarized_java_code:str, co
     except Exception as e:
         err_msg = f"Service 클래스 생성과정에서 크기가 매우 큰 노드에 대한 처리를 하는 도중 문제가 발생했습니다: {str(e)}"
         logging.error(err_msg)
-        raise ProcessResultError(err_msg)
+        raise ConvertingError(err_msg)
 
 
 # 역할: Neo4j에서 가져온 노드들을 순회하면서 Java 코드를 생성하는 함수입니다.
@@ -93,6 +94,13 @@ async def traverse_node_for_merging_service(node_list:list, connection:Neo4jConn
             start_node_type = node['nType'] 
             token = start_node['token']
             java_code = start_node['java_code']
+            print("="*50)
+            print("==== JAVA 코드 내용 ====")
+            print("="*50)
+            print(all_java_code)
+            print("==== TRY 코드 내용 ====")
+            print(try_catch_code)
+            print("="*50)
 
             # * 노드 처리 여부 확인
             is_duplicate = previous_node_endLine > start_node['startLine'] and previous_node_endLine
@@ -101,22 +109,33 @@ async def traverse_node_for_merging_service(node_list:list, connection:Neo4jConn
             is_exception_node = "EXCEPTION" in start_node_type
             
             # * 노드 정보 출력
-            print("-" * 40) 
+            print("\n"+"*"*50) 
+            print("**** 노드 정보 ****")
+            print("*"*50)
             print(f"시작 노드 : [ 시작 라인 : {start_node['startLine']}, 이름 : ({start_node['name']}), 끝라인: {start_node['endLine']}, 토큰 : {start_node['token']}")
             print(f"관계: {relationship}")
-            if end_node: print(f"종료 노드 : [ 시작 라인 : {end_node['startLine']}, 이름 : ({end_node['name']}), 끝라인: {end_node['endLine']}, 토큰 : {end_node['token']}\n")
+            if end_node: print(f"종료 노드 : [ 시작 라인 : {end_node['startLine']}, 이름 : ({end_node['name']}), 끝라인: {end_node['endLine']}, 토큰 : {end_node['token']}")
+            print("*"*50+"\n")
 
 
             # * 중복(이미 처리된 자식노드) 또는 불필요한 노드 건너뛰기
             if is_duplicate or is_unnecessary:
-                print("현재 노드에 대한 처리가 필요하지 않습니다.") 
+                print("\n"+"-"*50)
+                print("---- 처리 상태 ----")
+                print("-"*50)
+                print("현재 노드에 대한 처리가 필요하지 않습니다.")
+                print("-"*50+"\n") 
                 continue
             
 
             # * TRY 노드 처리
             if is_try_node:
                 try_catch_code += java_code
-                print("TRY 노드 처리 중입니다.") 
+                print("\n"+"-"*50)
+                print("---- 처리 상태 ----")
+                print("-"*50)
+                print("TRY 노드 처리 중입니다.")
+                print("-"*50+"\n") 
                 continue
 
 
@@ -136,15 +155,24 @@ async def traverse_node_for_merging_service(node_list:list, connection:Neo4jConn
                     java_code = java_code.replace("CodePlaceHolder", indented_code)
                     all_java_code += java_code + "\n"
                     try_catch_code = ""
-                print("EXCEPTION 노드 처리 중입니다.") 
+                print("\n"+"-"*50)
+                print("---- 처리 상태 ----")
+                print("-"*50)
+                print("EXCEPTION 노드 처리 중입니다.")
+                print("-"*50+"\n") 
                 continue
             
 
             # * 노드의 토큰 크기에 따라 처리 방식 결정
             # TODO 엄청 큰 TRY 노드 처리 필요(프롬포트 수정)
             if token > 1700:
+                print("\n"+"#"*50)
+                print("#### 대용량 노드 처리 ####")
+                print("#"*50)
                 logging.info("크기가 매우 큰 노드 처리를 시작합니다.")
+                print("크기가 매우 큰 노드 처리를 시작합니다.")
                 java_code = await process_big_size_node(start_node['startLine'], java_code, connection, object_name, user_id)
+                print("#"*50+"\n")
 
 
             # * 변수 값 할당 및 Java 코드 추가
@@ -158,7 +186,7 @@ async def traverse_node_for_merging_service(node_list:list, connection:Neo4jConn
     except Exception as e:
         err_msg = f"(후처리) Service 클래스 생성을 위해 노드를 순회하는 도중 문제가 발생했습니다: {str(e)}"
         logging.error(err_msg)
-        raise TraverseCodeError(err_msg)
+        raise ConvertingError(err_msg)
 
 
 # 역할: 생성된 서비스 코드를 지정된 경로에 Java 파일로 저장하는 함수입니다.
@@ -200,12 +228,12 @@ async def generate_service_class(service_skeleton: str, service_class_name: str,
         # * 생성된 파일 내용 반환
         return service_skeleton
 
-    except SaveFileError:
+    except ConvertingError:
         raise
     except Exception as e:
         err_msg = f"서비스 클래스 파일 생성 중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
-        raise FilePathError(err_msg)
+        raise GenerateTargetError(err_msg)
 
 
 # 역할: 서비스 클래스 생성을 위한 후처리 작업의 시작점입니다.
@@ -268,6 +296,6 @@ async def start_service_postprocessing(method_skeleton_code: str, procedure_name
     except Exception as e:
         err_msg = f"(후처리) 서비스 클래스를 생성을 위한 준비 및 시작 도중 문제가 발생했습니다: {str(e)}"
         logging.error(err_msg)
-        raise ServiceCreationError(err_msg)
+        raise ConvertingError(err_msg)
     finally:
         await connection.close() 

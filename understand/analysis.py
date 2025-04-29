@@ -7,8 +7,8 @@ from prompt.understand_summarized_prompt import understand_summary
 import tiktoken
 from prompt.understand_prompt import understand_code
 from prompt.understand_variables_prompt import understand_variables
-from util.exception import (LLMCallError, TokenCountError, ExtractCodeError, SummarizeCodeError, FocusedCodeError, TraverseCodeError, UnderstandingError,
-                            ProcessResultError, HandleResultError, EventRsRqError)
+from util.exception import (LLMCallError, UnderstandingError, ProcessAnalyzeCodeError)
+from util.utility_tool import calculate_code_token
 
 
 encoder = tiktoken.get_encoding("cl100k_base")
@@ -19,26 +19,6 @@ PROCEDURE_TYPES = ["PROCEDURE", "FUNCTION", "CREATE_PROCEDURE_BODY"]
 NON_ANALYSIS_TYPES = ["CREATE_PROCEDURE_BODY", "ROOT", "PACKAGE_SPEC", "PROCEDURE_SPEC", "FUNCTION_SPEC", "PACKAGE_BODY", "PROCEDURE","FUNCTION", "DECLARE"]
 NON_NEXT_RECURSIVE_TYPES = ["FUNCTION", "PROCEDURE", "PACKAGE_VARIABLE", "PROCEDURE_SPEC", "FUNCTION_SPEC"]
 NON_CHILD_ANALYSIS_TYPES = ["PACKAGE_VARIABLE", "PROCEDURE_SPEC", "FUNCTION_SPEC","DECLARE", "SPEC"]
-
-# 역할: 스토어드 프로시저 코드의 토큰 수를 계산합니다.
-#
-# 매개변수: 
-#   - code (str): 토큰화할 스토어드 프로시저 코드
-#
-# 반환값: 
-#   - int: 계산된 토큰의 총 개수
-def count_tokens_in_text(code: str) -> int:
-    
-    if not code: return 0
-
-    try:
-        # * 코드를 토큰화하고 토큰의 개수를 반환합니다.
-        tokens = encoder.encode(code)
-        return len(tokens)
-    except Exception as e:
-        err_msg = f"Understanding 과정에서 토큰 계산 중 오류가 발생했습니다: {str(e)}"
-        logging.error(err_msg)
-        raise TokenCountError(err_msg)
 
 
 # 역할: 지정된 라인 범위에 해당하는 스토어드 프로시저 코드를 추출합니다.
@@ -82,7 +62,7 @@ def extract_code_within_range(code: str, context_range: list[dict]) -> tuple[str
     except Exception as e:
         err_msg = f"Understanding 과정에서 범위내에 코드 추출 도중에 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
-        raise ExtractCodeError(err_msg)
+        raise ProcessAnalyzeCodeError(err_msg)
 
 
 # 역할: PLSQL 코드에서 프로시저/함수 이름을 추출하는 함수
@@ -194,7 +174,7 @@ def extract_and_summarize_code(file_content: str, node: dict) -> str:
     except Exception as e:
         err_msg = f"Understanding 과정에서 코드를 요약하는 도중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
-        raise SummarizeCodeError(err_msg)
+        raise ProcessAnalyzeCodeError(err_msg)
 
 
 # 역할: 스케줄의 스택에 담긴 여러 구문을 조합하여 전체 프로시저 코드를 생성하는 함수
@@ -226,7 +206,7 @@ def create_focused_code(current_schedule: dict, schedule_stack: list) -> str:
     except Exception as e:
         err_msg = f"Understanding 과정에서 분석할 코드 생성 도중에 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
-        raise FocusedCodeError(err_msg)
+        raise ProcessAnalyzeCodeError(err_msg)
     
 
 # 역할: 각 라인 별로 스토어드 프로시저 코드를 추출하는 함수
@@ -267,7 +247,7 @@ def extract_node_code(file_content: str, start_line: int, end_line: int) -> str:
     except Exception as e:
         err_msg = f"Understanding 과정에서 노드에 맞게 코드를 추출 도중에 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
-        raise ExtractCodeError(err_msg)
+        raise ProcessAnalyzeCodeError(err_msg)
 
 
 # 역할: 테이블 필드 이름에서 중괄호를 제거하고 실제 필드 이름만 추출하는 함수
@@ -366,7 +346,7 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
         except Exception as e:
             err_msg = f"Understanding 과정에서 LLM의 결과 처리를 준비 및 시작하는 도중 문제가 발생했습니다: {str(e)}"
             logging.error(err_msg)
-            raise ProcessResultError(err_msg)
+            raise ProcessAnalyzeCodeError(err_msg)
 
 
     # 역할: llm에게 받은 결과를 이용하여, 사이퍼쿼리를 생성하는 함수
@@ -540,7 +520,7 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
         except Exception as e:
             err_msg = f"Understanding 과정에서 LLM의 결과를 이용해 사이퍼쿼리를 생성하는 도중 오류가 발생했습니다: {str(e)}"
             logging.error(err_msg)
-            raise HandleResultError(err_msg)
+            raise ProcessAnalyzeCodeError(err_msg)
 
 
     # 역할: 전달된 프로시저 선언부 코드를 분석하여, 변수 노드를 생성하는 함수
@@ -603,7 +583,7 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
         except Exception as e:
             err_msg = f"Understanding 과정에서 프로시저 선언부 분석 및 변수 노드 생성 중 오류가 발생했습니다: {str(e)}"
             logging.error(err_msg)
-            raise HandleResultError(err_msg)
+            raise ProcessAnalyzeCodeError(err_msg)
 
 
     
@@ -633,7 +613,7 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
         except Exception as e:
             err_msg = f"Understanding 과정에서 이벤트를 송신하고 수신하는 도중 오류가 발생했습니다: {str(e)}"
             logging.error(err_msg)
-            raise EventRsRqError(err_msg)
+            raise ProcessAnalyzeCodeError(err_msg)
 
 
     # 역할: 스토어드 프로시저 코드를 노드 단위로 순회하며 구조를 분석하는 함수
@@ -650,7 +630,7 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
         start_line, end_line, statement_type = node['startLine'], node['endLine'], node['type']
         summarized_code = extract_and_summarize_code(file_content, node)
         node_code = extract_node_code(file_content, start_line, end_line)
-        node_size = count_tokens_in_text(node_code)
+        node_size = calculate_code_token(node_code)
         children = node.get('children', [])
 
 
@@ -675,7 +655,7 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
 
 
         # * 노드 크기 및 토큰 수 체크를 하여, 분석 여부를 결정합니다
-        sp_token_count = count_tokens_in_text(extract_code)
+        sp_token_count = calculate_code_token(extract_code)
         if (node_size >= 1000 and context_range and node_size + sp_token_count >= 1200) or (sp_token_count >= 1200 and context_range) or (len(context_range) >= 10 and sp_token_count >= 1200):
             await signal_for_process_analysis(line_number)
 
@@ -797,11 +777,10 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
         await send_queue.put({"type": "end_analysis"})
 
     except UnderstandingError as e:
-        logging.error(f"여기까지왔나? analysis")
         await send_queue.put({'type': 'error', 'message': str(e)})
         raise
     except Exception as e:
         err_msg = f"Understanding 과정에서 Traverse로 스토어드 프로시저 코드를 순회하는 도중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         await send_queue.put({'type': 'error', 'message': err_msg})
-        raise TraverseCodeError(err_msg)
+        raise ProcessAnalyzeCodeError(err_msg)

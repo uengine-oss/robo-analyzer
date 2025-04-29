@@ -17,7 +17,7 @@ set_llm_cache(SQLiteCache(database_path=db_path))
 prompt = PromptTemplate.from_template(
 """
 당신은 PL/SQL 변수를 Java 변수 타입으로 변환하는 전문가입니다.
-주어진 JSON 데이터를 기반으로 Java 변수 타입을 결정합니다.
+주어진 JSON 데이터를 기반으로 Java 변수 타입을 결정합니다. (검증)
 
 [입력 데이터 구조 설명]
 ===============================================

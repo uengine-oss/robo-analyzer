@@ -3,9 +3,9 @@ import logging
 import tiktoken
 from prompt.convert_entity_prompt import convert_entity_code
 from understand.neo4j_connection import Neo4jConnection
-from util.exception import ConvertingError, EntityCreationError, FilePathError, Neo4jError, ProcessResultError, SaveFileError, TokenCountError
-from util.file_utils import save_file
-from util.token_utils import calculate_code_token
+from util.exception import ConvertingError, GenerateTargetError
+from util.utility_tool import calculate_code_token, save_file
+
 
 MAX_TOKENS = 3000
 # project_name은 함수 매개변수로 받음
@@ -59,12 +59,12 @@ async def process_table_by_token_limit(table_data_list: list, user_id: str, api_
                 current_tokens = 0
                 
             
-            except (FilePathError, SaveFileError, Neo4jError):
+            except ConvertingError:
                 raise
             except Exception as e:
                 err_msg = f"LLM을 통한 엔티티 분석 중 오류가 발생: {str(e)}"
                 logging.error(err_msg)
-                raise ProcessResultError(err_msg)
+                raise ConvertingError(err_msg)
     
 
 
@@ -89,12 +89,12 @@ async def process_table_by_token_limit(table_data_list: list, user_id: str, api_
 
         return entity_result_list
 
-    except (FilePathError, SaveFileError, ProcessResultError):
+    except ConvertingError:
         raise
     except Exception as e:
         err_msg = f"테이블 데이터 처리 중 토큰 계산 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
-        raise TokenCountError(err_msg)
+        raise ConvertingError(err_msg)
 
 
 # 역할: LLM을 사용하여 테이블 정보를 분석하고, 이를 바탕으로 Java 엔티티 클래스 파일을 생성합니다.
@@ -124,12 +124,12 @@ async def generate_entity_class(entity_name: str, entity_code: str, user_id: str
             base_path=save_path
         )
     
-    except SaveFileError:
+    except ConvertingError:
         raise
     except Exception as e:
         err_msg = f"엔티티 클래스 파일 생성 중 오류가 발생: {str(e)}"
         logging.error(err_msg)
-        raise FilePathError(err_msg)
+        raise GenerateTargetError(err_msg)
 
 
 # 역할: 전체 엔티티 생성 프로세스를 관리하는 메인 함수입니다.
@@ -194,6 +194,6 @@ async def start_entity_processing(file_names: list, user_id: str, api_key: str, 
     except Exception as e:
         err_msg = f"엔티티 클래스를 생성하는 도중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
-        raise EntityCreationError(err_msg)
+        raise ConvertingError(err_msg)
     finally:
         await connection.close()

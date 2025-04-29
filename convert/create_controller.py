@@ -5,9 +5,9 @@ import textwrap
 import tiktoken
 from prompt.convert_controller_prompt import convert_controller_method_code
 from understand.neo4j_connection import Neo4jConnection
-from util.exception import ControllerCreationError, ConvertingError, FilePathError, LLMCallError, Neo4jError, ProcessResultError, SaveFileError, StringConversionError
-from util.file_utils import save_file
-from util.string_utils import convert_to_pascal_case
+from util.exception import ConvertingError, GenerateTargetError, UtilProcessingError
+from util.utility_tool import save_file
+
 
 encoder = tiktoken.get_encoding("cl100k_base")
 # 프로젝트 이름은 함수 매개변수로 받음
@@ -44,12 +44,12 @@ async def generate_controller_class(controller_skeleton: str, controller_class_n
         logging.info(f"[{controller_class_name}] Success Create Controller Java File\n")
         return controller_code
 
-    except SaveFileError:
+    except ConvertingError:
         raise
     except Exception as e:   
         err_msg = f"컨트롤러 클래스 파일 경로를 설정하는 도중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
-        raise FilePathError(err_msg)
+        raise GenerateTargetError(err_msg)
     
     
 # 역할: 컨트롤러 메서드 코드를 생성하는 함수입니다.
@@ -87,12 +87,12 @@ async def process_controller_method_code(method_signature: str, procedure_name: 
         method_skeleton_code = analysis_method['method']
         return method_skeleton_code
 
-    except (LLMCallError, Neo4jError, StringConversionError):
+    except ConvertingError:
         raise
     except Exception as e:
         err_msg = f"컨트롤러 메서드를 생성하는 과정에서 결과 처리 준비 처리를 하는 도중 문제가 발생했습니다: {str(e)}"
         logging.error(err_msg)
-        raise ProcessResultError(err_msg)
+        raise ConvertingError(err_msg)
     finally:
         await connection.close()
 
@@ -146,7 +146,7 @@ async def start_controller_processing(method_signature: str, procedure_name: str
     except Exception as e:
         err_msg = f"컨트롤러 메서드를 생성하기 위해 데이터를 준비하는 도중 문제가 발생했습니다: {str(e)}"
         logging.error(err_msg)
-        raise ControllerCreationError(err_msg)
+        raise ConvertingError(err_msg)
 
 
 

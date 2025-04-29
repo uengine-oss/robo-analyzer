@@ -6,9 +6,9 @@ from prompt.convert_variable_prompt import convert_variables
 from prompt.convert_service_skeleton_prompt import convert_method_code
 from prompt.convert_command_prompt import convert_command_code
 from understand.neo4j_connection import Neo4jConnection
-from util.exception import ConvertingError, ExtractNodeInfoError, FilePathError, Neo4jError, ProcessResultError, SaveFileError, SkeletonCreationError, StringConversionError, TemplateGenerationError
-from util.file_utils import save_file
-from util.string_utils import convert_to_camel_case, convert_to_pascal_case
+from util.exception import ConvertingError
+from util.utility_tool import convert_to_camel_case, convert_to_pascal_case, save_file
+
 
 encoder = tiktoken.get_encoding("cl100k_base")
 # 프로젝트 이름은 함수 매개변수로 받음
@@ -90,12 +90,12 @@ CodePlaceHolder
 
         return service_class_template, service_class_name
     
-    except StringConversionError:
+    except ConvertingError:
         raise
     except Exception as e:
         err_msg = f"서비스 클래스 골격을 생성하는 도중 문제가 발생했습니다: {str(e)}"
         logging.error(err_msg)
-        raise TemplateGenerationError(err_msg)
+        raise ConvertingError(err_msg)
 
 
 # 역할: 프로시저/함수에 대한 커맨드 클래스와 서비스 메서드의 구현 코드를 생성합니다.
@@ -152,7 +152,7 @@ async def process_method_and_command_code(method_skeleton_data: dict, parameter_
     except Exception as e:
         err_msg = f"메서드 틀을 생성하는 과정에서 결과 처리 준비 처리를 하는 도중 문제가 발생했습니다: {str(e)}"
         logging.error(err_msg)
-        raise ProcessResultError(err_msg)
+        raise ConvertingError(err_msg)
 
 
 # 역할: 생성된 자바 소스 코드를 지정된 디렉토리에 파일로 저장합니다.
@@ -180,12 +180,12 @@ async def generate_command_class(class_name: str, source_code: str, dir_name: st
         # * 커맨드 클래스 파일로 생성합니다.
         await save_file(content=source_code, filename=f"{class_name}.java", base_path=base_path)
 
-    except SaveFileError:
+    except ConvertingError:
         raise
     except Exception as e:
         err_msg = f"커맨드 클래스 [{class_name}] 파일 저장을 위한 경로 설정중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
-        raise FilePathError(err_msg)
+        raise ConvertingError(err_msg)
     
 
 # 역할: 프로시저 노드와 외부 호출 노드를 조회하여 프로시저 그룹을 구성합니다.
@@ -270,12 +270,12 @@ async def get_procedure_groups(connection: Neo4jConnection, object_name: str) ->
         
         return procedure_groups, external_packages
     
-    except Neo4jError:
+    except ConvertingError:
         raise
     except Exception as e:
         err_msg = f"[{object_name}] 프로시저 데이터 조회 중 오류 발생: {str(e)}"
         logging.error(err_msg)
-        raise ExtractNodeInfoError(err_msg)
+        raise ConvertingError(err_msg)
 
 
 # 역할: Neo4j 데이터베이스에서 프로시저 정보를 조회하여 서비스 클래스와 관련 코드를 생성합니다.
@@ -390,6 +390,6 @@ async def start_service_skeleton_processing(entity_name_list: list, object_name:
     except Exception as e:
         err_msg = f"[{object_name}] 서비스 클래스 생성 중 오류 발생: {str(e)}"
         logging.error(err_msg)
-        raise SkeletonCreationError(err_msg)
+        raise ConvertingError(err_msg)
     finally:
         await connection.close()
