@@ -94,13 +94,6 @@ async def traverse_node_for_merging_service(node_list:list, connection:Neo4jConn
             start_node_type = node['nType'] 
             token = start_node['token']
             java_code = start_node['java_code']
-            print("="*50)
-            print("==== JAVA 코드 내용 ====")
-            print("="*50)
-            print(all_java_code)
-            print("==== TRY 코드 내용 ====")
-            print(try_catch_code)
-            print("="*50)
 
             # * 노드 처리 여부 확인
             is_duplicate = previous_node_endLine > start_node['startLine'] and previous_node_endLine
@@ -179,6 +172,14 @@ async def traverse_node_for_merging_service(node_list:list, connection:Neo4jConn
             all_java_code += java_code + "\n"
             previous_node_endLine = start_node['endLine']
 
+            print("="*50)
+            print("==== JAVA 코드 내용 ====")
+            print("="*50)
+            print(all_java_code)
+            print("==== TRY 코드 내용 ====")
+            print(try_catch_code)
+            print("="*50)
+
         return all_java_code
     
     except ConvertingError:
@@ -203,7 +204,7 @@ async def traverse_node_for_merging_service(node_list:list, connection:Neo4jConn
 async def generate_service_class(service_skeleton: str, service_class_name: str, merge_method_code: str, user_id: str, project_name: str = "demo") -> str:
     try:
         # * 병합된 메서드 코드를 들여쓰기 처리
-        service_skeleton = service_skeleton.replace("CodePlaceHolder", merge_method_code)
+        completed_service_code = service_skeleton.replace("CodePlaceHolder", merge_method_code)
 
         # * 서비스 경로 설정
         service_path = f'{project_name}/src/main/java/com/example/{project_name}/service'
@@ -215,10 +216,21 @@ async def generate_service_class(service_skeleton: str, service_class_name: str,
             current_dir = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             save_path = os.path.join(current_dir, 'target', 'java', user_id, service_path)
 
+        print("확인 차원")
+        print(completed_service_code)
+
+        print("확인 차원2")
+        print(service_skeleton)
+
+        print("="*50)
+        print("==== 서비스 경로 ====")
+        print("="*50)
+        print(completed_service_code)
+        print("="*50)
 
         # * 서비스 클래스 파일 생성
         await save_file(
-            content=service_skeleton,
+            content=completed_service_code,
             filename=f"{service_class_name}.java",
             base_path=save_path
         )
@@ -226,7 +238,7 @@ async def generate_service_class(service_skeleton: str, service_class_name: str,
         logging.info(f"[{service_class_name}] Success Create Service Java File")
         
         # * 생성된 파일 내용 반환
-        return service_skeleton
+        return completed_service_code
 
     except ConvertingError:
         raise

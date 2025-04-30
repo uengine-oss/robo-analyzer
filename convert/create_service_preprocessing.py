@@ -270,7 +270,7 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
 
 
             # * 총 토큰 수 및 결과 개수 초과 여부를 확인하는 조건
-            is_token_limit_exceeded = (current_tokens + node_tokens >= 2000) and context_range 
+            is_token_limit_exceeded = ((current_tokens + node_tokens >= 1000) or (len(context_range) >= 10)) and context_range 
 
 
             # * 총 토큰 수 검사를 진행합니다.

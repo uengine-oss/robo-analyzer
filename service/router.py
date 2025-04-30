@@ -11,8 +11,8 @@ from dotenv import load_dotenv
 # .env 파일 로드
 load_dotenv()
 
-router = APIRouter()
-# router = APIRouter(prefix="/api/backend")
+# router = APIRouter()
+router = APIRouter(prefix="/api/backend")
 logger = logging.getLogger(__name__)  
 
 

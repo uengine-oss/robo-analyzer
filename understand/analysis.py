@@ -656,7 +656,7 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
 
         # * 노드 크기 및 토큰 수 체크를 하여, 분석 여부를 결정합니다
         sp_token_count = calculate_code_token(extract_code)
-        if (node_size >= 1000 and context_range and node_size + sp_token_count >= 1200) or (sp_token_count >= 1200 and context_range) or (len(context_range) >= 10 and sp_token_count >= 1200):
+        if (node_size >= 1000 and context_range and node_size + sp_token_count >= 1000) or (sp_token_count >= 1000 and context_range) or (len(context_range) >= 10 and sp_token_count >= 1000):
             await signal_for_process_analysis(line_number)
 
 
