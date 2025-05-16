@@ -681,11 +681,13 @@ async def analysis(antlr_data: dict, file_content: str, send_queue: asyncio.Queu
             """)
         else:
             if statement_type == "ROOT":
+                # locale에 따라 다른 언어로 summary 설정
+                root_summary = 'Root Start Node' if locale == 'en' else '최상위 시작노드'
                 cypher_query.append(f"""
                     MERGE (n:{statement_type} {{startLine: {start_line}, object_name: '{object_name}', user_id: '{user_id}'}})
                     SET n.endLine = {end_line},
                         n.name = '{object_name}',
-                        n.summary = '최상위 시작노드'
+                        n.summary = '{root_summary}'
                 """)
             elif statement_type in ["PROCEDURE", "FUNCTION"]:
                 cypher_query.append(f"""

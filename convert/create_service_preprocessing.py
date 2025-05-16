@@ -170,14 +170,23 @@ async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, co
 
             # * 코드 정보를 추출하고, 자바 속성 추가를 위한 사이퍼쿼리를 생성합니다.
             for key, service_code in code_info.items():
-                start_line, end_line = map(int, key.replace('-','~').split('~'))
-                # escaped_code = service_code.replace('\n', '\\n').replace("'", "\\'")
+                # '-' 또는 '~'를 기준으로 라인 번호 추출
+                parts = key.replace('-', '~').split('~')
+
+                if len(parts) == 1:
+                    # 단일 라인 → 시작과 끝을 같은 값으로 설정
+                    start_line = end_line = int(parts[0])
+                elif len(parts) == 2:
+                    start_line, end_line = map(int, parts)
+                else:
+                    raise ConvertingError(f"잘못된 라인 범위 형식: '{key}'")
+
+                # Cypher 쿼리 생성
                 node_update_query.append(
                     f"MATCH (n) WHERE n.startLine = {start_line} "
                     f"AND n.object_name = '{object_name}' AND n.endLine = {end_line} AND n.user_id = '{user_id}' "
                     f"SET n.java_code = {json.dumps(service_code)}"
-                )    
-
+                )
 
             # * 변수 정보를 tracking_variables에 업데이트합니다.
             for var_name, var_info in variables_info.items():
