@@ -3,11 +3,13 @@ import logging
 import os
 from langchain.globals import set_llm_cache
 from langchain_community.cache import SQLiteCache
-from langchain_anthropic import ChatAnthropic
-from langchain_core.output_parsers import JsonOutputParser
+from util.llm_client import get_llm
 from langchain.prompts import PromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
 from util.exception import LLMCallError
+from langchain_core.output_parsers import JsonOutputParser
+
+
 
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
@@ -127,11 +129,7 @@ public class EntityName {{
 def convert_entity_code(table_data: dict, api_key: str, project_name: str, locale: str) -> dict:
     
     try:
-        llm = ChatAnthropic(
-            model="claude-3-7-sonnet-latest", 
-            max_tokens=8192,
-            api_key=api_key
-        )
+        llm = get_llm(max_tokens=8192, api_key=api_key)
 
         table_json_data = json.dumps(table_data, ensure_ascii=False, indent=2)
         prompt_data = {
@@ -147,7 +145,7 @@ def convert_entity_code(table_data: dict, api_key: str, project_name: str, local
             | JsonOutputParser()
         )
         result = chain.invoke(prompt_data)
-        return result
+        return result  
     except Exception as e:
         err_msg = f"엔티티 생성 과정에서 LLM 호출하는 도중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)

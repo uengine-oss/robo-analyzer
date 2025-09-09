@@ -3,7 +3,7 @@ import logging
 import os
 from langchain.globals import set_llm_cache
 from langchain_community.cache import SQLiteCache
-from langchain_anthropic import ChatAnthropic
+from util.llm_client import get_llm
 from langchain_core.output_parsers import JsonOutputParser
 from langchain.prompts import PromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
@@ -52,11 +52,7 @@ project_name_prompt = PromptTemplate.from_template(
 #   - 생성된 프로젝트 이름
 async def generate_project_name_prompt(file_data: list, api_key: str) -> str:
     try:
-        llm = ChatAnthropic(
-            model="claude-3-7-sonnet-latest",
-            max_tokens=1000,
-            api_key=api_key
-        )
+        llm = get_llm(max_tokens=1000, api_key=api_key)
 
         file_data_str = json.dumps(file_data, ensure_ascii=False)
         prompt_data = {"file_data": file_data_str}

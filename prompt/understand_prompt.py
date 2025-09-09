@@ -5,8 +5,7 @@ from langchain.globals import set_llm_cache
 from langchain_community.cache import SQLiteCache
 from langchain.prompts import PromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
-from langchain_anthropic import ChatAnthropic
-from langchain_openai import ChatOpenAI
+from util.llm_client import get_llm
 from util.exception  import LLMCallError
 from langchain_core.output_parsers import JsonOutputParser
 
@@ -80,6 +79,7 @@ prompt = PromptTemplate.from_template(
 
 
 아래는 예시 결과로, 식별된 정보만 담아서 json 형식으로 나타내고, 주석이나 부가 설명은 피해주세요:
+```json
 {{
     "analysis": [
         {{
@@ -97,6 +97,7 @@ prompt = PromptTemplate.from_template(
     }},
     "tableReference": [{{"source": "tableName1", "target": "tableName2"}}]
 }}
+```
 """)
 
 # 역할: PL/SQL 프로시저 코드를 심층 분석하여 Neo4j 사이퍼 쿼리 생성에 필요한 정보를 추출하는 함수입니다.
@@ -115,13 +116,8 @@ def understand_code(sp_code, context_ranges, context_range_count, object_name, a
     try:
         ranges_json = json.dumps(context_ranges)
         
-        # 전달받은 API 키로 Anthropic Claude LLM 인스턴스 생성
-        llm = ChatAnthropic(
-            model="claude-3-7-sonnet-latest", 
-            temperature=0,
-            max_tokens=8192,
-            api_key=api_key
-        )
+        # OpenAI 호환 엔드포인트 기반 LLM 인스턴스 생성
+        llm = get_llm(temperature=0, max_tokens=8192, api_key=api_key)
         
         chain = (
             RunnablePassthrough()

@@ -7,7 +7,7 @@ from langchain_openai import ChatOpenAI
 from langchain_core.output_parsers import JsonOutputParser
 from langchain.prompts import PromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
-from langchain_anthropic import ChatAnthropic
+from util.llm_client import get_llm
 from util.exception import LLMCallError
 
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
@@ -165,8 +165,8 @@ def convert_repository_code(repository_nodes: dict, used_variable_nodes: dict, d
         used_variable_nodes = json.dumps(used_variable_nodes, ensure_ascii=False, indent=2)
         global_variable_nodes = json.dumps(global_variable_nodes, ensure_ascii=False, indent=2)
         
-        llm = ChatAnthropic(model="claude-3-7-sonnet-latest", max_tokens=8000, temperature=0.1, api_key=api_key)
-        
+        llm = get_llm(max_tokens=8000, temperature=0.1, api_key=api_key)
+         
         prompt_data = {
             "repository_nodes": repository_nodes,
             "used_variable_nodes": used_variable_nodes,

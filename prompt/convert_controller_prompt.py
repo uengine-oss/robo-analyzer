@@ -3,7 +3,7 @@ import logging
 import os
 from langchain.globals import set_llm_cache
 from langchain_community.cache import SQLiteCache
-from langchain_anthropic import ChatAnthropic
+from util.llm_client import get_llm
 from langchain_core.output_parsers import JsonOutputParser
 from langchain.prompts import PromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
@@ -133,11 +133,7 @@ public ResponseEntity<String> updateEmployee(@RequestBody UpdateEmployeeCommand 
 def convert_controller_method_code(method_signature: str, procedure_name: str, command_class_variable: str, command_class_name: str, controller_skeleton: str, api_key: str, locale: str) -> str:
     
     try:
-        llm = ChatAnthropic(
-            model="claude-3-7-sonnet-latest", 
-            max_tokens=8192,
-            api_key=api_key
-        )
+        llm = get_llm(max_tokens=8192, api_key=api_key)
         parser = JsonOutputParser()
         command_class_variable = json.dumps(command_class_variable, ensure_ascii=False, indent=2)
 

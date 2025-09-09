@@ -3,7 +3,7 @@ import logging
 import os
 from langchain.globals import set_llm_cache
 from langchain_community.cache import SQLiteCache
-from langchain_anthropic import ChatAnthropic
+from util.llm_client import get_llm
 from langchain_core.output_parsers import JsonOutputParser
 from langchain.prompts import PromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
@@ -68,11 +68,7 @@ summarized_stored_procedure_code:
 def convert_summarized_code(summarized_code, api_key, locale):
     
     try:
-        llm = ChatAnthropic(
-            model="claude-3-7-sonnet-latest", 
-            max_tokens=8192,
-            api_key=api_key
-        )
+        llm = get_llm(max_tokens=8192, api_key=api_key)
 
         chain = (
             RunnablePassthrough()

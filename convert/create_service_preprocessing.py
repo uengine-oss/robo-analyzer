@@ -1,408 +1,373 @@
-import json
 import logging
+import textwrap
 
 from prompt.convert_service_prompt import convert_service_code
 from prompt.convert_summarized_service_skeleton_prompt import convert_summarized_code
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError
-from util.utility_tool import extract_used_query_methods
+from util.utility_tool import extract_used_query_methods, collect_variables_in_range
 
 
-# 역할: 코드 변환의 핵심 함수로, 노드들을 순회하면서 Java 코드로의 변환 작업을 조율합니다.
-#
-# 매개변수:
-#   - traverse_nodes : 순회할 비즈니스 관련 노드 리스트
-#   - variable_nodes : 모든 변수 노드 리스트
-#   - connection : Neo4j 데이터베이스 연결 객체
-#   - command_class_variable : Command 클래스에 정의된 변수들의 정보
-#   - service_skeleton : 서비스의 기본 구조 템플릿
-#   - query_method_list : 사용 가능한 전체 query 쿼리 메서드 목록
-#   - object_name : 처리 중인 패키지/프로시저의 식별자
-#   - procedure_name : 처리 중인 프로시저의 이름
-#   - sequence_methods : 사용 가능한 시퀀스 메서드 목록
-#   - user_id : 사용자 ID
-#   - api_key : Claude API 키
-async def traverse_node_for_service(traverse_nodes:list, variable_nodes:list, connection:Neo4jConnection, command_class_variable:dict, service_skeleton:str, query_method_list:list, object_name:str, procedure_name:str, sequence_methods:list, user_id:str, api_key:str, locale:str):
 
-    used_variables =  []                  # 사용된 변수 정보를 저장하는 리스트
-    context_range = []                    # 분석할 컨텍스트 범위를 저장하는 리스트
-    current_tokens = 0                    # 총 토큰 수
-    convert_sp_code = ""                  # converting할 프로시저 코드 문자열
-    small_parent_info = {}                # 크기가 작은 부모 노드 정보
-    big_parent_info = {}                  # 크기가 큰 부모 노드의 정보
-    another_big_parent_startLine = 0      # 부모안에 또 다른 부모의 시작라인
-    used_query_method_dict = {}             # 사용된 query 쿼리 메서드를 관리할 사전
-    tracking_variables = {}               # 변수 정보를 추적하기 위한 사전
+class ServicePreprocessor:
+    """
+    역할:
+      - 서비스 전처리 전체 라이프사이클 관리
+      - 단일 컨텍스트 누적(메모리) 방식으로 자바 코드 생성 흐름 구성
+      - 대용량 부모(토큰≥1500, 자식 보유) 스켈레톤 관리 및 자식 코드/스켈레톤 단일 치환 처리
+      - 토큰 임계(기본 1500) 도달 시 LLM 분석 수행(변수/JPA 추출), DB 업데이트는 하지 않음
 
+    매개변수:
+      - traverse_nodes(list[dict]): 그래프에서 조회한 비즈니스 노드 레코드들({'n','r','m','nType'} 등)
+      - variable_nodes(list[dict]): 변수 범위 정보를 담은 노드 리스트({'v': Variable})
+      - connection(Neo4jConnection): Neo4j 연결 객체
+      - command_class_variable(dict): 커맨드 클래스 필드 정의 정보
+      - service_skeleton(str): 서비스 메서드 스켈레톤 템플릿
+      - query_method_list(list|dict): 사용 가능한 JPA 쿼리 메서드 목록
+      - object_name(str): 오브젝트(패키지)명
+      - procedure_name(str): 프로시저명
+      - sequence_methods(list): 시퀀스 메서드 목록
+      - user_id(str): 사용자 ID
+      - api_key(str): LLM API 키
+      - locale(str): 로케일
+    """
 
-    # 역할: 특정 노드 ID에 해당하는 범위 내에서 실제로 사용된 변수들을 식별하고 추출하는 함수입니다.
-    #
-    # 매개변수: 
-    #   - node_id : 현재 처리 중인 노드의 ID(시작라인) (변수 사용 범위를 확인하기 위한 기준점)
-    async def trace_extract_used_variable_nodes(node_id:int):
-        nonlocal used_variables, tracking_variables
-        
+    TOKEN_THRESHOLD = 1500
+    CODE_PLACEHOLDER = "...code..."
+
+    def __init__(self, traverse_nodes: list, variable_nodes: list, connection: Neo4jConnection,
+                 command_class_variable: dict, service_skeleton: str, query_method_list: dict,
+                 object_name: str, procedure_name: str, sequence_methods: list, user_id: str,
+                 api_key: str, locale: str) -> None:
+        self.traverse_nodes = traverse_nodes
+        self.variable_nodes = variable_nodes
+        self.connection = connection
+        self.command_class_variable = command_class_variable
+        self.service_skeleton = service_skeleton
+        self.query_method_list = query_method_list
+        self.object_name = object_name
+        self.procedure_name = procedure_name
+        self.sequence_methods = sequence_methods
+        self.user_id = user_id
+        self.api_key = api_key
+        self.locale = locale
+
+        # 상태 값
+        self.merged_java_code = ""  
+        self.total_tokens = 0
+        self.used_variables = []
+        self.used_query_method_dict = {}
+        self.tracking_variables = {}
+        self.current_parent = None 
+        self.java_buffer = ""
+        self.sp_code = ""
+        self.sp_range = {"startLine": None, "endLine": None}
+
+    #==================================================================
+    # 로깅/출력
+    #==================================================================
+    def _log_node_info(self, record: dict) -> None:
+        """
+        역할:
+          - 노드의 기본 정보를 로그로 남김(가독성 향상)
+
+        매개변수:
+          - record(dict): 순회 중인 레코드(키 'n','r','m','nType' 등 포함 가능)
+        """
+        start_node = record['n']
+        n_type = record.get('nType') or ''
+        token = int(start_node.get('token', 0) or 0)
+        start_line = int(start_node.get('startLine', 0) or 0)
+        end_line = int(start_node.get('endLine', 0) or 0)
+        rel = record.get('r')
+        relationship = rel[1] if rel else 'NEXT'
+        logging.info(f"[Node] type={n_type} start={start_line} end={end_line} token={token} rel={relationship}")
+
+    #==================================================================
+    # 대용량 스켈레톤 처리
+    #==================================================================
+    async def _generate_large_node_code(self, summarized_code: str) -> str:
+        """
+        역할:
+          - 요약된 자식 코드가 포함된 큰 노드의 요약 코드를 분석하여 자바 스켈레톤을 생성
+
+        매개변수:
+          - summarized_code(str): 자식이 "...code..." 등으로 요약된 코드 문자열
+
+        반환값:
+          - str: 생성된 자바 스켈레톤 코드
+        """
+        analysis_result = convert_summarized_code(summarized_code, self.api_key, self.locale)
+        return analysis_result['code']
+
+    def _insert_into_parent(self, child_start: int, child_code: str) -> bool:
+        """
+        역할:
+          - 현재 부모 스켈레톤의 일반 플레이스홀더("...code...")를 1회 치환
+
+        매개변수:
+          - child_start(int): 사용되지 않음(호출 시 0 전달), 인터페이스 호환용
+          - child_code(str): 부모 내부에 삽입할 자식(또는 누적된) 코드 문자열
+
+        반환값:
+          - bool: 치환 성공 여부
+        """
+        if not self.current_parent:
+            return False
+        placeholder = self.CODE_PLACEHOLDER
+        self.current_parent['code'] = self.current_parent['code'].replace(
+            placeholder, f"\n{textwrap.indent(child_code, '    ')}", 1
+        )
+        return True
+
+    async def _finalize_parent_if_passed(self, current_start_line: int, relationship: str) -> None:
+        """
+        역할:
+          - 현재 노드가 부모 범위를 벗어났는지 판단하고, 벗어났다면 부모를 마무리
+
+        매개변수:
+          - current_start_line(int): 현재 노드의 시작 라인
+          - relationship(str): 현재 레코드의 관계 타입(주로 'NEXT')
+        """
+        if not self.current_parent:
+            return
+        if relationship == 'NEXT' and current_start_line > self.current_parent['end']:
+            # 부모 종료 전에 남은 sp_code가 있으면 분석해서 java_buffer에 반영
+            if self.sp_code:
+                await self._analyze_and_update()
+            await self._finalize_current_parent()
+
+    async def _finalize_current_parent(self) -> None:
+        """
+        역할:
+          - 현재 부모의 "...code..."에 누적된 자식 코드(java_buffer)를 1회 치환하고,
+            완성된 부모 코드를 최종 컨텍스트에 병합
+        """
+        if not self.current_parent:
+            return
+        if self.java_buffer:
+            self._insert_into_parent(0, self.java_buffer.strip('\n'))
+        self.merged_java_code += f"\n{self.current_parent['code']}"
+        self.total_tokens += self.TOKEN_THRESHOLD
+        self.current_parent = None
+        self.java_buffer = ""
+
+    # (컨텍스트 범위 관리는 pending_range로만 수행)
+
+    #==================================================================
+    # 대용량 노드/일반 노드 처리
+    #==================================================================
+    async def _handle_large_node(self, summarized_code: str, start_line: int, end_line: int, token: int) -> None:
+        """
+        역할:
+          - 큰 노드(자식 있음, 토큰 임계 이상)를 처리하여 스켈레톤을 적용
+
+        매개변수:
+          - summarized_code(str): 요약 코드
+          - start_line(int): 노드 시작 라인
+          - end_line(int): 노드 끝 라인
+          - token(int): 노드 토큰 수
+        """
+        skeleton = await self._generate_large_node_code(summarized_code)
+        # 루트 부모가 없으면 현재 노드를 부모로 설정, 있으면 즉시 부모에 치환
+        if not self.current_parent:
+            self.current_parent = {'start': start_line, 'end': end_line, 'code': skeleton}
+        else:
+            self._insert_into_parent(0, skeleton)
+        self.total_tokens += token
+
+    def _handle_small_or_leaf_node(self, node_code: str, token: int, start_line: int, end_line: int) -> None:
+        """
+        역할:
+          - 작은 노드 또는 자식 없는 큰 노드를 처리(부모 진행 중이면 버퍼, 아니면 즉시 누적)
+
+        매개변수:
+          - node_code(str): 자바 코드 조각
+          - token(int): 토큰 수
+        """
+        # 작은/자식없음 노드는 원본을 sp_code에 누적하여 임계 시 LLM 변환
+        self.sp_code += f"\n{node_code}"
+        self.total_tokens += token
+        if self.sp_range['startLine'] is None or start_line < self.sp_range['startLine']:
+            self.sp_range['startLine'] = start_line
+        if self.sp_range['endLine'] is None or end_line > self.sp_range['endLine']:
+            self.sp_range['endLine'] = end_line
+
+    #==================================================================
+    # 분석 및 변수/JPA 업데이트
+    #==================================================================
+    async def _maybe_analyze(self) -> None:
+        """
+        역할:
+          - 토큰 임계 도달 시 LLM 분석 수행(변수/JPA 수집 후 분석 실행)
+        """
+        if self.total_tokens >= self.TOKEN_THRESHOLD:
+            await self._analyze_and_update()
+
+    #==================================================================
+    # 분석/업데이트
+    #==================================================================
+    async def _update_variables(self, analysis_result: dict) -> None:
+        """LLM 분석 결과의 변수 추적 정보를 메모리에만 반영합니다(DB 미반영)."""
+        variables_info = analysis_result['analysis'].get('variables', {})
+        for var_name, var_info in variables_info.items():
+            self.tracking_variables[var_name] = var_info
+
+    async def _analyze_and_update(self) -> None:
+        """
+        역할:
+          - 현재 누적 컨텍스트로 LLM 분석을 수행하고, 변수/JPA 수집 정보를 기반으로
+            변수 추적 상태만 메모리에 반영
+        """
+        if not self.sp_code or self.sp_range['startLine'] is None or self.sp_range['endLine'] is None:
+            return
+        start_line_ctx = self.sp_range['startLine']
+        end_line_ctx = self.sp_range['endLine']
+        context_range = [{"startLine": start_line_ctx, "endLine": end_line_ctx}]
+
         try:
-            # * 모든 변수 노드를 순회하며 현재 node_id에 해당하는 변수들을 추출
-            for variable_node in variable_nodes:
-                node_data = variable_node['v']
-                
-                for range_key in node_data:
-                    
-                    # * 범위 키가 아닌 경우 스킵 (예: name, type 등의 키)
-                    if '_' not in range_key or not all(part.isdigit() for part in range_key.split('_')):
-                        continue
-                        
-                    # * 현재 node_id가 변수의 유효 범위 내에 있는지 확인
-                    start_id, end_id = map(int, range_key.split('_'))
-                    if not (start_id <= node_id <= end_id):
-                        continue
-                    
-                    # * 변수 정보 구성
-                    var_name = node_data['name']
-                    var_info = {
-                        'type': node_data.get('type', 'Unknown'),
-                        'name': var_name,
-                        'role': tracking_variables.get(var_name, '')
-                    }
-                    
-                    # * 중복되지 않은 변수만 추가
-                    if not any(var['name'] == var_name for var in used_variables):
-                        used_variables.append(var_info)
-                    break
-
-        except Exception as e:
-            err_msg = f"(전처리) 서비스 코드 생성 과정에서 사용된 변수 노드 추출 도중 문제가 발생했습니다: {str(e)}"
-            logging.error(err_msg)
-            raise ConvertingError(err_msg)
-    
-
-    # 역할: 토큰 수가 1700개 이상인 대형 부모 노드를 처리하는 특수 함수입니다.
-    #
-    # 매개변수:
-    #   - start_line : 처리할 노드의 시작 라인 번호
-    #   - summarized_code : 자식 노드들의 코드가 요약된 형태의 코드 문자열
-    # TODO : 프로시저 이름 추가하는 작업이 필요
-    async def process_over_size_node(start_line:int, summarized_code:str) -> None:
+            collected = await collect_variables_in_range(self.variable_nodes, start_line_ctx, end_line_ctx)
+            self.used_variables = [
+                {**v, 'role': self.tracking_variables.get(v['name'], '')}
+                for v in collected
+            ]
+        except Exception as _e:
+            logging.debug(f"변수 수집 스킵: {_e}")
 
         try:
-            # * 요약된 코드를 분석하여, 요약된 메서드 틀을 생성합니다.
-            analysis_result = convert_summarized_code(summarized_code, locale)
-            service_code = analysis_result['code']
-            escaped_code = service_code.replace('\n', '\\n').replace("'", "\\'")
-
-
-            # * 노드의 속성에 Java 코드를 추가하는 쿼리 생성합니다.
-            query = [f"MATCH (n) "
-                    f"WHERE n.startLine = {start_line} AND n.object_name = '{object_name}' AND n.user_id = '{user_id}' "
-                    f"SET n.java_code = '{escaped_code}'"]
-
-
-            # * 생성된 쿼리를 실행합니다.
-            await connection.execute_queries(query)
-
-        except ConvertingError:
-            raise
-        except Exception as e:
-            err_msg = f"(전처리) 서비스 코드 생성 과정에서 사이즈가 큰 노드를 처리 도중 문제가 발생했습니다: {str(e)}"
-            logging.error(err_msg)
-            raise ConvertingError(err_msg)
-
-
-    # 역할: LLM에 코드 분석을 요청하고 그 결과를 처리하는 중심 함수입니다.
-    async def process_service_class_code() -> None:
-        nonlocal convert_sp_code, current_tokens, used_variables, context_range, used_query_method_dict, tracking_variables
-
-        try:
-            # * 노드 업데이트 쿼리를 저장할 리스트 및 범위 조정
-            context_range = [dict(t) for t in {tuple(d.items()) for d in context_range}]
-            context_range.sort(key=lambda x: (x['startLine'], x['endLine']))
-            range_count = len(context_range)
-
-
-            # * 전달된 정보를 llm에게 전달하여 결과를 받고, 결과를 처리하는 함수를 호출합니다.
-            analysis_result = convert_service_code(
-                convert_sp_code, 
-                service_skeleton, 
-                used_variables, 
-                command_class_variable, 
-                context_range, range_count, 
-                used_query_method_dict,
-                sequence_methods,
-                api_key,
-                locale
+            self.used_query_method_dict = await extract_used_query_methods(
+                start_line_ctx, end_line_ctx, self.query_method_list, {}
             )
-            await handle_convert_result(analysis_result)
+        except Exception as _e:
+            logging.debug(f"JPA 수집 스킵: {_e}")
 
-
-            # * 다음 사이클을 위해 각 종 변수를 초기화합니다.
-            convert_sp_code = ""
-            current_tokens = 0
-            context_range.clear()
-            used_variables.clear()
-            used_query_method_dict.clear()
-        
-        except ConvertingError:
-            raise
-        except Exception as e:
-            err_msg = f"(전처리) 서비스 코드 생성 과정에서 LLM의 결과를 결정하는 도중 문제가 발생했습니다: {str(e)}"
-            logging.error(err_msg)
-            raise ConvertingError(err_msg)
-
-
-
-    # 역할: LLM이 분석한 결과를 바탕으로 Neo4j 데이터베이스의 노드들을 업데이트하는 함수입니다.
-    #
-    # 매개변수:
-    #   - analysis_result : LLM이 분석한 결과
-    #
-    # 반환값:
-    #   - tracking_variables : 변수 정보를 추적하기 위한 사전
-    async def handle_convert_result(analysis_result:dict) -> dict:
-        nonlocal tracking_variables
-        node_update_query = []
-        
-        try:
-            # * 분석 결과에서 코드와 변수 정보를 추출합니다.
-            code_info = analysis_result['analysis'].get('code', {})
-            variables_info = analysis_result['analysis'].get('variables', {})
-            
-
-            # * 코드 정보를 추출하고, 자바 속성 추가를 위한 사이퍼쿼리를 생성합니다.
-            for key, service_code in code_info.items():
-                # '-' 또는 '~'를 기준으로 라인 번호 추출
-                parts = key.replace('-', '~').split('~')
-
-                if len(parts) == 1:
-                    # 단일 라인 → 시작과 끝을 같은 값으로 설정
-                    start_line = end_line = int(parts[0])
-                elif len(parts) == 2:
-                    start_line, end_line = map(int, parts)
+        analysis_result = convert_service_code(
+            self.sp_code,
+            self.service_skeleton,
+            self.used_variables,
+            self.command_class_variable,
+            context_range,
+            1,
+            self.used_query_method_dict,
+            self.sequence_methods,
+            self.api_key,
+            self.locale
+        )
+        await self._update_variables(analysis_result)
+        # 생성된 자바 코드를 누적 (부모 진행 중이면 java_buffer, 아니면 merged_java_code)
+        code_map = analysis_result.get('analysis', {}).get('code', {}) or {}
+        def _key_order(k: str) -> int:
+            parts = str(k).replace('-', '~').split('~')
+            try:
+                return int(parts[0])
+            except Exception:
+                return 0
+        generated_java = "\n".join(code_map[k] for k in sorted(code_map.keys(), key=_key_order))
+        if generated_java:
+            if self.current_parent:
+                self.java_buffer += f"\n{generated_java}"
                 else:
-                    raise ConvertingError(f"잘못된 라인 범위 형식: '{key}'")
+                self.merged_java_code += f"\n{generated_java}"
 
-                # Cypher 쿼리 생성
-                node_update_query.append(
-                    f"MATCH (n) WHERE n.startLine = {start_line} "
-                    f"AND n.object_name = '{object_name}' AND n.endLine = {end_line} AND n.user_id = '{user_id}' "
-                    f"SET n.java_code = {json.dumps(service_code)}"
-                )
+        # 임계 초기화
+        self.total_tokens = 0
+        self.used_variables.clear()
+        self.used_query_method_dict.clear()
+        self.sp_code = ""
+        self.sp_range = {"startLine": None, "endLine": None}
 
-            # * 변수 정보를 tracking_variables에 업데이트합니다.
-            for var_name, var_info in variables_info.items():
-                tracking_variables[var_name] = var_info
-                node_update_query.append(
-                    f"MATCH (n:Variable) "
-                    f"WHERE n.object_name = '{object_name}' "
-                    f"AND n.procedure_name = '{procedure_name}' "
-                    f"AND n.name = '{var_name}' "
-                    f"AND n.user_id = '{user_id}' "
-                    f"SET n.value_tracking = {json.dumps(var_info)}"
-                )
+    #==================================================================
+    # 메인 처리
+    #==================================================================
+    async def process(self) -> None:
+        """
+        역할:
+          - 전체 노드를 순회하며 단일 컨텍스트 누적과 대용량 스켈레톤 병합, 임계 분석 트리거를 수행
+        """
+        for record in self.traverse_nodes:
+            start_node = record['n']
+            has_children = bool(start_node.get('has_children', False))
+            token = int(start_node.get('token', 0) or 0)
+            start_line = int(start_node.get('startLine', 0) or 0)
+            end_line = int(start_node.get('endLine', 0) or 0)
+            rel = record.get('r')
+            relationship = rel[1] if rel else 'NEXT'
 
+            # 노드 정보 출력
+            self._log_node_info(record)
 
-            # * 노드 업데이트 쿼리를 실행
-            await connection.execute_queries(node_update_query)
+            # 부모 종료 판단 및 마무리
+            await self._finalize_parent_if_passed(start_line, relationship)
 
-        except ConvertingError: 
-            raise
-        except Exception as e:
-            err_msg = f"(전처리) 서비스 코드 생성 과정에서 LLM의 결과를 처리하는 도중 문제가 발생했습니다: {str(e)}"
-            logging.error(err_msg)
-            raise ConvertingError(err_msg)
-    
+            # 범위 갱신은 pending_code 누적 시점에서만 수행
 
-    # ! 노드 순회 시작
-    # TODO 리팩토링 필요
-    try:
-        # * Converting 하기 위한 노드의 순회 시작
-        for node in traverse_nodes:
-            start_node = node['n']
-            relationship = node['r'][1] if node['r'] else "NEXT"
-            end_node = node['m']
-            node_tokens = 0
-            print("-" * 40) 
-            print(f"시작 노드 : [ 시작 라인 : {start_node['startLine']}, 이름 : ({start_node['name']}), 끝라인: {start_node['endLine']}, 토큰 : {start_node['token']}")
-            print(f"관계: {relationship}")
-            if end_node: print(f"종료 노드 : [ 시작 라인 : {end_node['startLine']}, 이름 : ({end_node['name']}), 끝라인: {end_node['endLine']}, 토큰 : {end_node['token']}\n")
-            if start_node['name'] in ["EXECUTE_IMMDDIATE"]: continue
-
-
-            # * 각 부모 노드의 1단계 깊이 자식들 순회 여부를 확인하는 조건
-            is_small_parent_traverse_1deth = start_node['startLine'] == small_parent_info.get("startLine", 0) and relationship == "NEXT"
-            is_big_parent_traverse_1deth = start_node['startLine'] == big_parent_info.get("startLine", 0) and relationship == "NEXT"
-            
-
-            # * 현재 노드의 시작라인이 최상위 부모 노드와 같다면, 1단계 깊이 자식들 순회완료로 다음 레벨의 시작라인을 저장
-            if is_small_parent_traverse_1deth:
-                print(f"작은 부모 노드({start_node['startLine']})의 1단계 깊이 자식들 순회 완료")
-                small_parent_info["nextLine"] = end_node['startLine']
-                continue
-            elif is_big_parent_traverse_1deth:
-                print(f"큰 부모 노드({start_node['startLine']})의 1단계 깊이 자식들 순회 완료")
-                big_parent_info["nextLine"] = end_node['startLine']
-                await process_service_class_code()
-                continue
-
-
-            # * 각 부모 노드 및 마지막 자식의 처리 여부를 확인하는 조건
-            is_big_parent_processed = big_parent_info.get('nextLine', 0) == start_node['startLine']
-            is_small_parent_processed = small_parent_info.get('nextLine', 0) == start_node['startLine']
-            is_last_child_processed = small_parent_info.get('endLine', 0) and small_parent_info.get('endLine', 0) < start_node['startLine']
-
-
-            # * (큰) 최상위 부모 처리가 끝나고, 같은 레벨인 다음 노드로 넘어갔을 경우, 최상위 부모 정보를 초기화합니다.
-            if is_big_parent_processed:
-                print(f"큰 부모 노드({big_parent_info['startLine']})의 모든 자식들 순회 완료")
-                big_parent_info.clear()
-
-
-            # * (작은) 최상위 부모 처리가 끝나고, 같은 레벨인 다음 노드로 넘어갔을 경우, 최상위 부모 정보를 초기화합니다.
-            if is_small_parent_processed:
-                print(f"작은 부모 노드({small_parent_info['startLine']})의 모든 자식들 순회 완료1")
-                small_parent_info.clear()
-            elif is_last_child_processed:
-                print(f"작은 부모 노드({small_parent_info['startLine']})의 모든 자식들 순회 완료2")
-                small_parent_info.clear()
-
-
-            # * 각 노드의 타입에 따른 조건(매우 큰 부모 노드 소속인지, 작은 부모 노드 소속인지, 단일 노드 소속인지)
-            is_big_parent_and_small_child = relationship == "PARENT_OF" and start_node['token'] > 200 and end_node['token'] < 2000
-            is_small_parent = relationship == "PARENT_OF" and start_node['token'] < 2000 and not small_parent_info
-            is_single_node = relationship == "NEXT" and not small_parent_info and not big_parent_info
-
-
-            # * 각 노드의 타입에 따라서 어떤 노드의 토큰을 더 할지를 결정합니다. 
-            if is_big_parent_and_small_child:
-                node_tokens += end_node['token']
-            elif is_small_parent or is_single_node:
-                node_tokens += start_node['token']
-
-
-            # * 총 토큰 수 및 결과 개수 초과 여부를 확인하는 조건
-            is_token_limit_exceeded = ((current_tokens + node_tokens >= 1000) or (len(context_range) >= 10)) and context_range 
-
-
-            # * 총 토큰 수 검사를 진행합니다.
-            if is_token_limit_exceeded:
-                print(f"토큰 수가 제한값을 초과하여 LLM 분석을 시작합니다. (현재 토큰: {current_tokens})")
-                await process_service_class_code()
-            print(f"토큰 합계 : {current_tokens + node_tokens}, 결과 개수 : {len(context_range)}")
-            current_tokens += node_tokens
-
-
-            # * 특정 부모에 대한 자식 처리 도중 결과 개수 초과로 converting이 되었을 때 다시 부모 정보를 할당   
-            if small_parent_info and not convert_sp_code and relationship == "PARENT_OF":
-                print(f"다시 부모 정보를 할당")
-                convert_sp_code = small_parent_info['code']
-                current_tokens = small_parent_info['token']
-
-
-            # * 관계 타입에 따라 노드의 토큰 수를 파악하여 각 변수값을 할당합니다.  
-            if relationship == "PARENT_OF":
-                
-                # * 부모 노드의 크기가 매우 큰 경우 처리 
-                if start_node['token'] >= 2000:
-                    if not big_parent_info: 
-                        await process_over_size_node(start_node['startLine'], start_node['summarized_code'])
-                        big_parent_info = {"startLine": start_node['startLine'], "nextLine": 0}
-                    if end_node['token'] >= 2000:
-                        await process_over_size_node(end_node['startLine'], end_node['summarized_code'])
-                    else:
-                        another_big_parent_startLine = start_node['startLine']
-                        convert_sp_code += f"\n{end_node['node_code']}"
-                        context_range.append({"startLine": end_node['startLine'], "endLine": end_node['endLine']})
-                        await trace_extract_used_variable_nodes(end_node['startLine'])
-                        used_query_method_dict =await extract_used_query_methods(end_node['startLine'], end_node['endLine'], query_method_list, used_query_method_dict)
-
-                # * 부모의 노드 크기가 작은 경우  
-                else:
-                    if not small_parent_info:
-                        convert_sp_code += f"\n{start_node['node_code']}"
-                        small_parent_info = {"startLine": start_node['startLine'], "endLine": start_node['endLine'], "nextLine": 0, "code": start_node['node_code'], "token": start_node['token']}            
-                        if not big_parent_info: 
-                            context_range.append({"startLine": start_node['startLine'], "endLine": start_node['endLine']}) 
-                            await trace_extract_used_variable_nodes(start_node['startLine'])
-                            used_query_method_dict = await extract_used_query_methods(start_node['startLine'], start_node['endLine'], query_method_list, used_query_method_dict)
-                        context_range.append({"startLine": end_node['startLine'], "endLine": end_node['endLine']})
-                        await trace_extract_used_variable_nodes(end_node['startLine'])
-                        used_query_method_dict = await extract_used_query_methods(end_node['startLine'], end_node['endLine'], query_method_list, used_query_method_dict)
-                    else:
-                        context_range.append({"startLine": end_node['startLine'], "endLine": end_node['endLine']})
-                        await trace_extract_used_variable_nodes(end_node['startLine'])
-                        used_query_method_dict = await extract_used_query_methods(end_node['startLine'], end_node['endLine'], query_method_list, used_query_method_dict)
-
-
-            # * 단일 노드의 경우
-            elif not small_parent_info and not big_parent_info:
-                convert_sp_code += f"\n{start_node['node_code']}"
-                context_range.append({"startLine": start_node['startLine'], "endLine": start_node['endLine']})
-                await trace_extract_used_variable_nodes(start_node['startLine'])
-                used_query_method_dict = await extract_used_query_methods(start_node['startLine'], start_node['endLine'], query_method_list, used_query_method_dict)
-            elif another_big_parent_startLine == start_node['startLine'] and context_range and convert_sp_code: 
-                print(f"큰 부모 노드 내의 또 다른 부모 노드 처리가 완료되어 LLM 분석을 시작합니다. (코드 흐름 분리)")
-                await process_service_class_code()
+            # 분기: 큰 부모 vs 일반 노드
+            if token >= self.TOKEN_THRESHOLD and has_children:
+                await self._handle_large_node(start_node.get('summarized_code', '') or '', start_line, end_line, token)
             else:
-                print("현재 노드에 대한 처리가 필요하지 않습니다.")        
-        
-        # * 마지막 그룹에 대한 처리를 합니다.
-        if context_range and convert_sp_code:
-            print(f"노드 순회가 완료되었으나 미처리된 코드가 있어 LLM 분석을 시작합니다.")
-            await process_service_class_code()
-    
-    except ConvertingError: 
-        raise
-    except Exception as e:
-        err_msg = f"(전처리) 서비스 코드 생성 과정에서 노드를 순회하는 도중 문제가 발생했습니다: {str(e)}"
-        logging.error(err_msg)
-        raise ConvertingError(err_msg)
+                # 작은/자식없음 노드 처리
+                self._handle_small_or_leaf_node(start_node.get('node_code', ''), token, start_line, end_line)
 
-    
+            await self._maybe_analyze()
 
-# 역할: PL/SQL 프로시저를 Java 서비스 계층의 메서드로 변환하는 전체 프로세스를 관리합니다.
-#
-# 매개변수: 
-#   - service_skeleton : 생성될 Java Service 클래스의 기본 구조
-#   - command_class_variable : Command 클래스의 필드 정보
-#   - procedure_name : 처리 중인 프로시저의 이름
-#   - query_method_list : 사용 가능한 쿼리 메서드 목록
-#   - object_name : 처리 중인 패키지/프로시저의 이름
-#   - sequence_methods : 사용 가능한 시퀀스 메서드 목록
-#   - user_id : 사용자 ID
-#   - api_key : Claude API 키
-#
-# 반환값: 
-#   - variable_nodes : 변환 과정에서 사용된 변수 노드 리스트
-async def start_service_preprocessing(service_skeleton:str, command_class_variable:dict, procedure_name:str, query_method_list:list, object_name:str, sequence_methods:list, user_id:str, api_key:str, locale:str) -> None:
+        # 남아 있는 부모 정리(1회 치환 후 병합)
+        if self.current_parent:
+            # 부모 마무리 전에 남은 pending 변환을 먼저 처리
+            if self.pending_code:
+                await self._analyze_and_update()
+            await self._finalize_current_parent()
+
+        # 남은 변환 대기 코드가 있으면 마지막 분석 실행
+        if self.pending_code:
+            await self._analyze_and_update()
+
+
+async def start_service_preprocessing(service_skeleton: str, command_class_variable: dict, procedure_name: str,
+                                      query_method_list: dict, object_name: str, sequence_methods: list, user_id: str,
+                                      api_key: str, locale: str) -> tuple:
+    """
+    역할:
+      - 서비스 코드 생성을 시작합니다.
+
+    매개변수:
+      - service_skeleton(str): 서비스 메서드 스켈레톤 템플릿
+      - command_class_variable(dict): 커맨드 클래스 필드 정의 정보
+      - procedure_name(str): 프로시저 이름
+      - query_method_list(dict): 사용 가능한 쿼리 메서드 목록
+      - object_name(str): 패키지/프로시저 이름
+      - sequence_methods(list): 시퀀스 메서드 목록
+      - user_id(str): 사용자 ID
+      - api_key(str): LLM API 키
+      - locale(str): 로케일
+
+    반환값:
+      - (variable_nodes, merged_java_code): 변수 노드 리스트와 최종 병합된 자바 코드
+    """
     
     connection = Neo4jConnection() 
     logging.info(f"[{object_name}] {procedure_name} 프로시저의 서비스 코드 생성을 시작합니다.")
     
-    
     try:
         node_query = [
-            # * 노드와 관계를 가져오는 쿼리
             f"""
-            MATCH (p)
-            WHERE p.object_name = '{object_name}'
-            AND p.procedure_name = '{procedure_name}'
-            AND p.user_id = '{user_id}'
-            AND (p:FUNCTION OR p:PROCEDURE OR p:CREATE_PROCEDURE_BODY)
-            MATCH (p)-[:PARENT_OF]->(n)
-            WHERE NOT (n:ROOT OR n:Variable OR n:DECLARE OR n:Table 
-                  OR n:SPEC)
-            OPTIONAL MATCH (n)-[r]->(m)
-            WHERE m.object_name = '{object_name}'
-            AND m.user_id = '{user_id}'
-            AND NOT (m:ROOT OR m:Variable OR m:DECLARE OR m:Table 
-                OR m:SPEC)
-            AND NOT type(r) CONTAINS 'CALL'
-            AND NOT type(r) CONTAINS 'WRITES'
-            AND NOT type(r) CONTAINS 'FROM'
-            RETURN n, r, m
-            ORDER BY n.startLine
+            MATCH (p) 
+            WHERE p.object_name = $object_name 
+                AND p.procedure_name = $procedure_name 
+                AND p.user_id = $user_id 
+                AND (p:FUNCTION OR p:PROCEDURE OR p:CREATE_PROCEDURE_BODY OR p:TRIGGER) 
+            MATCH (p)-[:PARENT_OF]->(c) 
+            WHERE NOT (c:ROOT OR c:Variable OR c:DECLARE OR c:Table OR c:SPEC) 
+            MATCH path = (c)-[:PARENT_OF*0..]->(n) 
+            WHERE NOT (n:ROOT OR n:Variable OR n:DECLARE OR n:Table OR n:SPEC)
+            OPTIONAL MATCH (n)-[r]->(m) 
+            WHERE m.object_name = $object_name 
+                AND m.user_id = $user_id 
+                AND NOT (m:ROOT OR m:Variable OR m:DECLARE OR m:Table OR m:SPEC) 
+                AND NOT type(r) CONTAINS 'CALL' 
+                AND NOT type(r) CONTAINS 'WRITES' 
+                AND NOT type(r) CONTAINS 'FROM' 
+            RETURN DISTINCT n, r, m ORDER BY n.startLine
             """,
-            # * 변수 노드를 조회하는 쿼리
             f"""
             MATCH (n)
             WHERE n.object_name = '{object_name}'
@@ -414,13 +379,9 @@ async def start_service_preprocessing(service_skeleton:str, command_class_variab
             """
         ]
 
-
-        # * 쿼리 실행하여, 노드들을 가져옵니다.
         service_nodes, variable_nodes = await connection.execute_queries(node_query)        
 
-
-        # * (전처리) 서비스 생성 함수 호출
-        await traverse_node_for_service(
+        processor = ServicePreprocessor(
             service_nodes, 
             variable_nodes,
             connection, 
@@ -434,14 +395,15 @@ async def start_service_preprocessing(service_skeleton:str, command_class_variab
             api_key,
             locale
         )
+        await processor.process()
 
+        final_code = processor.merged_java_code.strip()
         logging.info(f"[{object_name}] {procedure_name} 프로시저의 서비스 코드 생성이 완료되었습니다.\n")
-        return variable_nodes
-
+        return variable_nodes, final_code
     except ConvertingError: 
         raise
     except Exception as e:
-        err_msg = f"(전처리) 서비스 코드 생성 과정하기 위해 준비하는 도중 문제가 발생했습니다: {str(e)}"
+        err_msg = f"(전처리) 서비스 코드 생성 준비 중 오류: {str(e)}"
         logging.error(err_msg)
         raise ConvertingError(err_msg)
     finally:

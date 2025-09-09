@@ -3,8 +3,7 @@ import logging
 import os
 from langchain.globals import set_llm_cache
 from langchain_community.cache import SQLiteCache
-from langchain_openai import ChatOpenAI
-from langchain_anthropic import ChatAnthropic
+from util.llm_client import get_llm
 from langchain_core.output_parsers import JsonOutputParser
 from langchain.prompts import PromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
@@ -99,8 +98,8 @@ def convert_variables(variables, api_key, locale):
     try:
         variables = json.dumps(variables, ensure_ascii=False, indent=2)
 
-        llm = ChatAnthropic(model="claude-3-7-sonnet-latest", max_tokens=8000, temperature=0.0, api_key=api_key)
-
+        llm = get_llm(max_tokens=8000, temperature=0.0, api_key=api_key)
+            
         chain = (
             RunnablePassthrough()
             | prompt

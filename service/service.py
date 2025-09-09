@@ -25,6 +25,7 @@ from understand.neo4j_connection import Neo4jConnection
 from understand.analysis import analysis
 from util.exception import ConvertingError, Neo4jError, UnderstandingError, FileProcessingError
 from util.utility_tool import add_line_numbers
+from util.llm_client import get_llm
 
 
 # 환경에 따라 저장 경로 설정
@@ -82,24 +83,39 @@ async def generate_and_execute_cypherQuery(file_names: list, user_id: str, api_k
             yield json.dumps(stream_data).encode('utf-8') + b"send_stream"
             return
         
+        # DDL 처리: 여러 파일이 있을 경우 순차 실행 후 결과를 합산, 한 번만 수행
+        has_ddl_info = False
+        ddl_results = None
+        try:
+            ddl_dir = dirs['ddl']
+            ddl_candidates = [f for f in os.listdir(ddl_dir) if 'ddl' in f.lower()]
+        except Exception:
+            ddl_candidates = []
+
+        if ddl_candidates:
+            aggregated = {"analysis": []}
+            for ddl_file_name in ddl_candidates:
+                ddl_file_path = os.path.join(dirs['ddl'], ddl_file_name)
+                ddl_start = {"type": "ALARM", "MESSAGE": "START DDL PROCESSING", "file": ddl_file_name}
+                yield json.dumps(ddl_start).encode('utf-8') + b"send_stream"
+                logging.info(f"DDL 파일 처리 시작: {ddl_file_name}")
+                try:
+                    base_object_name = os.path.splitext(ddl_file_name)[0]
+                    one_result = await process_ddl_and_table_nodes(ddl_file_path, connection, base_object_name, user_id, api_key, locale)
+                    if one_result and isinstance(one_result, dict):
+                        aggregated["analysis"].extend(one_result.get("analysis", []))
+                        has_ddl_info = True
+                except Exception as _e:
+                    logging.error(f"DDL 파일 처리 실패: {ddl_file_name} - {_e}")
+                    continue
+            ddl_results = aggregated if has_ddl_info else None
+
         # 각 패키지 및 프로시저에 대한 understanding 시작
         for file_name, object_name in file_names:
             plsql_file_path = os.path.join(dirs['plsql'], file_name)
             base_name = os.path.splitext(file_name)[0]
             analysis_file_path = os.path.join(dirs['analysis'], f"{base_name}.json")
-            ddl_file_name = file_name.replace('SP_', 'DDL_')
-            ddl_file_path = os.path.join(dirs['ddl'], ddl_file_name)
-            has_ddl_info = False
-            ddl_results = None
-
-
-            # DDL 파일 처리
-            if os.path.exists(ddl_file_path):
-                ddl_start = {"type": "ALARM", "MESSAGE": "START DDL PROCESSING", "file": ddl_file_name}
-                yield json.dumps(ddl_start).encode('utf-8') + b"send_stream"
-                logging.info(f"DDL 파일 처리 시작: {ddl_file_name}")
-                ddl_results = await process_ddl_and_table_nodes(ddl_file_path, connection, object_name, user_id, api_key, locale)
-                has_ddl_info = True
+            
 
             # PLSQL/ANTLR 파일 읽기 및 전처리
             async with aiofiles.open(analysis_file_path, 'r', encoding='utf-8') as antlr_file, \
@@ -208,25 +224,54 @@ async def process_ddl_and_table_nodes(ddl_file_path: str, connection: Neo4jConne
                 # * 테이블의 기본 정보 추출 (이름, 컬럼, 키 정보)
                 table_info = table['table']
                 columns = table['columns']
-                keys = table['keys']
+                keys = table.get('keys', {'primary': [], 'foreign': []})
+                primary_list = keys.get('primary', [])
+                foreign_list = keys.get('foreign', [])
             
                 # * 테이블의 메타 정보를 Neo4j 노드 속성으로 구성
+                schema_val = (table_info.get('schema') or '').upper()
+                table_name_val = table_info['name'].upper()
                 props = {
-                    'name': table_info['name'].upper(),
+                    'schema': schema_val,
+                    'name': table_name_val,
                     'user_id': user_id,
-                    'primary_keys': ','.join(key for key in keys['primary']),
-                    'foreign_keys': ','.join(fk['column'] for fk in keys['foreign']),
-                    'reference_tables': ','.join(
-                        f"{fk['references']['table'].upper()}.{fk['references']['column']}"
-                        for fk in keys['foreign']
-                    ),
+                    'primary_keys': ','.join(primary_list),
+                    'foreign_keys': ','.join([fk.get('column', '') for fk in foreign_list if fk.get('column')]),
+                    'reference_tables': ','.join([
+                        (
+                            (
+                                (fk.get('references', {}).get('schema') or '').upper() + '.'
+                            ) if fk.get('references', {}).get('schema') else ''
+                        )
+                        + (fk.get('references', {}).get('table', '') or '').upper()
+                        + ('.' + fk.get('references', {}).get('column', '') if fk.get('references', {}).get('column') else '')
+                        for fk in foreign_list
+                        if fk.get('references', {}).get('table')
+                    ]),
                     'object_name': object_name,
                 }
 
-                # * 각 컬럼을 "타입:nullable여부" 형태로 저장
+                # * 각 컬럼을 "타입:nullable여부" 형태로 저장 (누락 키 안전 처리)
                 for col in columns:
-                    col_name = col['name']
-                    props[col_name] = f"{col_name}§{col['type']}§nullable:{str(col['nullable']).lower()}"
+                    # 컬럼 이름/타입 정제 및 빈 이름은 무시
+                    col_name = (col.get('name') or '').strip()
+                    if not col_name:
+                        continue
+                    col_type = (col.get('type') or '').strip()
+                    # Oracle은 명시하지 않으면 NULL 허용이 기본 → 기본값 true
+                    nullable_raw = col.get('nullable', True)
+                    if isinstance(nullable_raw, bool):
+                        nullable_str = 'true' if nullable_raw else 'false'
+                    else:
+                        text = str(nullable_raw).strip().lower()
+                        if text in ('true', 't', '1', 'yes', 'y'):
+                            nullable_str = 'true'
+                        elif text in ('false', 'f', '0', 'no', 'n'):
+                            nullable_str = 'false'
+                        else:
+                            # 해석 불가 시 기본 true
+                            nullable_str = 'true'
+                    props[col_name] = f"{col_name}§{col_type}§nullable:{nullable_str}"
         
                 # * Neo4j 테이블 노드 생성 쿼리 구성
                 props_str = ', '.join(f"`{k}`: '{v}'" for k, v in props.items())
@@ -366,7 +411,7 @@ async def generate_spring_boot_project(file_names: list, user_id: str, api_key: 
             
             for service_data in service_creation_info:
                 # 서비스 전처리
-                variable_nodes = await start_service_preprocessing(
+                variable_nodes, merged_java_code = await start_service_preprocessing(
                     service_data['service_method_skeleton'],
                     service_data['command_class_variable'],
                     service_data['procedure_name'],
@@ -393,13 +438,19 @@ async def generate_spring_boot_project(file_names: list, user_id: str, api_key: 
                 )
 
                 # 서비스 후처리
-                merge_method_code = await start_service_postprocessing(
-                    service_data['method_skeleton_code'],
-                    service_data['procedure_name'],
-                    object_name,
-                    merge_method_code,
-                    user_id,
-                )
+                # 병합된 자바 코드가 이미 준비된 경우, 후처리 스켈레톤 치환만 수행
+                if merged_java_code:
+                    indented = textwrap.indent(merged_java_code.strip(), '        ')
+                    completed_service_code = service_data['method_skeleton_code'].replace("        CodePlaceHolder", "CodePlaceHolder").replace("CodePlaceHolder", indented)
+                    merge_method_code = f"{merge_method_code}\n\n{completed_service_code}"
+                else:
+                    merge_method_code = await start_service_postprocessing(
+                        service_data['method_skeleton_code'],
+                        service_data['procedure_name'],
+                        object_name,
+                        merge_method_code,
+                        user_id,
+                    )
 
                 # 컨트롤러 처리
                 merge_controller_method_code = await start_controller_processing(
@@ -563,55 +614,18 @@ async def delete_all_temp_data(user_id:str):
         raise FileProcessingError(err_msg)
 
 
-# 역할: Anthropic API 키가 유효한지 검증합니다.
-#
-# 매개변수:
-#   - api_key: 검증할 Anthropic API 키
-#
-# 반환값:
-#   - bool: API 키가 유효하면 True, 그렇지 않으면 False
+"""
+역할: OpenAI 호환 엔드포인트에 대해 API 키 유효성을 간단 호출로 검증합니다.
+반환: bool
+"""
 async def validate_anthropic_api_key(api_key: str) -> bool:
-    # 방법 1: x-api-key 헤더 방식
-    headers_1 = {
-        "Content-Type": "application/json",
-        "x-api-key": api_key,
-        "anthropic-version": "2023-06-01"
-    }
-    
-    # 방법 2: Authorization Bearer 방식
-    headers_2 = {
-        "Content-Type": "application/json",
-        "Authorization": f"Bearer {api_key}",
-        "anthropic-version": "2023-06-01"
-    }
-    
-    payload = {
-        "model": "claude-3-7-sonnet-latest",
-        "max_tokens": 10,
-        "messages": [
-            {"role": "user", "content": "test"}
-        ]
-    }
-    
-    url = "https://api.anthropic.com/v1/messages"
-    
     try:
-        async with httpx.AsyncClient(timeout=60) as client:
-            # 먼저 x-api-key 방식 시도
-            response = await client.post(url, headers=headers_1, json=payload)
-            if response.status_code == 200:
-                logging.info("x-api-key 방식으로 인증 성공")
-                return True
-                
-            # 실패하면 Bearer 방식 시도
-            logging.info(f"x-api-key 방식 실패 (상태 코드: {response.status_code}), Bearer 방식으로 시도")
-            response = await client.post(url, headers=headers_2, json=payload)
-            if response.status_code == 200:
-                logging.info("Bearer 방식으로 인증 성공")
-                return True
-                
-            logging.error(f"두 인증 방식 모두 실패. 마지막 상태 코드: {response.status_code}")
-            return False
+        # get_llm은 base_url, api_key를 환경변수 또는 인자값으로 사용
+        llm = get_llm(max_tokens=8, api_key=api_key)
+        # 간단 호출 (LangChain Runnable 인터페이스 사용)
+        result = (llm).invoke("ping")
+        # 호출이 예외 없이 성공하면 유효한 것으로 간주
+        return True if result else True
     except Exception as e:
-        logging.error("API 키 검증 중 오류 발생: %s", e)
+        logging.error(f"OpenAI 호환 키 검증 실패: {str(e)}")
         return False

@@ -34,14 +34,14 @@ async def understand_data(request: Request):
         # * API 키 추출
         api_key = None
         if user_id == "EN_TestSession" or user_id == "KO_TestSession":
-            # TestSession인 경우 환경 변수에서 API 키 가져오기
-            api_key = os.getenv("API_KEY")
-            logging.info(f"{user_id}: API_KEY 환경변수 가져옴")
+            # TestSession인 경우 환경 변수에서 API 키 가져오기 (OpenAI 호환 키)
+            api_key = os.getenv("LLM_API_KEY") or os.getenv("API_KEY")
+            logging.info(f"{user_id}: LLM_API_KEY 환경변수 가져옴")
             if not api_key:
                 raise HTTPException(status_code=401, detail="환경 변수에 API 키가 설정되어 있지 않습니다.")
         else:
-            # 일반 사용자인 경우 헤더에서 API 키 가져오기
-            api_key = request.headers.get('Anthropic-Api-Key')
+            # 일반 사용자인 경우 헤더에서 API 키 가져오기 (OpenAI 호환)
+            api_key = request.headers.get('OpenAI-Api-Key') or request.headers.get('Anthropic-Api-Key')
             if not api_key:
                 raise HTTPException(status_code=401, detail="Anthropic API 키가 없습니다.")
 
@@ -51,7 +51,7 @@ async def understand_data(request: Request):
         # * API 키 유효성 검증
         is_valid_key = True if user_id == "EN_TestSession" or user_id == "KO_TestSession" else await validate_anthropic_api_key(api_key)
         if not is_valid_key:
-            raise HTTPException(status_code=401, detail="유효하지 않은 Anthropic API 키입니다.")
+            raise HTTPException(status_code=401, detail="유효하지 않은 API 키입니다.")
 
         # * 파일 정보 추출  
         file_data = await request.json()
@@ -91,21 +91,21 @@ async def covnert_spring_project(request: Request):
         # * API 키 추출
         api_key = None
         if user_id == "EN_TestSession" or user_id == "KO_TestSession":
-            # TestSession인 경우 환경 변수에서 API 키 가져오기
-            api_key = os.getenv("API_KEY")
-            logging.info(f"{user_id}: API_KEY 환경변수 가져옴")
+            # TestSession인 경우 환경 변수에서 API 키 가져오기 (OpenAI 호환 키)
+            api_key = os.getenv("LLM_API_KEY") or os.getenv("API_KEY")
+            logging.info(f"{user_id}: LLM_API_KEY 환경변수 가져옴")
             if not api_key:
                 raise HTTPException(status_code=400, detail="환경 변수에 API 키가 설정되어 있지 않습니다.")
         else:
-            # 일반 사용자인 경우 헤더에서 API 키 가져오기
-            api_key = request.headers.get('Anthropic-Api-Key')
+            # 일반 사용자인 경우 헤더에서 API 키 가져오기 (OpenAI 호환)
+            api_key = request.headers.get('OpenAI-Api-Key') or request.headers.get('Anthropic-Api-Key')
             if not api_key:
                 raise HTTPException(status_code=401, detail="Anthropic API 키가 없습니다.")     
 
         # * API 키 유효성 검증
         is_valid_key = True if user_id == "EN_TestSession" or user_id == "KO_TestSession" else await validate_anthropic_api_key(api_key)
         if not is_valid_key:
-            raise HTTPException(status_code=401, detail="유효하지 않은 Anthropic API 키입니다.")
+            raise HTTPException(status_code=401, detail="유효하지 않은 API 키입니다.")
 
 
         # * 언어 설정 추출

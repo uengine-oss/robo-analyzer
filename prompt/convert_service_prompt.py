@@ -1,11 +1,12 @@
 import json
 import logging
 import os
+import time
 from langchain.globals import set_llm_cache
 from langchain_community.cache import SQLiteCache
 from langchain.prompts import PromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
-from langchain_anthropic import ChatAnthropic
+from util.llm_client import get_llm
 from util.exception import LLMCallError
 from langchain_core.output_parsers import JsonOutputParser
 
@@ -330,21 +331,7 @@ Sequence Method List:
 }}
 """)
 
-# 역할: PL/SQL 프로시저를 Python 서비스 계층의 메서드로 변환하는 함수입니다.
-#
-# 매개변수: 
-#  - convert_sp_code : 변환할 PL/SQL 프로시저 코드
-#  - service_skeleton : 생성될 Python Service 클래스의 기본 구조
-#  - variable_list : PL/SQL에서 사용된 변수들의 정보
-#  - command_class_variable : Command 클래스의 필드 정보
-#  - context_range : 코드 변환 범위 정보
-#  - count : context_range의 범위 개수
-#  - query_method_list : 사용 가능한 쿼리 메서드 목록
-#  - sequence_methods : 사용 가능한 시퀀스 메서드 목록
-#  - api_key : Claude API 키
-#
-# 반환값: 
-#  - json_parsed_content : LLM이 생성한 서비스 메서드 정보
+
 def convert_service_code(convert_sp_code: str, service_skeleton: str, variable_list: str, command_class_variable: str, context_range: str, count: int, query_method_list: str, sequence_methods:list, api_key: str, locale: str) -> dict:
    
    try:  
@@ -362,14 +349,9 @@ def convert_service_code(convert_sp_code: str, service_skeleton: str, variable_l
          "locale": locale
       }
       
-      llm = ChatAnthropic(
-          model="claude-3-5-sonnet-latest", 
-          max_tokens=8192,
-          api_key=api_key
-      )
+      llm = get_llm(max_tokens=8192, api_key=api_key)
 
       parser = JsonOutputParser()
-
 
       chain = (
          RunnablePassthrough()
@@ -377,8 +359,32 @@ def convert_service_code(convert_sp_code: str, service_skeleton: str, variable_l
          | llm
          | parser
       )
-      result = chain.invoke(prompt_data)
-      return result
+
+      max_attempts = 10
+      last_error = None
+
+      for attempt in range(1, max_attempts + 1):
+         try:
+            result = chain.invoke(prompt_data)
+
+            if not result or not isinstance(result, dict):
+               raise ValueError("LLM 결과가 비어있거나 잘못된 형식입니다.")
+
+            analysis = result.get("analysis")
+            if not analysis or not isinstance(analysis, dict):
+               raise ValueError("'analysis' 키가 없거나 형식이 올바르지 않습니다.")
+
+            code_obj = analysis.get("code")
+            if not code_obj or not isinstance(code_obj, dict) or len(code_obj) == 0:
+               raise ValueError("'analysis.code'가 비어있거나 잘못된 형식입니다.")
+
+            return result
+         except Exception as retry_error:
+            last_error = retry_error
+            logging.warning(f"LLM 호출/파싱 실패로 재시도 진행: {attempt}/{max_attempts} - {retry_error}")
+            time.sleep(min(0.5 * attempt, 5))
+
+      raise RuntimeError(f"LLM 결과 생성 실패(재시도 {max_attempts}회 모두 실패): {last_error}")
 
    except Exception as e:
       err_msg = f"(전처리) 서비스 코드 생성 과정에서 LLM 호출 중 오류 발생: {str(e)}"

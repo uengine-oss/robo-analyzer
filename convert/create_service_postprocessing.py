@@ -25,39 +25,85 @@ encoder = tiktoken.get_encoding("cl100k_base")
 # TODO 프로시저 별 처리 필요 및 엄청 큰 TRY 노드 처리 필요(프롬포트 수정)
 async def process_big_size_node(node_startLine:int, summarized_java_code:str, connection:Neo4jConnection, object_name:str, user_id:str) -> str:
     try:
-        # * 자식 노드 조회 쿼리 생성
-        query = [
-            f"MATCH (n)-[r:PARENT_OF]->(m) "
-            f"WHERE n.startLine = {node_startLine} "
-            f"AND n.object_name = '{object_name}' "
-            f"AND m.object_name = '{object_name}' "
-            f"AND n.user_id = '{user_id}' "
-            f"AND m.user_id = '{user_id}' "
-            f"RETURN m"
-        ]
-        
+        # 재귀 제거: 명시적 스택과 캐시를 사용한 후위(포스트오더) 처리
+        code_cache = {}
+        in_progress = set()
+        done = set()
 
-        # * 자식 노드 조회하는 쿼리 실행
-        child_node_list = await connection.execute_queries(query)
+        # 스택 프레임: {startLine, code, state: 'init'|'merge', children: list|None}
+        stack = [{
+            'startLine': node_startLine,
+            'code': summarized_java_code,
+            'state': 'init',
+            'children': None
+        }]
 
+        while stack:
+            frame = stack.pop()
+            current_start = frame['startLine']
 
-        # * 각 자식 노드의 코드를 부모 코드에 병합
-        for node in child_node_list[0]:
-            child = node['m']
-            
-            # * 자식 노드가 큰 경우 재귀적으로 처리
-            if child['token'] > 1700:
-                java_code = await process_big_size_node(child['startLine'], child['java_code'], connection, object_name, user_id)
-            else:
-                java_code = child['java_code']
-            
-            # * 부모 코드에 자식 코드 병합
-            placeholder = f"{child['startLine']}: ...code..."
-            indented_code = textwrap.indent(java_code, '    ')
-            summarized_java_code = summarized_java_code.replace(placeholder, f"\n{indented_code}")
-        
-        return summarized_java_code
-    
+            if frame['state'] == 'init':
+                # 이미 처리 완료된 노드는 재처리 불필요
+                if current_start in done:
+                    continue
+                # 순환(진행 중)인 경우, 추가 확장은 생략하고 상위에서 캐시 사용
+                if current_start in in_progress:
+                    continue
+
+                in_progress.add(current_start)
+
+                # 자식 노드 조회
+                query = [(
+                    f"MATCH (n)-[r:PARENT_OF]->(m) "
+                    f"WHERE n.startLine = {current_start} "
+                    f"AND n.object_name = '{object_name}' "
+                    f"AND m.object_name = '{object_name}' "
+                    f"AND n.user_id = '{user_id}' "
+                    f"AND m.user_id = '{user_id}' "
+                    f"RETURN m"
+                )]
+                child_node_list = await connection.execute_queries(query)
+
+                children = []
+                for node in child_node_list[0]:
+                    child = node['m']
+                    children.append({
+                        'startLine': child['startLine'],
+                        'token': child['token'],
+                        'java_code': child['java_code']
+                    })
+
+                # 병합 단계 push
+                frame['state'] = 'merge'
+                frame['children'] = children
+                stack.append(frame)
+
+                # 큰 자식부터 먼저 계산되도록 push (아직 완료되지 않은 것만)
+                for child in children:
+                    if child['token'] > 1700 and child['startLine'] not in done and child['startLine'] not in in_progress:
+                        stack.append({
+                            'startLine': child['startLine'],
+                            'code': child['java_code'],
+                            'state': 'init',
+                            'children': None
+                        })
+                continue
+
+            # 병합 단계: 자식 코드가 준비된 후 플레이스홀더 치환
+            if frame['state'] == 'merge':
+                merged_code = frame['code']
+                for child in frame['children']:
+                    child_code = child['java_code'] if child['token'] <= 1700 else code_cache.get(child['startLine'], child['java_code'])
+                    placeholder = f"{child['startLine']}: ...code..."
+                    indented_code = textwrap.indent(child_code, '    ')
+                    merged_code = merged_code.replace(placeholder, f"\n{indented_code}")
+
+                code_cache[current_start] = merged_code
+                done.add(current_start)
+                in_progress.discard(current_start)
+
+        return code_cache.get(node_startLine, summarized_java_code)
+
     except ConvertingError:
         raise
     except Exception as e:

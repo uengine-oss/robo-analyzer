@@ -3,7 +3,7 @@ import logging
 import os
 from langchain.globals import set_llm_cache
 from langchain_community.cache import SQLiteCache
-from langchain_anthropic import ChatAnthropic
+from util.llm_client import get_llm
 from langchain_core.output_parsers import JsonOutputParser
 from langchain.prompts import PromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
@@ -113,12 +113,8 @@ public class ExampleCommand {{
 def convert_command_code(command_class_data, dir_name, api_key, project_name, locale):
     
     try:
-        llm = ChatAnthropic(
-            model="claude-3-7-sonnet-latest", 
-            max_tokens=8192,
-            api_key=api_key
-        )
-
+        llm = get_llm(max_tokens=8192, api_key=api_key)
+        
         command_class_data = json.dumps(command_class_data, ensure_ascii=False, indent=2)
 
         chain = (

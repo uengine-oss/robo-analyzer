@@ -60,17 +60,16 @@ class Neo4jConnection:
     async def execute_query_and_return_graph(self, user_id: str, package_names: list, custom_query=None) -> dict:
         try:
             # * 패키지 별 노드를 가져오기 위한 정보를 추출
+            # * 패키지 별 노드를 가져오기 위한 정보를 추출
             default_query = custom_query or f"""
-            MATCH (n)-[r]->(m) 
+            MATCH (n)-[r]->(m)
             WHERE NOT n:Variable AND NOT n:PACKAGE_VARIABLE
             AND NOT m:Variable AND NOT m:PACKAGE_VARIABLE
-            AND n.object_name IN $package_names
-            AND m.object_name IN $package_names
             AND n.user_id = $user_id
             AND m.user_id = $user_id
+            AND ( (n:Table OR n.object_name IN $package_names) AND (m:Table OR m.object_name IN $package_names) )
             RETURN n, r, m
             """
-
 
             # * 파라미터 설정
             params = {

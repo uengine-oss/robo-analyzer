@@ -3,8 +3,7 @@ import logging
 import os
 from langchain.globals import set_llm_cache
 from langchain_community.cache import SQLiteCache
-from langchain_openai import ChatOpenAI
-from langchain_anthropic import ChatAnthropic
+from util.llm_client import get_llm
 from langchain_core.output_parsers import JsonOutputParser
 from langchain.prompts import PromptTemplate
 from langchain.schema.runnable import RunnablePassthrough
@@ -44,12 +43,14 @@ prompt = PromptTemplate.from_template(
    - %ROWTYPE 변수
    - %TYPE 변수
    - 사용자 정의 타입 변수
+   - 커서 변수(REF CURSOR, SYS_REFCURSOR 등)는 현재 단계에서 무시(추출하지 않음)
 
 3. 데이터 타입 추출
    - 기본 데이터 타입 (NUMBER, VARCHAR2, DATE 등)
    - %ROWTYPE의 경우 테이블명을 type으로 지정 (예: "TPJ_TMF_SYNC_JOB_STATUS%ROWTYPE" -> "TPJ_TMF_SYNC_JOB_STATUS")
    - %TYPE의 경우 DDL 정보를 참조하여 실제 컬럼 타입으로 변환
    - 사용자 정의 타입은 원본 그대로 사용
+   - 사용자 정의 타입 중 'TYPE ... IS TABLE OF <기본 타입>'은 컬렉션으로 간주하며, type은 'TABLE OF <기본 타입>'으로 표기(길이/정밀도는 제거)
    - 대소문자 구분하여 추출
    
 4. 변수 값 추출
@@ -61,6 +62,7 @@ prompt = PromptTemplate.from_template(
 5. 특수 처리
    - 기본값이 있는 경우에도 변수로 인식 (기본값은 무시)
    - 길이/정밀도 지정이 있는 경우 (예: VARCHAR2(100)) 데이터 타입만 추출
+   - 커서 변수(REF CURSOR, SYS_REFCURSOR 등)는 결과에 포함하지 않음
 
    
 6. 변수 선언부 요약
@@ -72,6 +74,7 @@ prompt = PromptTemplate.from_template(
 [JSON 출력 형식]
 ===============================================
 주석이나 부가설명 없이 다음 JSON 형식으로만 결과를 반환하세요:
+```json
 {{
     "variables": [
         {{
@@ -83,6 +86,7 @@ prompt = PromptTemplate.from_template(
     ],
     "summary": "변수 선언부 요약 설명"
 }}
+```
 """
 )
 
@@ -101,12 +105,7 @@ def understand_variables(declaration_code, ddl_tables, api_key, locale):
     try:
         ddl_tables = json.dumps(ddl_tables, ensure_ascii=False, indent=2)
 
-        # 전달받은 API 키로 Anthropic Claude LLM 인스턴스 생성
-        llm = ChatAnthropic(
-            model="claude-3-7-sonnet-latest", 
-            max_tokens=8192,
-            api_key=api_key
-        )
+        llm = get_llm(max_tokens=8192, api_key=api_key)
 
         chain = (
             RunnablePassthrough()

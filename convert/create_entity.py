@@ -148,12 +148,8 @@ async def start_entity_processing(file_names: list, user_id: str, api_key: str, 
     logging.info(f"엔티티 생성을 시작합니다.")
     
     try:
-        # file_names에서 object_name 추출
-        object_names = [obj_name for _, obj_name in file_names]
-        object_names_str = "', '".join(object_names)
-        
-        # 모든 객체 이름에 대한 테이블을 한 번에 조회
-        query = [f"MATCH (n:Table) WHERE n.user_id = '{user_id}' AND n.object_name IN ['{object_names_str}'] RETURN n"]
+        # 사용자 ID 기준으로 해당 사용자의 모든 테이블 조회 (object_name 필터 제거)
+        query = [f"MATCH (n:Table) WHERE n.user_id = '{user_id}' RETURN n"]
         table_nodes = (await connection.execute_queries(query))[0]
         
         # 테이블 데이터 구조화

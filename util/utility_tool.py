@@ -219,6 +219,39 @@ async def extract_used_variable_nodes(startLine: int, local_variable_nodes: List
         raise UtilProcessingError(err_msg)
 
 
+async def collect_variables_in_range(local_variable_nodes: List[Dict], start_line: int, end_line: int) -> List[Dict]:
+    """
+    역할: 컨텍스트 범위[start_line, end_line]에 완전히 포함되는 변수들을 수집합니다.
+
+    매개변수:
+      - local_variable_nodes(List[Dict]): Neo4j에서 조회한 변수 노드 리스트({'v': Variable}).
+      - start_line(int): 컨텍스트 시작 라인.
+      - end_line(int): 컨텍스트 끝 라인.
+
+    반환값:
+      - List[Dict]: {'type': str, 'name': str} 형태의 고유 변수 리스트.
+    """
+    try:
+        unique = {}
+        for variable_node in local_variable_nodes:
+            node_data = variable_node.get('v', {})
+            var_name = node_data.get('name')
+            var_type = node_data.get('type', 'Unknown')
+            if not var_name:
+                continue
+            for range_key in node_data:
+                if '_' not in range_key or not all(part.isdigit() for part in range_key.split('_')):
+                    continue
+                v_start, v_end = map(int, range_key.split('_'))
+                if start_line <= v_start and v_end <= end_line:
+                    unique[var_name] = {'type': var_type, 'name': var_name}
+                    break
+        return list(unique.values())
+    except Exception as e:
+        err_msg = f"변수 범위 수집 중 오류가 발생했습니다: {str(e)}"
+        logging.error(err_msg)
+        raise UtilProcessingError(err_msg)
+
 async def extract_used_query_methods(start_line: int, end_line: int, 
                                    jpa_method_list: Dict, 
                                    used_jpa_method_dict: Dict) -> Dict:
@@ -237,11 +270,9 @@ async def extract_used_query_methods(start_line: int, end_line: int,
     try:
         for range_key, method in jpa_method_list.items():
             method_start, method_end = map(int, range_key.split('~'))
-            
-            # 현재 범위 내에 있는 JPA 메서드 추출
-            if start_line <= method_start <= end_line and start_line <= method_end <= end_line:
+            # 컨텍스트 범위에 완전히 포함되는 경우만 수집 (포함 조건)
+            if start_line <= method_start and method_end <= end_line:
                 used_jpa_method_dict[range_key] = method
-                break
 
         return used_jpa_method_dict
         
