@@ -1,6 +1,9 @@
+###########################################################################
+# Imports
+###########################################################################
 import logging
 import os
-from fastapi import APIRouter, HTTPException, Request, logger
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, StreamingResponse
 from service.service import delete_all_temp_data, process_project_zipping
 from service.service import generate_and_execute_cypherQuery
@@ -8,62 +11,83 @@ from service.service import generate_spring_boot_project
 from service.service import validate_anthropic_api_key
 from dotenv import load_dotenv
 
-# .env 파일 로드
+
 load_dotenv()
-
 router = APIRouter()
-# router = APIRouter(prefix="/api/backend")
-logger = logging.getLogger(__name__)  
+logger = logging.getLogger(__name__)
+TEST_SESSIONS = ("EN_TestSession", "KO_TestSession")
 
 
-# 역할: 전달받은 파일들을 분석하여 Neo4j 사이퍼 쿼리를 생성하고 실행합니다
-#
-# 매개변수:
-#   - request: 분석할 파일 정보가 담긴 요청 객체 (fileInfos: [{fileName, objectName}, ...])
-#
-# 반환값: 
-#   - StreamingResponse: Neo4j 그래프 데이터 스트림
+#-------------------------------------------------------------------------#
+# Helpers
+#-------------------------------------------------------------------------#
+async def _resolve_user_and_api_key(request: Request, missing_env_status: int) -> tuple[str, str]:
+    """사용자 ID와 API 키를 추출합니다.
+
+    매개변수:
+    - request: FastAPI Request
+    - missing_env_status: 테스트 세션에서 환경 변수 키가 없을 때 사용할 상태 코드
+
+    반환값:
+    - (user_id, api_key)
+    """
+    user_id = request.headers.get('Session-UUID')
+    if not user_id:
+        raise HTTPException(status_code=400, detail="사용자 ID가 없습니다.")
+
+    if user_id in TEST_SESSIONS:
+        api_key = os.getenv("LLM_API_KEY") or os.getenv("API_KEY")
+        if not api_key:
+            raise HTTPException(status_code=missing_env_status, detail="환경 변수에 API 키가 설정되어 있지 않습니다.")
+        return user_id, api_key
+
+    api_key = request.headers.get('OpenAI-Api-Key') or request.headers.get('Anthropic-Api-Key')
+    if not api_key:
+        raise HTTPException(status_code=401, detail="Anthropic API 키가 없습니다.")
+    return user_id, api_key
+
+
+async def _ensure_valid_key(user_id: str, api_key: str) -> None:
+    """API 키를 검증합니다. 테스트 세션은 검증을 생략합니다."""
+    if user_id in TEST_SESSIONS:
+        return
+    if not await validate_anthropic_api_key(api_key):
+        raise HTTPException(status_code=401, detail="유효하지 않은 API 키입니다.")
+
+
+def _locale(request: Request) -> str:
+    """요청 헤더에서 로케일을 추출합니다."""
+    return request.headers.get('Accept-Language', 'ko')
+
+
+def _extract_file_names(file_data: dict) -> list[tuple[str, str]]:
+    """요청 JSON에서 (folderName, fileName) 튜플 리스트를 추출합니다."""
+    files = [(item['folderName'], item['fileName']) for item in file_data.get('fileInfos', [])]
+    if not files:
+        raise HTTPException(status_code=400, detail="파일 정보가 없습니다.")
+    return files
+
+
+#-------------------------------------------------------------------------#
+# Endpoints
+#-------------------------------------------------------------------------#
 @router.post("/cypherQuery/")
-async def understand_data(request: Request):    
+async def understand_data(request: Request):
+    """전달받은 파일로 Neo4j 사이퍼 쿼리를 생성/실행하고 그래프 데이터를 스트리밍합니다.
+
+    매개변수:
+    - request: fileInfos를 포함한 요청 객체
+
+    반환값:
+    - StreamingResponse
+    """
     try:
-        # * 사용자 ID 추출
-        user_id = request.headers.get('Session-UUID')
-        if not user_id:
-            raise HTTPException(status_code=400, detail="사용자 ID가 없습니다.")
-
-        # * API 키 추출
-        api_key = None
-        if user_id == "EN_TestSession" or user_id == "KO_TestSession":
-            # TestSession인 경우 환경 변수에서 API 키 가져오기 (OpenAI 호환 키)
-            api_key = os.getenv("LLM_API_KEY") or os.getenv("API_KEY")
-            logging.info(f"{user_id}: LLM_API_KEY 환경변수 가져옴")
-            if not api_key:
-                raise HTTPException(status_code=401, detail="환경 변수에 API 키가 설정되어 있지 않습니다.")
-        else:
-            # 일반 사용자인 경우 헤더에서 API 키 가져오기 (OpenAI 호환)
-            api_key = request.headers.get('OpenAI-Api-Key') or request.headers.get('Anthropic-Api-Key')
-            if not api_key:
-                raise HTTPException(status_code=401, detail="Anthropic API 키가 없습니다.")
-
-        # * 언어 설정 추출
-        locale = request.headers.get('Accept-Language', 'ko')  # 기본값은 한국어
-
-        # * API 키 유효성 검증
-        is_valid_key = True if user_id == "EN_TestSession" or user_id == "KO_TestSession" else await validate_anthropic_api_key(api_key)
-        if not is_valid_key:
-            raise HTTPException(status_code=401, detail="유효하지 않은 API 키입니다.")
-
-        # * 파일 정보 추출  
+        user_id, api_key = await _resolve_user_and_api_key(request, missing_env_status=401)
+        await _ensure_valid_key(user_id, api_key)
+        locale = _locale(request)
         file_data = await request.json()
-        if not file_data:
-            raise HTTPException(status_code=400, detail="파일 정보가 없습니다.")
-
-        # * 파일 이름 추출
-        file_names = [(item['fileName'], item['objectName']) for item in file_data['fileInfos']]
+        file_names = _extract_file_names(file_data)
         logging.info("User ID: %s, File Infos: %s", user_id, file_names)
-        
-
-        # * Cypher 쿼리 생성 및 실행(Understanding)
         return StreamingResponse(generate_and_execute_cypherQuery(file_names, user_id, api_key, locale))
     
     except Exception as e:
@@ -72,58 +96,23 @@ async def understand_data(request: Request):
         raise HTTPException(status_code=500, detail=error_message)
 
 
-# 역할: 스토어드 프로시저를 스프링 부트 프로젝트로 변환합니다
-#
-# 매개변수: 
-#   - request: 변환할 파일 이름 정보가 담긴 요청 객체 (fileInfos: [{fileName, objectName}, ...])
-#
-# 반환값: 
-#   - StreamingResponse: 변환 진행 상태 메시지 스트림
 @router.post("/springBoot/")
 async def covnert_spring_project(request: Request):
+    """PL/SQL 파일을 스프링 부트 프로젝트로 변환하고 결과를 스트리밍합니다.
 
+    매개변수:
+    - request: fileInfos를 포함한 요청 객체
+
+    반환값:
+    - StreamingResponse
+    """
     try:
-        # * 사용자 ID 추출
-        user_id = request.headers.get('Session-UUID')
-        if not user_id:
-            raise HTTPException(status_code=400, detail="사용자 ID가 없습니다.")
-    
-        # * API 키 추출
-        api_key = None
-        if user_id == "EN_TestSession" or user_id == "KO_TestSession":
-            # TestSession인 경우 환경 변수에서 API 키 가져오기 (OpenAI 호환 키)
-            api_key = os.getenv("LLM_API_KEY") or os.getenv("API_KEY")
-            logging.info(f"{user_id}: LLM_API_KEY 환경변수 가져옴")
-            if not api_key:
-                raise HTTPException(status_code=400, detail="환경 변수에 API 키가 설정되어 있지 않습니다.")
-        else:
-            # 일반 사용자인 경우 헤더에서 API 키 가져오기 (OpenAI 호환)
-            api_key = request.headers.get('OpenAI-Api-Key') or request.headers.get('Anthropic-Api-Key')
-            if not api_key:
-                raise HTTPException(status_code=401, detail="Anthropic API 키가 없습니다.")     
-
-        # * API 키 유효성 검증
-        is_valid_key = True if user_id == "EN_TestSession" or user_id == "KO_TestSession" else await validate_anthropic_api_key(api_key)
-        if not is_valid_key:
-            raise HTTPException(status_code=401, detail="유효하지 않은 API 키입니다.")
-
-
-        # * 언어 설정 추출
-        locale = request.headers.get('Accept-Language', 'ko')  # 기본값은 한국어
-
-
-        # * 요청 객체에서 파일 이름 정보 추출 (filename, objectName)
+        user_id, api_key = await _resolve_user_and_api_key(request, missing_env_status=400)
+        await _ensure_valid_key(user_id, api_key)
+        locale = _locale(request)
         file_data = await request.json()
         logging.info("Received File Info for Convert Spring Boot: %s", file_data)
-        
-
-        # * 파일 이름과 패키지 이름을 튜플로 추출
-        file_names = [(item['fileName'], item['objectName']) for item in file_data['fileInfos']]
-        if not file_names:
-            raise HTTPException(status_code=400, detail="파일 정보가 없습니다.")
-
-
-        # * 스프링 부트 프로젝트 생성 시작
+        file_names = _extract_file_names(file_data)
         return StreamingResponse(generate_spring_boot_project(file_names, user_id, api_key, locale), media_type="text/plain")
     
     except Exception as e:
@@ -133,54 +122,33 @@ async def covnert_spring_project(request: Request):
 
 
 
- 
-# 역할: 생성된 스프링 부트 프로젝트를 ZIP 파일로 압축하여 다운로드를 제공합니다
-# 매개변수: 
-#   - request: project_name을 포함하는 요청 객체
-# 반환값: 
-#   - FileResponse: 압축된 프로젝트 파일
+
 @router.post("/downloadJava/")
 async def download_spring_project(request: Request):
+    """생성된 스프링 부트 프로젝트를 ZIP으로 압축해 반환합니다.
+
+    매개변수:
+    - request: projectName을 포함한 요청 객체
+
+    반환값:
+    - FileResponse
+    """
     try:
-        # * 사용자 ID 추출
         user_id = request.headers.get('Session-UUID')
         if not user_id:
             raise HTTPException(status_code=400, detail="사용자 ID가 없습니다.")
-        
-        # * project_name 추출
-        request_data = await request.json()
-        project_name = request_data.get('projectName', 'project')
-        print("project_name: ", project_name)
+        body = await request.json()
+        project_name = body.get('projectName', 'project')
 
-    
-        # * 환경에 따라 저장 경로 설정
-        if os.getenv('DOCKER_COMPOSE_CONTEXT'):
-            base_dir = os.getenv('DOCKER_COMPOSE_CONTEXT')
-        else:
-            base_dir = os.path.dirname(os.getcwd())
+        base_dir = os.getenv('DOCKER_COMPOSE_CONTEXT') or os.path.dirname(os.getcwd())
         target_path = os.path.join(base_dir, 'target', 'java', user_id, project_name)
-        # base_dir가 이미 '/app/data'를 포함하는지 확인
         zipfile_dir = os.path.join(base_dir, user_id, 'zipfile') if base_dir.endswith('/data') or base_dir.endswith('\\data') else os.path.join(base_dir, 'data', user_id, 'zipfile')
-        
-
-        # * 디렉토리 존재 여부 확인 및 생성
-        if not os.path.exists(zipfile_dir):
-            os.makedirs(zipfile_dir)
-
-
-        # * 압축 파일 경로
+        os.makedirs(zipfile_dir, exist_ok=True)
         output_zip_path = os.path.join(zipfile_dir, f'{project_name}.zip')
-        
 
-        # * 프로젝트 압축
         await process_project_zipping(target_path, output_zip_path)
 
-
-        return FileResponse(
-            path=output_zip_path, 
-            filename=f"{project_name}.zip", 
-            media_type='application/octet-stream'
-        )
+        return FileResponse(path=output_zip_path, filename=f"{project_name}.zip", media_type='application/octet-stream')
     
     except Exception as e:
         error_message = f"스프링 부트 프로젝트를 Zip 파일로 압축하는데 실패했습니다: {str(e)}"
@@ -189,20 +157,21 @@ async def download_spring_project(request: Request):
     
 
 
-# 역할: 생성된 모든 임시 파일과 디렉토리를 정리합니다
-# 매개변수: 없음
-# 반환값: 
-#   - dict: 삭제 완료 메시지가 포함된 딕셔너리
+
 @router.delete("/deleteAll/")
 async def delete_all_data(request: Request):
+    """사용자의 임시 파일과 그래프 데이터를 삭제합니다.
+
+    매개변수:
+    - request: 세션 헤더를 포함한 요청 객체
+
+    반환값:
+    - dict: 삭제 결과 메시지
+    """
     try:
-        # * 사용자 ID 추출
         user_id = request.headers.get('Session-UUID')
         if not user_id:
             raise HTTPException(status_code=400, detail="사용자 ID가 없습니다.")
-        
-
-        # * 임시 파일 삭제
         logging.info("User ID: %s", user_id)
         await delete_all_temp_data(user_id)
         return {"message": "모든 임시 파일이 삭제되었습니다."}

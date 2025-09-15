@@ -17,7 +17,7 @@ set_llm_cache(SQLiteCache(database_path=db_path))
 jpa_prompt = PromptTemplate.from_template(
 """
 당신은 클린 아키텍처 원칙을 따르는 스프링부트 기반의 자바 애플리케이션을 개발하는 소프트웨어 엔지니어입니다. 
-주어진 Stored Procedure Code를 기반으로 서비스 클래스의 메서드 바디 부분을 간결하고 가독성 좋은 클린 코드 형태로 구현하는 작업을 맡았습니다.
+주어진 Stored Procedure Code 전체를 기반으로 서비스 클래스의 메서드 바디 부분을 간결하고 가독성 좋은 클린 코드 형태로 구현하는 작업을 맡았습니다.
 
 
 사용자 언어 설정 : {locale}, 입니다. 이를 반영하여 결과를 생성해주세요.
@@ -33,9 +33,6 @@ Service Signature:
 Used Variable:
 {variable}
 
-Context Range:
-{context_range}
-
 JPA Method List:
 {query_method_list}
 
@@ -43,14 +40,13 @@ Sequence Method List:
 {sequence_methods}
 
 
-[SECTION 1] 입력 데이터 설명
+[SECTION 1] 입력 데이터 설명 및 작업 지시
 ===============================================
 입력 데이터
-   - Stored Procedure Code: 자바로 변환할 프로시저 코드
+   - Stored Procedure Code: 자바로 변환할 전체 프로시저 코드 블록
    - Service Signature: 구현할 메서드의 시그니처와 기본 구조
    - Used Variable: 현재 변수들의 할당값 정보 (이전 작업 결과)
-   - Context Range: 변환 대상 코드의 시작/종료 라인 정보
-   - JPA Method List: 현재 범위에서 사용 가능한 JPA 쿼리 메서드 목록
+   - JPA Method List: 사용 가능한 JPA 쿼리 메서드 목록
    - Sequence Method List: 사용 가능한 시퀀스 메서드 목록
 
 주요 작업
@@ -58,31 +54,12 @@ Sequence Method List:
    - 'Service Signature'는 제외하고 메서드 내부의 실제 구현 코드만 결과로 반환하세요.
    - 자바코드는 클린코드 및 가독성이 좋아야 하며, 들여쓰기가 적용된 상태로 반환하세요.
 
-   
-[SECTION 2] 코드 범위 처리 규칙
+
+[SECTION 2] 전체 코드 블록 처리 규칙
 ===============================================
-1. Context Range 처리
-   - Context Range에 명시된 모든 범위를 처리하여 정확히 {count}개의 code 항목 생성
-   - 각 범위는 완전히 독립적으로 처리 (다른 범위와 병합하지 않음)
-   - 각 범위는 시작 라인부터 종료 라인까지의 모든 코드를 완전한 형태로 변환 
-   (예 : return문 있을 경우, 누락 없이 변환)
-
-2. 범위 중첩 처리
-   예시 1) 중첩 범위:
-   - 1925~1977, 1942~1977가 주어진 경우
-     * 1925~1977: 전체 범위의 완전한 코드
-     * 1942~1977: 해당 범위만의 완전한 코드
-   
-   예시 2) 연속 범위:
-   - 321~322, 321~321, 322~322가 주어진 경우
-     * 321~322: 두 라인을 포함한 완전한 코드
-     * 321~321: 321 라인의 독립적인 코드
-     * 322~322: 322 라인의 독립적인 코드
-
-3. 제외 사항
-   - try-catch 블록 사용 금지
-   - CHR(10)가 식별되는 경우 줄바꿈 \n으로 처리하지 말고 무시하세요.
-   - Context Range에 명시되지 않은 범위는 처리하지 않음
+1. 본 작업은 단일 코드 블록을 입력으로 받아, 단일 Java 코드 문자열을 산출합니다.
+2. 별도의 라인 범위 분할/중첩 처리는 수행하지 않습니다.
+3. CHR(10)가 식별되는 경우 줄바꿈 \n으로 처리하지 말고 무시하세요.
 
 
 [SECTION 3] 프로시저 호출 처리 규칙
@@ -203,7 +180,7 @@ Sequence Method List:
    - EXCEPTION 키워드가 없는 코드는 절대 try-catch로 감싸지 않음
    - 코드 포맷은 들여쓰기가 적용된 상태로 반환하세요.
 
-     
+    
 [SECTION 6] 변수 처리 규칙
 ===============================================
 1. 변수 추적 원칙
@@ -250,7 +227,7 @@ Sequence Method List:
          String vEmpName = "홍길동";
          Integer vCount = 1;
 
-               
+              
 [SECTION 7] 날짜/시간 처리 규칙
 ===============================================
 1. 필드명에 Time이 포함된 경우(*Time, *DateTime, *At으로 끝나는 필드)
@@ -271,19 +248,18 @@ Sequence Method List:
 1. 시퀀스 처리
    - 시퀀스 관련 로직(NEXTVAL, CURRVAL 등)이 식별되면 Sequence Method List 확인
    - Sequence Method List에 해당 시퀀스 필드가 존재하는 경우, 해당 시퀀스 메서드를 사용
-
+   
    * 예시:
    - 원본: SELECT SEQ_USER_KEY.NEXTVAL FROM DUAL
    - 변환: Long nextVal = sequenceMapper.getNextUserKeySequence();
 
-               
+              
 [SECTION 9] 자바 코드 생성시 JSON 문자열 처리 규칙
 ===============================================
 1. 특수 문자 이스케이프 처리
    줄바꿈은 반드시 \n으로 표현할 것 (실제 줄바꿈 사용 금지)
    특수 문자 이스케이프 처리 규칙
-   - 줄바꿈: \\n
-   - 큰따옴표: \\"
+   - 줄바꿈: \\n   - 큰따옴표: \\
    - 백슬래시: \\\\
    - 작은따옴표: \\'
    올바르게 이스케이프 처리된 예시 : 
@@ -307,7 +283,7 @@ Sequence Method List:
    프로시저 호출시 이름이 GET_ROW, INPUT, DELETE 등의 이름이 포함되어 있어도, 그냥 메서드 호출 로직으로만 전환하고, Mapper 메서드는 절대 사용하지 않습니다.
    * 예 : p_GET_ROW(ID_KEY) -> pGetRow(idKey) // 프로시저 호출을 단순 메서드 호출 형태로 전환, INPUT(vRow) -> input(vRow) // 프로시저 호출을 단순 메서드 호출 형태로 전환
    
-2. 제공된 모든 Context Range에 대해서 코드 변환을 완료해야 합니다. 'code' 요소 개수는 {count}개와 일치해야 하며, 누락 및 생략 없이 결과를 생성하세요. 반드시 'analysis'의 'code' 요소의 개수가 일치한지 검토하세요. 단 한 개의 누락 및 생략이 있어서는 안됩니다.
+2. 본 작업은 단일 코드 변환이며, 결과의 'code'는 반드시 하나의 문자열이어야 합니다.
 
 3. Exception에 해당하는 구문 처리시 try문에는 'CodePlaceHolder'만 있어야합니다. 
 
@@ -319,10 +295,7 @@ Sequence Method List:
 부가 설명 없이 결과만을 포함하여, 백틱이 없이 다음과 같은 dictionary(사전) 형태의 순수 JSON 형식으로 반환하세요:
 {{
    "analysis": {{
-      "code": {{
-         "startLine~endLine": "Java Code",
-         "startLine~endLine": "Java Code"
-      }},
+      "code": "Java Code",
       "variables": {{
          "name": "initialized value and role",
          "name": "initialized value and role"
@@ -332,61 +305,58 @@ Sequence Method List:
 """)
 
 
-def convert_service_code(convert_sp_code: str, service_skeleton: str, variable_list: str, command_class_variable: str, context_range: str, count: int, query_method_list: str, sequence_methods:list, api_key: str, locale: str) -> dict:
-   
-   try:  
-      context_range_json = json.dumps(context_range, indent=2)
-      command_class_variable = json.dumps(command_class_variable, ensure_ascii=False, indent=2)
-      prompt_data = {
-         "code": convert_sp_code,
-         "service_skeleton": service_skeleton,
-         "variable": variable_list,
-         "command_variables": command_class_variable,
-         "context_range": context_range_json,
-         "count": count,
-         "query_method_list": query_method_list,
-         "sequence_methods": sequence_methods,
-         "locale": locale
-      }
-      
-      llm = get_llm(max_tokens=8192, api_key=api_key)
+def convert_service_code(convert_sp_code: str, service_skeleton: str, variable_list: str, command_class_variable: str, query_method_list: str, sequence_methods:list, api_key: str, locale: str) -> dict:
+    
+    try:  
+        command_class_variable = json.dumps(command_class_variable, ensure_ascii=False, indent=2)
+        prompt_data = {
+            "code": convert_sp_code,
+            "service_skeleton": service_skeleton,
+            "variable": variable_list,
+            "command_variables": command_class_variable,
+            "query_method_list": query_method_list,
+            "sequence_methods": sequence_methods,
+            "locale": locale
+        }
+        
+        llm = get_llm(max_tokens=8192, api_key=api_key)
 
-      parser = JsonOutputParser()
+        parser = JsonOutputParser()
 
-      chain = (
-         RunnablePassthrough()
-         | jpa_prompt.partial(format_instructions=parser.get_format_instructions())
-         | llm
-         | parser
-      )
+        chain = (
+            RunnablePassthrough()
+            | jpa_prompt.partial(format_instructions=parser.get_format_instructions())
+            | llm
+            | parser
+        )
 
-      max_attempts = 10
-      last_error = None
+        max_attempts = 10
+        last_error = None
 
-      for attempt in range(1, max_attempts + 1):
-         try:
-            result = chain.invoke(prompt_data)
+        for attempt in range(1, max_attempts + 1):
+            try:
+                result = chain.invoke(prompt_data)
 
-            if not result or not isinstance(result, dict):
-               raise ValueError("LLM 결과가 비어있거나 잘못된 형식입니다.")
+                if not result or not isinstance(result, dict):
+                    raise ValueError("LLM 결과가 비어있거나 잘못된 형식입니다.")
 
-            analysis = result.get("analysis")
-            if not analysis or not isinstance(analysis, dict):
-               raise ValueError("'analysis' 키가 없거나 형식이 올바르지 않습니다.")
+                analysis = result.get("analysis")
+                if not analysis or not isinstance(analysis, dict):
+                    raise ValueError("'analysis' 키가 없거나 형식이 올바르지 않습니다.")
 
-            code_obj = analysis.get("code")
-            if not code_obj or not isinstance(code_obj, dict) or len(code_obj) == 0:
-               raise ValueError("'analysis.code'가 비어있거나 잘못된 형식입니다.")
+                code_obj = analysis.get("code")
+                if not code_obj or not isinstance(code_obj, str) or len(code_obj.strip()) == 0:
+                    raise ValueError("'analysis.code'가 비어있거나 문자열 형식이 아닙니다.")
 
-            return result
-         except Exception as retry_error:
-            last_error = retry_error
-            logging.warning(f"LLM 호출/파싱 실패로 재시도 진행: {attempt}/{max_attempts} - {retry_error}")
-            time.sleep(min(0.5 * attempt, 5))
+                return result
+            except Exception as retry_error:
+                last_error = retry_error
+                logging.warning(f"LLM 호출/파싱 실패로 재시도 진행: {attempt}/{max_attempts} - {retry_error}")
+                time.sleep(min(0.5 * attempt, 5))
 
-      raise RuntimeError(f"LLM 결과 생성 실패(재시도 {max_attempts}회 모두 실패): {last_error}")
+        raise RuntimeError(f"LLM 결과 생성 실패(재시도 {max_attempts}회 모두 실패): {last_error}")
 
-   except Exception as e:
-      err_msg = f"(전처리) 서비스 코드 생성 과정에서 LLM 호출 중 오류 발생: {str(e)}"
-      logging.error(err_msg)
-      raise LLMCallError(err_msg)
+    except Exception as e:
+        err_msg = f"(전처리) 서비스 코드 생성 과정에서 LLM 호출 중 오류 발생: {str(e)}"
+        logging.error(err_msg)
+        raise LLMCallError(err_msg)

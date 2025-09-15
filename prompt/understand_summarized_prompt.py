@@ -67,7 +67,7 @@ def understand_summary(summaries, api_key, locale):
         # 입력을 안전한 JSON 문자열로 직렬화하여 게이트웨이 파서 오류를 예방
         summaries_str = json.dumps(summaries, ensure_ascii=False)
 
-        llm = get_llm(max_tokens=8192, api_key=api_key)
+        llm = get_llm(api_key=api_key)
 
         chain = (
             RunnablePassthrough()

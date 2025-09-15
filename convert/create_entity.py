@@ -149,7 +149,11 @@ async def start_entity_processing(file_names: list, user_id: str, api_key: str, 
     
     try:
         # 사용자 ID 기준으로 해당 사용자의 모든 테이블 조회 (object_name 필터 제거)
-        query = [f"MATCH (n:Table) WHERE n.user_id = '{user_id}' RETURN n"]
+        query = [f"""
+        MATCH (n:Table)--()
+        WHERE n.user_id = '{user_id}'
+        RETURN DISTINCT n
+        """]
         table_nodes = (await connection.execute_queries(query))[0]
         
         # 테이블 데이터 구조화

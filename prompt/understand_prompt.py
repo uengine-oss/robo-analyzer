@@ -8,116 +8,189 @@ from langchain.schema.runnable import RunnablePassthrough
 from util.llm_client import get_llm
 from util.exception  import LLMCallError
 from langchain_core.output_parsers import JsonOutputParser
-
-# TODO 일단 기본키 외래키 같은것들도 정보에 추가해야하고, 프롬포트로 수정 필요(기본키 외래키가 식별될 경우에만 추가하도록)
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
 
 prompt = PromptTemplate.from_template(
 """
-당신은 PostgreSQL(PL/pgSQL) 전문가입니다. 주어진 함수/프로시저 코드를 철저히 분석하세요.
+[ROLE]
+당신은 PostgreSQL 및 PL/pgSQL 코드 분석 전문가입니다. 
+주어진 저장 프로시저/함수 코드를 체계적이고 정확하게 분석하여 구조화된 정보를 추출해야 합니다.
 
 
-사용자 언어 설정 : {locale}, 입니다. 이를 반영하여 결과를 생성해주세요.
+[LANGUAGE_SETTING]
+응답 언어: {locale}
+모든 분석 결과와 설명은 지정된 언어로 생성해야 합니다.
 
 
-분석할 패키지(스키마마) 이름:
-{schema_name}
-
-
-분석할 Stored Procedure Code:
+[INPUT_DATA]
+분석 대상 저장 프로시저 코드:
 {code}
 
 
-분석할 Stored Procedure Code의 범위 목록:
+분석할 코드 범위 목록:
 {ranges}
 
 
-반드시 지켜야할 주의사항:
-1. 분석할 Stored Procedure Code의 범위 개수는 {count}개로, 반드시 'analysis'는  {count}개의 요소를 가져야합니다.
-2. 테이블의 별칭과 스키마 이름을 제외하고, 오로직 테이블 이름만을 사용하세요.
-3. 테이블의 컬럼이 'variable'에 포함되지 않도록, 테이블의 컬럼과 변수에 대한 구분을 확실히 하여 결과를 생성하세요.
-4. 테이블에 대한 정보가 식별되지 않을 경우, 'Tables'는 빈 사전 {{}}으로 반환하고, 테이블의 컬럼 타입이 식별되지 않을 경우, 적절한 타입을 넣으세요.
+[CONSTRAINTS]
+필수 준수 사항:
+- 분석 범위 총 개수: {count}개
+- 출력 'analysis' 배열 요소 개수: 정확히 {count}개
+- 각 범위는 독립적으로 분석되어야 함
+- 누락 또는 초과된 분석 결과는 허용되지 않음
+ - 강제 검증 규칙:
+   - localTables에는 '@'가 포함된 DB 링크 표기를 절대 넣지 말 것(로컬 DB만)
+   - dbLinks의 name에는 반드시 '@'가 포함될 것(외부 DB만)
+   - 동일 테이블을 localTables와 dbLinks에 동시에 넣지 말 것(상호 배타)
 
 
-지정된 범위의 Stored Procedure Code 에서 다음 정보를 추출하세요:
-1. 코드의 역할과 동작을 상세하게 설명하세요:
-   - 주어진 코드 범위의 전체 맥락을 파악하여 다음 내용을 포함하여 설명하세요:
-   - 해당 코드가 속한 프로시저 이름을 반드시 명시
-   - 각 변수 할당의 목적과 의미를 설명 (예: "vcount에 10을 할당하여 최대 반복 횟수를 설정")
-   - 조건문(IF, CASE 등)의 판단 기준과 각 분기의 목적을 설명
-   - 반복문(FOR, WHILE 등)의 반복 조건과 수행 목적을 설명
-   - SQL 작업(INSERT/UPDATE/DELETE/SELECT)의 대상 테이블과 처리 목적을 설명
-   - 해당 코드 범위가 전체 프로시저에서 수행하는 역할과 목적을 설명
-   예시) "v_process_date에 현재 날짜를 할당하여 처리 기준일을 설정하고, v_count가 임계값(10)을 초과하는지 확인하여 처리량을 제한합니다. CUSTOMER 테이블에서 활성 고객만을 SELECT하여, ORDER_HISTORY 테이블에 집계 데이터를 생성합니다."
-
-2. 각 범위에서 사용된 모든 변수들을 식별하세요. 변수는 다음과 같은 유형을 모두 포함합니다:
-   - 일반 변수 (보통 'v_', 'p_', 'i_', 'o_' 접두사)
-   - %ROWTYPE 변수
-   - %TYPE 변수
-   
-   주의사항:
-   - 각 범위는 독립적으로 처리되어야 하며, 다른 범위와 중첩되더라도 해당 범위 내에서 직접 사용된 변수만 포함합니다.
-   - 예를 들어, 223~250 라인과 240~241 라인이 중첩된 경우, 각각의 범위에서 실제로 사용된 변수만 독립적으로 식별합니다.
-   - 상수나 열거형 값은 변수로 식별하지 않습니다.
-
-3. 코드 내에서 프로시저, 패키지, 함수 호출을 식별하세요:
-   - 외부 패키지의 호출: 'PACKAGE_NAME.PROCEDURE_NAME' 형식으로 저장
-   - 현재 패키지 내부 호출: 'PROCEDURE_NAME' 형식으로 저장
-   - 시퀀스 객체의 NEXTVAL, CURRVAL 참조는 프로시저/함수 호출로 식별하지 마세요
-   - 모든 호출을 'calls' 배열에 저장하세요.
-
-4. 코드 내에서 사용된 테이블 식별하세요:
-  - 'INSERT INTO', 'MERGE INTO', 'FROM', 'UPDATE' 절 이후에 나오는 테이블의 전체 이름을 'tableNames'로 반환하세요.
-  - TPJ_ 같은 접두어를 유지한 채 테이블의 풀 네임을 반환하세요.
+[ANALYSIS_REQUIREMENTS]
+각 지정된 코드 범위에 대해 다음 네 가지 섹션의 정보를 정확히 추출하세요:
 
 
-전체 Stored Procedure Code 에서 다음 정보를 추출하세요:
-1. SQL CRUD 문에서 'INSERT INTO', 'MERGE INTO', 'FROM', 'UPDATE' 절 이후에 나오는 테이블 이름을 찾아 순서대로 식별합니다.
-2. SQL CRUD 문에서 사용된 모든 테이블의 모든 컬럼들과 컬럼의 타입을 식별하세요.
-3. SQL CRUD 문을 분석하여 여러 테이블 JOIN 관계를 'source'와 'target' 형태로 표현합니다.
+[SECTION_1_CODE_SUMMARY]
+코드 동작 분석 및 요약:
+
+분석 범위:
+- 해당 코드 범위가 속한 프로시저/함수명을 명시
+- 코드 범위의 전체적인 목적과 역할을 파악
+
+세부 분석 요소:
+- 변수 할당 및 초기화: 각 변수의 목적과 설정 의미
+- 조건 분기 로직: IF, CASE, WHEN 문의 판단 기준과 분기별 목적
+- 반복 처리 로직: FOR, WHILE, LOOP 문의 조건과 반복 목적
+- 데이터베이스 작업: SELECT, INSERT, UPDATE, DELETE, MERGE 작업의 대상과 목적
+- 예외 처리: EXCEPTION 블록의 처리 방식과 목적
+- 트랜잭션 제어: COMMIT, ROLLBACK 등의 사용 목적
+
+출력 형식:
+프로시저명을 포함한 상세한 설명을 자연어로 작성
+예시: "FN_PROCESS_ORDER 프로시저에서 v_order_date에 SYSDATE를 할당하여 주문 처리 기준일을 설정하고, v_total_count > 100 조건으로 대량 주문 여부를 판단합니다. ORDER_MASTER 테이블에서 미처리 주문을 조회하여 ORDER_HISTORY 테이블에 처리 이력을 생성합니다."
 
 
-아래는 예시 결과로, 식별된 정보만 담아서 json 형식으로 나타내고, 주석이나 부가 설명은 피해주세요:
+[SECTION_2_VARIABLE_IDENTIFICATION]
+변수 식별 및 분류:
+
+식별 대상 변수 유형:
+- 로컬 변수: v_, l_, temp_ 등의 접두사를 가진 변수
+- 매개변수: p_, param_, in_, out_, inout_ 등의 접두사를 가진 변수
+- 시스템 변수: i_, o_ 등의 입출력 변수
+- 레코드 타입: %ROWTYPE으로 선언된 변수
+- 컬럼 타입: %TYPE으로 선언된 변수
+- 커서 변수: CURSOR로 선언된 변수
+- 예외 변수: EXCEPTION으로 선언된 변수
+
+식별 규칙:
+- 각 범위 내에서 실제로 사용되거나 참조된 변수만 포함
+- 변수 선언부가 범위 밖에 있어도 해당 범위에서 사용되면 포함
+- 범위 중첩 시 해당 범위에서 직접 사용된 변수만 독립적으로 식별
+
+
+[SECTION_3_PROCEDURE_CALLS]
+프로시저/함수 호출 식별:
+
+호출 형식 분류:
+- 외부 패키지 호출: PACKAGE_NAME.PROCEDURE_NAME 형식
+- 현재 패키지 내부 호출: PROCEDURE_NAME만 명시된 형식
+- 사용자 정의 함수: 사용자가 생성한 함수
+
+제외 대상:
+- 시퀀스 객체의 NEXTVAL, CURRVAL 호출
+- 내장 함수 호출: 시스템 제공 함수 (SUBSTR, TO_DATE 등)
+
+식별 방법:
+- 점(.)으로 구분된 패키지.프로시저 형태 인식
+- EXECUTE 문 내의 동적 호출도 포함
+
+중요 제약:
+- calls 배열에는 "이름만" 반환 (괄호/인자/공백 제거)
+- 예: "PKG.PROC(arg1, arg2)" → "PKG.PROC"
+
+
+[SECTION_4_TABLE_IDENTIFICATION]
+테이블 및 뷰 식별:
+
+식별 대상 SQL 절:
+- INSERT INTO 절의 대상 테이블
+- UPDATE 절의 대상 테이블  
+- DELETE FROM 절의 대상 테이블
+- SELECT ... FROM 절의 원본 테이블/뷰
+- MERGE INTO 절의 대상 테이블
+- JOIN 절의 참조 테이블/뷰
+- EXECUTE IMMEDIATE 절의 대상 테이블
+
+테이블명 추출 규칙:
+- 스키마명을 포함한 전체 테이블명 추출 (SCHEMA.TABLE_NAME)
+- 별칭(alias) 제거하고 실제 테이블명만 추출
+- 테이블 접두사 (TPJ_, TBL_, MST_ 등) 유지
+- 서브쿼리 내의 테이블도 포함
+- JOIN 절의 모든 테이블 포함
+ - localTables에는 DB 링크 참조('@' 포함)을 절대 포함하지 않음. 로컬 DB 테이블만 포함
+
+제외 대상:
+- 임시 테이블 (TEMPORARY TABLE, TEMP TABLE)
+- CTE(Common Table Expression)의 별칭
+- WITH 절에서 정의된 임시 결과 집합
+- DUAL 테이블 (Oracle 시스템 테이블)
+- 시퀀스 객체
+
+DB 링크 감지 및 표기 규칙:
+- 테이블/뷰 참조에 '@' 기호가 포함되어 있으면 DB 링크 사용으로 간주
+- 반환 시 원문 표기를 그대로 유지 (예: '스키마.테이블명@DB_링크명')
+- 스키마, 테이블명, DB 링크 이름을 모두 그대로 유지
+- 동적 SQL(EXECUTE IMMEDIATE) 내에서도 동일 규칙 적용
+ - DB 링크 대상은 localTables에 넣지 말고 dbLinks로만 반환
+
+
+[SECTION_5_DB_LINK_ACCESS_CLASSIFICATION]
+DB 링크 읽기/쓰기 구분 규칙:
+
+- '읽기(r)': 외부 DB로부터 데이터를 조회만 하는 경우
+  - 예: SELECT ... FROM 스키마.테이블@링크, SELECT ... JOIN 스키마.테이블@링크
+- '쓰기(w)': 외부 DB의 테이블에 직접 쓰기/갱신/삭제하는 경우
+  - 예: INSERT INTO 스키마.테이블@링크, UPDATE 스키마.테이블@링크, DELETE FROM 스키마.테이블@링크, MERGE INTO 스키마.테이블@링크
+- 추가 원칙: 외부 DB에서 읽어와 내 DB에 쓰는 경우는 'r'로 분류하며, 외부 DB에 직접 쓰는 경우에만 'w'로 분류
+- EXECUTE IMMEDIATE 등 동적 SQL인 경우에도 위 규칙을 기준으로 실제 수행 의도를 분석하여 r/w를 판별
+- 동일 범위 내에 여러 DB 링크 테이블이 있을 수 있으며 각 테이블별로 개별적으로 r/w를 판별
+
+
+[SECTION_5_OUTPUT_FORMAT]
+출력 형식 및 구조:
+
+JSON 스키마:
 ```json
 {{
     "analysis": [
         {{
-            "startLine": startLine,
-            "endLine": endLine,
-            "summary": "summary of the code",
-            "tableNames": ["tableName1", "tableName2"],
-            "calls": ["procedure1", "function1", "package1"], 
-            "variables": ["variable1", "variable2"]
+            "startLine": 범위_시작_라인_번호,
+            "endLine": 범위_종료_라인_번호,
+            "summary": "코드_동작_요약_설명",
+            "localTables": ["스키마.테이블명1", "스키마.테이블명2"],
+            "calls": ["호출된 프로시저/함수명칭1", "호출된 프로시저/함수명칭2"],
+            "variables": ["변수명1", "변수명2"],
+            "dbLinks": [
+                {{ "name": "스키마.테이블명@DB_링크명", "mode": "r" }},
+                {{ "name": "스키마.테이블명@DB_링크명", "mode": "w" }}
+            ]
         }}
-    ],
-    "Tables": {{
-        "tableName1": ["type:field1", "type:field2"], 
-        "tableName2": []
-    }},
-    "tableReference": [{{"source": "tableName1", "target": "tableName2"}}]
+    ]
 }}
 ```
+
+출력 제약사항:
+- JSON 형식 외의 부가 설명이나 주석 금지
+- "localTables", "calls", "variables" 배열 요소는 문자열 타입으로 출력
+- "dbLinks" 배열 요소는 객체이며 각 객체는 name(문자열), mode(문자열: 'r' 또는 'w') 필드를 가짐
+- 빈 배열도 허용되며 null 값은 사용 금지
+- startLine과 endLine은 정수 타입으로 정확히 명시
+- summary는 상세하고 구체적인 설명을 한국어로 작성
 """)
 
-# 역할: PL/SQL 프로시저 코드를 심층 분석하여 Neo4j 사이퍼 쿼리 생성에 필요한 정보를 추출하는 함수입니다.
-#
-# 매개변수: 
-#   - sp_code : 분석 대상 PL/SQL 프로시저의 전체 코드
-#   - context_ranges : 분석이 필요한 코드 범위 목록
-#   - context_range_count : 분석해야 할 코드 범위의 총 개수
-#   - object_name : 패키지지 이름
-#   - api_key : OpenAI API 키
-#
-# 반환값: 
-#   - parsed_content : LLM의 코드 분석 결과
-#      (테이블 관계, 변수 정보, 프로시저 호출 관계 등이 포함된 구조화된 데이터)
-def understand_code(sp_code, context_ranges, context_range_count, object_name, api_key, locale):
+
+def understand_code(sp_code, context_ranges, context_range_count, api_key, locale):
     try:
         ranges_json = json.dumps(context_ranges)
-        
-        # OpenAI 호환 엔드포인트 기반 LLM 인스턴스 생성
-        llm = get_llm(temperature=0, max_tokens=8192, api_key=api_key)
+        llm = get_llm(temperature=0, api_key=api_key)
         
         chain = (
             RunnablePassthrough()
@@ -126,10 +199,9 @@ def understand_code(sp_code, context_ranges, context_range_count, object_name, a
         )
 
         json_parser = JsonOutputParser()
-        # TODO 여기서 최대 출력 토큰만 4096이 넘은 경우 처리가 필요
-        result = chain.invoke({"code": sp_code, "ranges": ranges_json, "count": context_range_count, "schema_name": object_name, "locale": locale})
+        result = chain.invoke({"code": sp_code, "ranges": ranges_json, "count": context_range_count, "locale": locale})
         json_parsed_content = json_parser.parse(result.content)
-        logging.info(f"토큰 수: {result.usage_metadata}")     
+        # logging.info(f"토큰 수: {result.usage_metadata}")     
         return json_parsed_content
     
     except Exception as e:

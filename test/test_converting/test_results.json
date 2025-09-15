@@ -1,0 +1,46 @@
+{
+  "file_names": [
+    [
+      "FN_DAYSUM_GENTIME.sql",
+      "FN_DAYSUM_GENTIME"
+    ]
+  ],
+  "user_id": "34576d0c-a941-455d-a89b-42fd22d6674f",
+  "project_name": "demo",
+  "locale": "ko",
+  "entity_name_list": {
+    "TRawTable": {
+      "entityName": "TRawTable"
+    },
+    "TTest": {
+      "entityName": "TTest"
+    }
+  },
+  "used_query_methods": {
+    "44~50": "@Query(\"SELECT t FROM TRawTable t WHERE t.fItem IN :itemCodes AND t.fDam BETWEEN 'AA' AND 'ZZ' AND t.fDate BETWEEN :startDate AND :endDate AND t.fValue = '1'\")\nList<TRawTable> findByItemCodesAndDamAndDateAndValue(@Param(\"itemCodes\") List<String> itemCodes, @Param(\"startDate\") LocalDate startDate, @Param(\"endDate\") LocalDate endDate);",
+    "41~63": "@Query(\"SELECT t FROM TRawTable t WHERE t.fDam = UPPER(:inDam) AND SUBSTRING(t.fItem,2,1) = :inGubun AND t.fDate BETWEEN :startDate AND :endDate AND t.fValue = '1'\")\nList<TRawTable> findByDamAndGubunAndDateAndValue(@Param(\"inDam\") String inDam, @Param(\"inGubun\") String inGubun, @Param(\"startDate\") LocalDate startDate, @Param(\"endDate\") LocalDate endDate);",
+    "53~59": "@Query(\"SELECT t FROM SgiosTRawTable t WHERE t.itemCd IN ('0181770106','0182770106','0183770106','0184770106','0281770106','0282770106','0283770106','0284770106','0181770101','0182770101','0281770202','0181770106') AND t.dam BETWEEN 'AA' AND 'ZZ' AND t.endTime BETWEEN :startDate AND :endDate AND t.value = '0'\")\nList<SgiosTRawTable> findByItemCdInAndDamBetweenAndEndTimeBetweenAndValue(\n    @Param(\"startDate\") LocalDate startDate,\n    @Param(\"endDate\") LocalDate endDate\n);"
+  },
+  "global_variables": [],
+  "sequence_methods": [],
+  "service_skeleton_results": {
+    "FN_DAYSUM_GENTIME": {
+      "service_info": [
+        {
+          "command_class_variable": null,
+          "command_class_name": null,
+          "method_skeleton_name": "fnDaysumGentime",
+          "method_skeleton_code": "    public String fnDaysumGentime(String inDate, String inDam, String inGubun) {\n        Long nValue;\n        String vSql1;\n        String vSql2;\n        String vSql;\n        String vHh;\n        String vVal;\n        CodePlaceHolder\n    }",
+          "method_signature": "String fnDaysumGentime(String inDate, String inDam, String inGubun)",
+          "service_method_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TRawTable;\nimport com.example.demo.entity.TTest;\nimport com.example.demo.repository.TRawTableRepository;\nimport com.example.demo.repository.TTestRepository;\nimport com.example.demo.command.fnDaysumGentime.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport org.springframework.stereotype.Service;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\n@Service\npublic class FnDaysumGentimeService {\n    @Autowired\n    private TRawTableRepository tRawTableRepository;\n    @Autowired\n    private TTestRepository tTestRepository;\n\n    public String fnDaysumGentime(String inDate, String inDam, String inGubun) {\n        Long nValue;\n        String vSql1;\n        String vSql2;\n        String vSql;\n        String vHh;\n        String vVal;\n        CodePlaceHolder\n    }\n}",
+          "node_type": "FUNCTION",
+          "procedure_name": "FN_DAYSUM_GENTIME"
+        }
+      ],
+      "service_skeleton": "package com.example.demo.service;\n\nimport com.example.demo.entity.TRawTable;\nimport com.example.demo.entity.TTest;\nimport com.example.demo.repository.TRawTableRepository;\nimport com.example.demo.repository.TTestRepository;\nimport com.example.demo.command.fnDaysumGentime.*;\nimport org.springframework.web.bind.annotation.PostMapping;\nimport org.springframework.web.bind.annotation.RequestBody;\nimport org.springframework.web.bind.annotation.RestController;\nimport org.springframework.beans.factory.annotation.Autowired;\nimport jakarta.persistence.EntityNotFoundException;\nimport org.springframework.http.ResponseEntity;\nimport org.springframework.transaction.annotation.Transactional;\nimport org.springframework.beans.BeanUtils;\nimport java.time.format.DateTimeFormatter;\nimport org.springframework.stereotype.Service;\nimport java.time.temporal.TemporalAdjusters;\nimport java.time.*;\nimport java.util.*;\n\n@Transactional\n@Service\npublic class FnDaysumGentimeService {\n    @Autowired\n    private TRawTableRepository tRawTableRepository;\n    @Autowired\n    private TTestRepository tTestRepository;\n\nCodePlaceHolder\n}",
+      "service_class_name": "FnDaysumGentimeService",
+      "exist_command_class": true,
+      "command_class_list": []
+    }
+  }
+}

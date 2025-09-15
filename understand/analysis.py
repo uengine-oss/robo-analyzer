@@ -18,10 +18,8 @@ encoder = tiktoken.get_encoding("cl100k_base")
 # ==================== 섹션: 상수 정의 ====================
 # 본 모듈 전반에서 사용하는 구문 타입/분석 제어용 상수를 정의합니다.
 PROCEDURE_TYPES = ["PROCEDURE", "FUNCTION", "CREATE_PROCEDURE_BODY", "TRIGGER"]
-NON_ANALYSIS_TYPES = ["CREATE_PROCEDURE_BODY", "ROOT", "PROCEDURE","FUNCTION", "DECLARE", "TRIGGER"]
+NON_ANALYSIS_TYPES = ["CREATE_PROCEDURE_BODY", "FILE", "PROCEDURE","FUNCTION", "DECLARE", "TRIGGER", "FOLDER"]
 NON_NEXT_RECURSIVE_TYPES = ["FUNCTION", "PROCEDURE", "PACKAGE_VARIABLE", "TRIGGER"]
-NON_CHILD_ANALYSIS_TYPES = ["PACKAGE_VARIABLE","DECLARE", "SPEC"]
-
 
 
 # ==================== 섹션: 유틸리티 헬퍼 ====================
@@ -56,9 +54,30 @@ def get_table_relationship(statement_type: str | None) -> str | None:
         return "FROM"
     if statement_type in ["UPDATE", "INSERT", "DELETE", "MERGE", "FETCH"]:
         return "WRITES"
-    if statement_type == "EXECUTE_IMMEDIATE":
+    if statement_type in ["EXECUTE_IMMEDIATE", "VARIABLE"]:
         return "EXECUTE"
     return None
+
+
+def parse_table_identifier(qualified_table_name: str) -> tuple[str | None, str, str | None]:
+    """역할:
+    - 'SCHEMA.TABLE@DBLINK' 형태의 표기에서 (스키마, 테이블, DB링크명)을 추출합니다.
+
+    반환값:
+    - (schema, table, db_link)
+    """
+    qualified = qualified_table_name.strip().upper()
+    link_name = None
+    if '@' in qualified:
+        left, link_name = qualified.split('@', 1)
+    else:
+        left = qualified
+
+    if '.' in left:
+        schema, table = left.split('.', 1)
+    else:
+        schema, table = None, left
+    return schema, table, (link_name or None)
 
 
 def is_over_token_limit(node_token: int, sp_token: int, context_len: int) -> bool:
@@ -76,7 +95,7 @@ def is_over_token_limit(node_token: int, sp_token: int, context_len: int) -> boo
     return (
         (node_token >= 1000 and context_len and node_token + sp_token >= 1000)
         or (sp_token >= 1000 and context_len)
-        or (context_len >= 10 and sp_token >= 500)
+        or (context_len >= 10)
     )
 
 
@@ -130,7 +149,7 @@ def extract_code_within_range(code: str, context_range: list[dict]) -> tuple[str
         raise ProcessAnalyzeCodeError(err_msg)
 
 
-def get_procedure_name(code: str) -> str:
+def get_procedure_name(code: str) -> tuple[str | None, str | None]:
     """역할:
     - PL/SQL 선언부(또는 CREATE 구문)에서 PROCEDURE/FUNCTION/TRIGGER의 이름을 정규식으로 추출합니다.
 
@@ -138,37 +157,37 @@ def get_procedure_name(code: str) -> str:
     - code (str): 라인 번호 접두가 포함될 수 있는 원본 코드 조각.
 
     반환값:
-    - Optional[str]: 발견된 객체명. 없으면 None.
+    - tuple[Optional[str], Optional[str]]: (schema_name, name)
+
     """
     try:
         normalized = re.sub(r'^\d+\s*:\s*', '', code, flags=re.MULTILINE)
 
+        # 전체 식별자에서 최대 2개의 점까지 허용
         pattern = re.compile(
             r"\b(?:CREATE\s+(?:OR\s+REPLACE\s+)?)?"
             r"(?:PROCEDURE|FUNCTION|TRIGGER)\s+"
-            r"((?:\"[^\"]+\"|[A-Za-z_][\w$#]*)\s*\.\s*)?" 
-            r"(\"[^\"]+\"|[A-Za-z_][\w$#]*)",
+            r"((?:\"[^\"]+\"|[A-Za-z_][\w$#]*)"
+            r"(?:\s*\.\s*(?:\"[^\"]+\"|[A-Za-z_][\w$#]*)){0,2})",
             re.IGNORECASE
         )
 
         match = pattern.search(normalized)
         if not match:
-            fallback = re.compile(
-                r"\b(?:PROCEDURE|FUNCTION|TRIGGER)\s+"
-                r"((?:\"[^\"]+\"|[A-Za-z_][\w$#]*)\s*\.\s*)?"
-                r"(\"[^\"]+\"|[A-Za-z_][\w$#]*)",
-                re.IGNORECASE
-            )
-            match = fallback.search(normalized)
+            return None, None
 
-        if match:
-            raw_name = match.group(2)
-            return raw_name[1:-1] if raw_name.startswith('"') and raw_name.endswith('"') else raw_name
-
-        return None
+        full = match.group(1)
+        parts = [p.strip().strip('"') for p in re.split(r"\s*\.\s*", full)]
+        if len(parts) == 3:
+            return parts[0], f"{parts[1]}.{parts[2]}"
+        if len(parts) == 2:
+            return parts[0], parts[1]
+        if len(parts) == 1:
+            return None, parts[0]
+        return None, None
     except Exception as e:
         logging.error(f"프로시저/함수/트리거 명 추출 중 오류: {str(e)}")
-        return None
+        return None, None
 
 
 def summarize_with_placeholders(file_content: str, node: dict) -> str:
@@ -329,7 +348,7 @@ class Analyzer:
     - 기존 기능/사이드이펙트(큐 프로토콜, 사이퍼 쿼리, 토큰 임계치, 요약/관계 생성)와 완전 동일하게 동작합니다.
     """
 
-    def __init__(self, antlr_data: dict, file_content: str, send_queue: asyncio.Queue, receive_queue: asyncio.Queue, last_line: int, object_name: str, ddl_tables: dict, has_ddl_info: bool, user_id: str, api_key: str, locale: str):
+    def __init__(self, antlr_data: dict, file_content: str, send_queue: asyncio.Queue, receive_queue: asyncio.Queue, last_line: int, folder_name: str, file_name: str, user_id: str, api_key: str, locale: str):
         """생성자
 
         매개변수:
@@ -338,9 +357,8 @@ class Analyzer:
         - send_queue: 생성된 사이퍼 쿼리 배치를 송신하는 큐
         - receive_queue: 사이퍼 처리 완료 신호를 수신하는 큐
         - last_line: 파일 마지막 라인 번호(잔여 배치 플러시용)
-        - object_name: 패키지/오브젝트 이름(Neo4j 키)
-        - ddl_tables: DDL로부터 파싱된 테이블/필드 메타
-        - has_ddl_info: DDL 정보 보유 여부
+        - folder_name: 폴더 이름(Neo4j 키)
+        - file_name: 파일 이름(Neo4j 키)
         - user_id: 사용자 식별자(Neo4j 파티셔닝)
         - api_key: LLM 호출에 사용할 API 키
         - locale: 로케일 코드('ko'|'en')
@@ -350,9 +368,8 @@ class Analyzer:
         self.send_queue = send_queue
         self.receive_queue = receive_queue
         self.last_line = last_line
-        self.object_name = object_name
-        self.ddl_tables = ddl_tables
-        self.has_ddl_info = has_ddl_info
+        self.folder_name = folder_name
+        self.file_name = file_name
         self.user_id = user_id
         self.api_key = api_key
         self.locale = locale
@@ -374,14 +391,14 @@ class Analyzer:
         - DFS 순회 시작→잔여 배치 플러시→완료 이벤트 송신까지 담당합니다.
         - 오류 발생 시 큐로 에러 이벤트를 전송하고 예외를 전파합니다.
         """
-        logging.info(f"[{self.object_name}] 사이퍼 쿼리 생성 시작 (last_line={self.last_line})")
+        logging.info(f"📋 [{self.folder_name}/{self.file_name}] 코드 분석을 시작합니다 (총 {self.last_line}줄)")
         try:
             await self.analyze_statement_tree(self.antlr_data, self.schedule_stack)
 
             if self.context_range and self.focused_code:
                 self.extract_code, _ = extract_code_within_range(self.focused_code, self.context_range)
                 await self.send_analysis_event_and_wait(self.last_line)
-            logging.info(f"[{self.object_name}] 전체 분석 완료")
+            logging.info(f"✅ [{self.folder_name}/{self.file_name}] 코드 분석이 완료되었습니다")
             await self.send_queue.put({"type": "end_analysis"})
 
         except UnderstandingError as e:
@@ -407,7 +424,7 @@ class Analyzer:
             context_range_count = len(self.context_range)
             self.context_range = sorted(self.context_range, key=lambda x: x['startLine'])
 
-            analysis_result = understand_code(self.extract_code, self.context_range, context_range_count, self.procedure_name, self.api_key, self.locale)
+            analysis_result = understand_code(self.extract_code, self.context_range, context_range_count, self.api_key, self.locale)
             cypher_queries = await self.process_analysis_output_to_cypher(analysis_result)
 
             actual_count = len(analysis_result["analysis"])
@@ -415,11 +432,11 @@ class Analyzer:
                 logging.error(f"분석 결과 개수가 일치하지 않습니다. 예상: {context_range_count}, 실제: {actual_count}")
 
             if statement_type in PROCEDURE_TYPES:
-                logging.info(f"[{self.object_name}] {self.procedure_name} 프로시저의 요약 정보 추출 완료")
+                logging.info(f"[{self.folder_name}-{self.file_name}] {self.procedure_name} 프로시저의 요약 정보 추출 완료")
                 summary = understand_summary(self.summary_dict, self.api_key, self.locale)
                 self.cypher_query.append(f"""
                     MATCH (n:{statement_type})
-                    WHERE n.object_name = '{self.object_name}'
+                    WHERE n.folder_name = '{self.folder_name}' AND n.file_name = '{self.file_name}'
                         AND n.procedure_name = '{self.procedure_name}'
                         AND n.user_id = '{self.user_id}'
                     SET n.summary = {json.dumps(summary['summary'])}
@@ -451,65 +468,13 @@ class Analyzer:
         반환값:
         - list[str]: 현재까지 누적된 사이퍼 쿼리 리스트
         """
-        table_fields = defaultdict(set)
         try:
-            table_references = [] if self.has_ddl_info else analysis_result.get('tableReference', [])
-            tables = {} if self.has_ddl_info else analysis_result.get('Tables', {})
-
-            for table, fields in tables.items():
-                qualified = table.strip().upper()
-                name_part = qualified.split('.')[-1]
-                schema_part = qualified.split('.')[0] if '.' in qualified else None
-                table_fields[name_part].update(fields)
-                if fields and '*' not in fields:
-                    for field in fields:
-                        field_name = clean_field_name(field.split(':')[1])
-                        field_type = field.split(':')[0]
-                        match_clause = (
-                            f"MATCH (t:Table {{name: '{name_part}', schema: '{schema_part}', user_id: '{self.user_id}'}})"
-                            if schema_part else
-                            f"MATCH (t:Table {{name: '{name_part}', user_id: '{self.user_id}'}})"
-                        )
-                        update_query = f"""
-                            {match_clause}
-                            WITH t
-                            WHERE t.{field_name} IS NULL
-                            SET t.{field_name} = '{field_type}'
-                        """
-                        self.cypher_query.append(update_query)
-
-            for reference in table_references:
-                src_qualified = reference['source'].strip().upper()
-                tgt_qualified = reference['target'].strip().upper()
-                source_table = src_qualified.split('.')[-1]
-                target_table = tgt_qualified.split('.')[-1]
-                source_schema = src_qualified.split('.')[0] if '.' in src_qualified else None
-                target_schema = tgt_qualified.split('.')[0] if '.' in tgt_qualified else None
-
-                if source_table != target_table:
-                    match_source = (
-                        f"MATCH (source:Table {{name: '{source_table}', schema: '{source_schema}', user_id: '{self.user_id}'}})"
-                        if source_schema else
-                        f"MATCH (source:Table {{name: '{source_table}', user_id: '{self.user_id}'}})"
-                    )
-                    match_target = (
-                        f"MATCH (target:Table {{name: '{target_table}', schema: '{target_schema}', user_id: '{self.user_id}'}})"
-                        if target_schema else
-                        f"MATCH (target:Table {{name: '{target_table}', user_id: '{self.user_id}'}})"
-                    )
-                    table_reference_query = f"""
-                    {match_source}
-                    WITH source
-                    {match_target}
-                    MERGE (source)-[:REFERENCES]->(target)
-                    """
-                    self.cypher_query.append(table_reference_query)
-
             for result in analysis_result['analysis']:
                 start_line = result['startLine']
                 end_line = result['endLine']
                 summary = result['summary']
-                tableName = result.get('tableNames', [])
+                local_tables = result.get('localTables', [])
+                db_links = result.get('dbLinks', [])
                 called_nodes = result.get('calls', [])
                 variables = result.get('variables', [])
                 var_range = f"{start_line}_{end_line}"
@@ -521,7 +486,7 @@ class Analyzer:
                 self.summary_dict[summary_key] = summary
 
                 summary_query = f"""
-                    MATCH (n:{statement_type} {{startLine: {start_line}, object_name: '{self.object_name}', user_id: '{self.user_id}'}})
+                    MATCH (n:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}})
                     SET n.summary = {json.dumps(summary)}
                 """
                 self.cypher_query.append(summary_query)
@@ -534,7 +499,7 @@ class Analyzer:
 
                 for var_name in variables:
                     variable_usage_query = f"""
-                        MATCH (v:Variable {{name: '{var_name}', object_name: '{self.object_name}', procedure_name: '{self.procedure_name}', user_id: '{self.user_id}'}})
+                        MATCH (v:Variable {{name: '{var_name}', folder_name: '{self.folder_name}', file_name: '{self.file_name}', procedure_name: '{self.procedure_name}', user_id: '{self.user_id}'}})
                         SET v.`{var_range}` = 'Used'
                     """
                     self.cypher_query.append(variable_usage_query)
@@ -542,7 +507,7 @@ class Analyzer:
                 if statement_type in ["CALL", "ASSIGNMENT"]:
                     if statement_type == "ASSIGNMENT" and called_nodes:
                         label_change_query = f"""
-                            MATCH (a:ASSIGNMENT {{startLine: {start_line}, object_name: '{self.object_name}', user_id: '{self.user_id}'}})
+                            MATCH (a:ASSIGNMENT {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}})
                             REMOVE a:ASSIGNMENT
                             SET a:CALL, a.name = 'CALL[{start_line}]'
                         """
@@ -557,15 +522,15 @@ class Analyzer:
                                 proc_name = proc_name.upper()
 
                                 call_relation_query = f"""
-                                    MATCH (c:{statement_type} {{startLine: {start_line}, object_name: '{self.object_name}', user_id: '{self.user_id}'}}) 
+                                    MATCH (c:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}}) 
                                     OPTIONAL MATCH (p)
                                     WHERE (p:PROCEDURE OR p:FUNCTION)
-                                    AND p.object_name = '{package_name}' 
+                                    AND p.folder_name = '{package_name}' 
                                     AND p.procedure_name = '{proc_name}'
                                     AND p.user_id = '{self.user_id}'
                                     WITH c, p
                                     FOREACH(ignoreMe IN CASE WHEN p IS NULL THEN [1] ELSE [] END |
-                                        CREATE (new:PROCEDURE:FUNCTION {{object_name: '{package_name}', procedure_name: '{proc_name}', user_id: '{self.user_id}'}})
+                                        CREATE (new:PROCEDURE:FUNCTION {{folder_name: '{package_name}', procedure_name: '{proc_name}', user_id: '{self.user_id}'}})
                                         MERGE (c)-[:CALL {{scope: 'external'}}]->(new)
                                     )
                                     FOREACH(ignoreMe IN CASE WHEN p IS NOT NULL THEN [1] ELSE [] END |
@@ -575,28 +540,62 @@ class Analyzer:
                                 self.cypher_query.append(call_relation_query)
                             else:
                                 call_relation_query = f"""
-                                    MATCH (c:{statement_type} {{startLine: {start_line}, object_name: '{self.object_name}', user_id: '{self.user_id}'}})
+                                    MATCH (c:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}})
                                     WITH c
-                                    MATCH (p {{object_name: '{self.object_name}', procedure_name: '{name}', user_id: '{self.user_id}'}} )
+                                    MATCH (p {{folder_name: '{self.folder_name}', file_name: '{self.file_name}', procedure_name: '{name}', user_id: '{self.user_id}'}} )
                                     WHERE p:PROCEDURE OR p:FUNCTION
                                     MERGE (c)-[:CALL {{scope: 'internal'}}]->(p)
                                 """
                                 self.cypher_query.append(call_relation_query)
 
-                if table_relationship_type and tableName:
-                    qualified = tableName[0].strip().upper()
-                    name_part = qualified.split('.')[-1]
-                    schema_part = qualified.split('.')[0] if '.' in qualified else None
+                for tn in local_tables:
+                    qualified = str(tn).strip().upper()
+                    if not qualified:
+                        continue
+                    schema_part, name_part, _ = parse_table_identifier(qualified)
+                    relationship_label = table_relationship_type
+                    if not relationship_label:
+                        continue
                     match_table = (
                         f"MATCH (t:Table {{name: '{name_part}', schema: '{schema_part}', user_id: '{self.user_id}'}})"
                         if schema_part else
                         f"MATCH (t:Table {{name: '{name_part}', user_id: '{self.user_id}'}})"
                     )
                     table_relationship_query = f"""
-                        MERGE (n:{statement_type} {{startLine: {start_line}, object_name: '{self.object_name}', user_id: '{self.user_id}'}})
+                        MERGE (n:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}})
                         WITH n
                         {match_table}
-                        MERGE (n)-[:{table_relationship_type}]->(t)
+                        MERGE (n)-[:{relationship_label}]->(t)
+                    """
+                    self.cypher_query.append(table_relationship_query)
+
+                for link_item in db_links:
+                    mode = (link_item.get('mode') or 'r').lower()
+                    name = (link_item.get('name') or '').strip().upper()
+                    schema_part, name_part, _ = parse_table_identifier(name)
+                    label = 'DB_LINK'
+                    relationship_label = table_relationship_type
+                    if not relationship_label:
+                        continue
+                    match_table = (
+                        f"MATCH (t:Table {{name: '{name_part}', schema: '{schema_part}', user_id: '{self.user_id}'}})"
+                        if schema_part else
+                        f"MATCH (t:Table {{name: '{name_part}', user_id: '{self.user_id}'}})"
+                    )
+                    table_relationship_query = f"""
+                        MERGE (n:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}})
+                        WITH n
+                        {match_table}
+                        FOREACH(_ IN CASE WHEN t IS NULL THEN [1] ELSE [] END |
+                            MERGE (t2:Table {{name: '{name_part}', user_id: '{self.user_id}'}})
+                            SET t2.schema = '{schema_part or ''}'
+                            MERGE (n)-[:{label} {{mode: '{mode}'}}]->(t2)
+                            MERGE (n)-[:{relationship_label}]->(t2)
+                        )
+                        FOREACH(_ IN CASE WHEN t IS NOT NULL THEN [1] ELSE [] END |
+                            MERGE (n)-[:{label} {{mode: '{mode}'}}]->(t)
+                            MERGE (n)-[:{relationship_label}]->(t)
+                        )
                     """
                     self.cypher_query.append(table_relationship_query)
 
@@ -621,8 +620,9 @@ class Analyzer:
                     '변수 선언및 초기화' if statement_type == 'DECLARE' else
                     '함수 및 프로시저 입력 매개변수' if statement_type == 'SPEC' else
                     '알 수 없는 매개변수')
-            analysis_result = understand_variables(declaration_code, self.ddl_tables, self.api_key, self.locale)
-            logging.info(f"[{self.object_name}] {self.procedure_name}의 변수 분석 완료")
+            logging.info(f"[{self.folder_name}-{self.file_name}] {self.procedure_name}의 변수 분석 시작")
+            analysis_result = understand_variables(declaration_code, self.api_key, self.locale)
+            logging.info(f"[{self.folder_name}-{self.file_name}] {self.procedure_name}의 변수 분석 완료")
             var_summary = json.dumps(analysis_result.get("summary", "unknown"))
             for variable in analysis_result["variables"]:
                 var_parameter_type = variable["parameter_type"]
@@ -632,32 +632,35 @@ class Analyzer:
                 var_value = '' if var_value is None else var_value
 
                 if statement_type == 'DECLARE':
-                    self.cypher_query.extend([
-                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{self.object_name}', type: '{var_type}', procedure_name: '{self.procedure_name}', role: '{role}', scope: 'Local', value: {json.dumps(var_value)}, user_id: '{self.user_id}'}}) ",
-                        f"MATCH (p:{statement_type} {{startLine: {node_startLine}, object_name: '{self.object_name}', procedure_name: '{self.procedure_name}', user_id: '{self.user_id}'}}) ",
-                        f"SET p.summary = {var_summary}",
-                        f"WITH p ",
-                        f"MATCH (v:Variable {{name: '{var_name}', object_name: '{self.object_name}', procedure_name: '{self.procedure_name}', user_id: '{self.user_id}'}})",
-                        f"MERGE (p)-[:SCOPE]->(v)"
-                    ])
+                    cypher_query = f"""
+                    MERGE (v:Variable {{name: '{var_name}', folder_name: '{self.folder_name}', file_name: '{self.file_name}', type: '{var_type}', parameter_type: '{var_parameter_type}', procedure_name: '{self.procedure_name}', role: '{role}', scope: 'Local', value: {json.dumps(var_value)}, user_id: '{self.user_id}'}})
+                    WITH v
+                    MATCH (p:{statement_type} {{startLine: {node_startLine}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', procedure_name: '{self.procedure_name}', user_id: '{self.user_id}'}})
+                    SET p.summary = {var_summary}
+                    WITH p, v
+                    MERGE (p)-[:SCOPE]->(v)
+                    """
+                    self.cypher_query.append(cypher_query)
                 elif statement_type == 'PACKAGE_VARIABLE':
-                    self.cypher_query.extend([
-                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{self.object_name}', type: '{var_type}', role: '{role}', scope: 'Global', value: {json.dumps(var_value)}, user_id: '{self.user_id}'}}) ",
-                        f"MATCH (p:{statement_type} {{startLine: {node_startLine}, object_name: '{self.object_name}', user_id: '{self.user_id}'}}) ",
-                        f"SET p.summary = {var_summary}",
-                        f"WITH p ",
-                        f"MATCH (v:Variable {{name: '{var_name}', object_name: '{self.object_name}', scope: 'Global', user_id: '{self.user_id}'}})",
-                        f"MERGE (p)-[:SCOPE]->(v)"
-                    ])
+                    cypher_query = f"""
+                    MERGE (v:Variable {{name: '{var_name}', folder_name: '{self.folder_name}', file_name: '{self.file_name}', type: '{var_type}', parameter_type: '{var_parameter_type}', role: '{role}', scope: 'Global', value: {json.dumps(var_value)}, user_id: '{self.user_id}'}})
+                    WITH v
+                    MATCH (p:{statement_type} {{startLine: {node_startLine}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}})
+                    SET p.summary = {var_summary}
+                    WITH p, v
+                    MERGE (p)-[:SCOPE]->(v)
+                    """
+                    self.cypher_query.append(cypher_query)
                 else:
-                    self.cypher_query.extend([
-                        f"MERGE (v:Variable {{name: '{var_name}', object_name: '{self.object_name}', type: '{var_type}', parameter_type: '{var_parameter_type}', procedure_name: '{self.procedure_name}', role: '{role}', scope: 'Local', value: {json.dumps(var_value)}, user_id: '{self.user_id}'}}) ",
-                        f"MATCH (p:{statement_type} {{startLine: {node_startLine}, object_name: '{self.object_name}', procedure_name: '{self.procedure_name}', user_id: '{self.user_id}'}}) ",
-                        f"SET p.summary = {var_summary}",
-                        f"WITH p ",
-                        f"MATCH (v:Variable {{name: '{var_name}', object_name: '{self.object_name}', procedure_name: '{self.procedure_name}', user_id: '{self.user_id}'}})",
-                        f"MERGE (p)-[:SCOPE]->(v)"
-                    ])
+                    cypher_query = f"""
+                    MERGE (v:Variable {{name: '{var_name}', folder_name: '{self.folder_name}', file_name: '{self.file_name}', type: '{var_type}', parameter_type: '{var_parameter_type}', procedure_name: '{self.procedure_name}', role: '{role}', scope: 'Local', value: {json.dumps(var_value)}, user_id: '{self.user_id}'}})
+                    WITH v
+                    MATCH (p:{statement_type} {{startLine: {node_startLine}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', procedure_name: '{self.procedure_name}', user_id: '{self.user_id}'}})
+                    SET p.summary = {var_summary}
+                    WITH p, v
+                    MERGE (p)-[:SCOPE]->(v)
+                    """
+                    self.cypher_query.append(cypher_query)
 
         except LLMCallError:
             raise
@@ -675,14 +678,15 @@ class Analyzer:
         - statement_type: 플러시 기준 상위 구문 타입
         """
         try:
+            logging.info(f"🤖 [{self.folder_name}-{self.file_name}] AI 분석을 시작합니다.")
             results = await self.execute_analysis_and_reset_state(statement_type)
-            logging.info(f"[{self.object_name}] {self.procedure_name} 프로시저 분석 결과 이벤트 송신")
+            logging.info(f"📤 [{self.folder_name}-{self.file_name}] 분석 결과를 전송합니다 (Cypher 쿼리 {len(results)}개)")
             await self.send_queue.put({"type": "analysis_code", "query_data": results, "line_number": node_end_line})
 
             while True:
                 response = await self.receive_queue.get()
                 if response['type'] == 'process_completed':
-                    logging.info(f"[{self.object_name}] {self.procedure_name} 프로시저 분석 결과 처리 완료\n")
+                    logging.info(f"✅ [{self.folder_name}] NEO4J에 저장이 완료되었습니다\n")
                     self.cypher_query.clear();
                     break;
 
@@ -708,6 +712,8 @@ class Analyzer:
         node_code = get_original_node_code(self.file_content, start_line, end_line)
         node_size = calculate_code_token(node_code)
         children = node.get('children', [])
+        has_children_value = str(bool(children)).lower()
+        logging.info(f"🚀 노드 정보 : 타입 :{statement_type} 시작 라인 :{start_line} 종료 라인 :{end_line} 사이즈 :{node_size} 자식 여부 :{has_children_value}")
 
         current_schedule = {
             "startLine": start_line,
@@ -718,13 +724,14 @@ class Analyzer:
         }
 
         if statement_type in PROCEDURE_TYPES:
-            self.procedure_name = get_procedure_name(node_code)
-            logging.info(f"[{self.object_name}] {self.procedure_name} 프로시저 분석 시작")
+            self.schema_name, self.procedure_name = get_procedure_name(node_code)
+            logging.info(f"🚀 프로시저/함수/트리거 이름: {self.procedure_name}")
 
         self.extract_code, line_number = extract_code_within_range(self.focused_code, self.context_range)
 
         self.sp_token_count = calculate_code_token(self.extract_code)
         if is_over_token_limit(node_size, self.sp_token_count, len(self.context_range)):
+            logging.info(f"⚠️ [{self.folder_name}-{self.file_name}] 리미트에 도달하여 중간 분석을 실행합니다 (토큰: {self.sp_token_count}) (개수: {len(self.context_range)})")
             await self.send_analysis_event_and_wait(line_number)
 
         if not self.focused_code:
@@ -733,46 +740,54 @@ class Analyzer:
             placeholder = f"{start_line}: ... code ..."
             self.focused_code = self.focused_code.replace(placeholder, summarized_code, 1)
 
-        if not children and statement_type not in NON_CHILD_ANALYSIS_TYPES:
+        if not children:
             self.context_range.append({"startLine": start_line, "endLine": end_line})
             self.cypher_query.append(f"""
-                MERGE (n:{statement_type} {{startLine: {start_line}, object_name: '{self.object_name}', user_id: '{self.user_id}'}})
+                MERGE (n:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}})
                 SET n.endLine = {end_line},
                     n.name = '{statement_type}[{start_line}]',
                     n.node_code = '{node_code.replace("'", "\\'")}',
                     n.token = {node_size},
-                    n.procedure_name = '{self.procedure_name}'
+                    n.procedure_name = '{self.procedure_name}',
+                    n.has_children = {has_children_value}
             """)
         else:
             if statement_type == "ROOT":
-                root_summary = 'Root Start Node' if self.locale == 'en' else '최상위 시작노드'
+                statement_type = "FILE"
+                file_summary = 'File Start Node' if self.locale == 'en' else '파일 노드'
                 self.cypher_query.append(f"""
-                    MERGE (n:{statement_type} {{startLine: {start_line}, object_name: '{self.object_name}', user_id: '{self.user_id}'}})
+                    MERGE (n:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}})
                     SET n.endLine = {end_line},
-                        n.name = '{self.object_name}',
-                        n.summary = '{root_summary}'
+                        n.name = '{self.file_name}',
+                        n.summary = '{file_summary}',
+                        n.has_children = {has_children_value}
+                    WITH n
+                    MERGE (folder:Folder {{user_id: '{self.user_id}', name: '{self.folder_name}'}})
+                    MERGE (folder)-[:PARENT_OF]->(n)
                 """)
             elif statement_type in ["PROCEDURE", "FUNCTION"]:
                 self.cypher_query.append(f"""
-                    MERGE (n:{statement_type} {{procedure_name: '{self.procedure_name}', object_name: '{self.object_name}', user_id: '{self.user_id}'}})
+                    MERGE (n:{statement_type} {{procedure_name: '{self.procedure_name}', folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}})
                     SET n.startLine = {start_line},
                         n.endLine = {end_line},
                         n.name = '{statement_type}[{start_line}]',
                         n.summarized_code = '{escape_for_cypher_multiline(summarized_code)}',
                         n.node_code = '{escape_for_cypher_multiline(node_code)}',
-                        n.token = {node_size}
+                        n.token = {node_size},
+                        n.has_children = {has_children_value}
                     WITH n
                     REMOVE n:{('FUNCTION' if statement_type == 'PROCEDURE' else 'PROCEDURE')}
                 """)
             else:
                 self.cypher_query.append(f"""
-                    MERGE (n:{statement_type} {{startLine: {start_line}, object_name: '{self.object_name}', user_id: '{self.user_id}'}})
+                    MERGE (n:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}})
                     SET n.endLine = {end_line},
                         n.name = '{statement_type}[{start_line}]',
                         n.summarized_code = '{escape_for_cypher_multiline(summarized_code)}',
                         n.node_code = '{escape_for_cypher_multiline(node_code)}',
                         n.token = {node_size},
-                        n.procedure_name = '{self.procedure_name}'
+                        n.procedure_name = '{self.procedure_name}',
+                        n.has_children = {has_children_value}
                 """)
 
         if (self.procedure_name and statement_type in ["SPEC", "DECLARE"]) or statement_type == "PACKAGE_VARIABLE":
@@ -783,9 +798,9 @@ class Analyzer:
 
         if parent_statementType:
             self.cypher_query.append(f"""
-                MATCH (parent:{parent_statementType} {{startLine: {parent_startLine}, object_name: '{self.object_name}', user_id: '{self.user_id}'}})
+                MATCH (parent:{parent_statementType} {{startLine: {parent_startLine}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}})
                 WITH parent
-                MATCH (child:{statement_type} {{startLine: {start_line}, object_name: '{self.object_name}', user_id: '{self.user_id}'}})
+                MATCH (child:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}})
                 MERGE (parent)-[:PARENT_OF]->(child)
             """)
         prev_statement = prev_id = None
@@ -795,9 +810,9 @@ class Analyzer:
 
             if prev_id and prev_statement not in NON_NEXT_RECURSIVE_TYPES:
                 self.cypher_query.append(f"""
-                    MATCH (prev:{prev_statement} {{startLine: {prev_id}, object_name: '{self.object_name}', user_id: '{self.user_id}'}})
+                    MATCH (prev:{prev_statement} {{startLine: {prev_id}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}})
                     WITH prev
-                    MATCH (current:{child['type']} {{startLine: {child['startLine']}, object_name: '{self.object_name}', user_id: '{self.user_id}'}})
+                    MATCH (current:{child['type']} {{startLine: {child['startLine']}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}})
                     MERGE (prev)-[:NEXT]->(current)
                 """)
             prev_statement, prev_id = child['type'], child['startLine']
@@ -805,7 +820,6 @@ class Analyzer:
         if children:
             if (statement_type in PROCEDURE_TYPES) and (self.context_range and self.focused_code):
                 self.extract_code, line_number = extract_code_within_range(self.focused_code, self.context_range)
-                logging.info(f"[{self.object_name}] {self.procedure_name} 프로시저 끝 분석 시작")
                 await self.send_analysis_event_and_wait(line_number, statement_type)
             elif statement_type not in NON_ANALYSIS_TYPES:
                 self.context_range.append({"startLine": start_line, "endLine": end_line})

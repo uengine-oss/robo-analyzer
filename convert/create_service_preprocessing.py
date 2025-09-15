@@ -2,7 +2,7 @@ import logging
 import textwrap
 
 from prompt.convert_service_prompt import convert_service_code
-from prompt.convert_summarized_service_skeleton_prompt import convert_summarized_code
+from prompt.convert_summarized_service_prompt import convert_summarized_code
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError
 from util.utility_tool import extract_used_query_methods, collect_variables_in_range
@@ -34,6 +34,7 @@ class ServicePreprocessor:
 
     TOKEN_THRESHOLD = 1500
     CODE_PLACEHOLDER = "...code..."
+    DML_TYPES = ["SELECT", "INSERT", "UPDATE", "DELETE", "FETCH", "MERGE", "JOIN", "ALL_UNION", "UNION"]
 
     def __init__(self, traverse_nodes: list, variable_nodes: list, connection: Neo4jConnection,
                  command_class_variable: dict, service_skeleton: str, query_method_list: dict,
@@ -75,13 +76,16 @@ class ServicePreprocessor:
           - record(dict): 순회 중인 레코드(키 'n','r','m','nType' 등 포함 가능)
         """
         start_node = record['n']
-        n_type = record.get('nType') or ''
+        raw_name = str(start_node.get('name', '') or '')
+        name = raw_name.split('[')[0] if '[' in raw_name else raw_name
         token = int(start_node.get('token', 0) or 0)
         start_line = int(start_node.get('startLine', 0) or 0)
         end_line = int(start_node.get('endLine', 0) or 0)
         rel = record.get('r')
         relationship = rel[1] if rel else 'NEXT'
-        logging.info(f"[Node] type={n_type} start={start_line} end={end_line} token={token} rel={relationship}")
+
+        logging.info("---------------------- [Node] ------------------------")
+        logging.info(f"타입:{name} 라인:{start_line}~{end_line} 토큰:{token} 관계:{relationship}")
 
     #==================================================================
     # 대용량 스켈레톤 처리
@@ -97,7 +101,15 @@ class ServicePreprocessor:
         반환값:
           - str: 생성된 자바 스켈레톤 코드
         """
-        analysis_result = convert_summarized_code(summarized_code, self.api_key, self.locale)
+        analysis_result = convert_summarized_code(
+            summarized_code, 
+            self.service_skeleton,
+            self.used_variables,
+            self.command_class_variable,
+            self.used_query_method_dict,
+            self.sequence_methods,
+            self.api_key,
+            self.locale)
         return analysis_result['code']
 
     def _insert_into_parent(self, child_start: int, child_code: str) -> bool:
@@ -132,6 +144,7 @@ class ServicePreprocessor:
         if not self.current_parent:
             return
         if relationship == 'NEXT' and current_start_line > self.current_parent['end']:
+            logging.info(f"🧩 부모 경계 통과로 마무리 트리거: 부모={self.current_parent['start']}~{self.current_parent['end']} 다음노드시작={current_start_line}")
             # 부모 종료 전에 남은 sp_code가 있으면 분석해서 java_buffer에 반영
             if self.sp_code:
                 await self._analyze_and_update()
@@ -151,8 +164,9 @@ class ServicePreprocessor:
         self.total_tokens += self.TOKEN_THRESHOLD
         self.current_parent = None
         self.java_buffer = ""
+        logging.info("🧩 부모 병합 완료 (토큰 임계 재조정)")
 
-    # (컨텍스트 범위 관리는 pending_range로만 수행)
+    # (컨텍스트 범위 관리는 sp_range로만 수행)
 
     #==================================================================
     # 대용량 노드/일반 노드 처리
@@ -168,6 +182,7 @@ class ServicePreprocessor:
           - end_line(int): 노드 끝 라인
           - token(int): 노드 토큰 수
         """
+        logging.info(f"🔀 분기: 대용량 노드 lines={start_line}~{end_line} 토큰={token}")
         skeleton = await self._generate_large_node_code(summarized_code)
         # 루트 부모가 없으면 현재 노드를 부모로 설정, 있으면 즉시 부모에 치환
         if not self.current_parent:
@@ -175,6 +190,7 @@ class ServicePreprocessor:
         else:
             self._insert_into_parent(0, skeleton)
         self.total_tokens += token
+        logging.info(f"📦 누적: total_tokens={self.total_tokens}")
 
     def _handle_small_or_leaf_node(self, node_code: str, token: int, start_line: int, end_line: int) -> None:
         """
@@ -186,12 +202,14 @@ class ServicePreprocessor:
           - token(int): 토큰 수
         """
         # 작은/자식없음 노드는 원본을 sp_code에 누적하여 임계 시 LLM 변환
+        logging.info(f"🔀 분기: 소형/리프 노드 lines={start_line}~{end_line} 토큰={token}")
         self.sp_code += f"\n{node_code}"
         self.total_tokens += token
         if self.sp_range['startLine'] is None or start_line < self.sp_range['startLine']:
             self.sp_range['startLine'] = start_line
         if self.sp_range['endLine'] is None or end_line > self.sp_range['endLine']:
             self.sp_range['endLine'] = end_line
+        logging.info(f"📦 누적: total_tokens={self.total_tokens} 범위={self.sp_range['startLine']}~{self.sp_range['endLine']}")
 
     #==================================================================
     # 분석 및 변수/JPA 업데이트
@@ -202,6 +220,7 @@ class ServicePreprocessor:
           - 토큰 임계 도달 시 LLM 분석 수행(변수/JPA 수집 후 분석 실행)
         """
         if self.total_tokens >= self.TOKEN_THRESHOLD:
+            logging.info(f"🤖 분석 트리거: total_tokens={self.total_tokens} 범위={self.sp_range['startLine']}~{self.sp_range['endLine']}")
             await self._analyze_and_update()
 
     #==================================================================
@@ -223,7 +242,7 @@ class ServicePreprocessor:
             return
         start_line_ctx = self.sp_range['startLine']
         end_line_ctx = self.sp_range['endLine']
-        context_range = [{"startLine": start_line_ctx, "endLine": end_line_ctx}]
+        logging.info(f"🤖 분석 시작: 범위={start_line_ctx}~{end_line_ctx} 토큰={self.total_tokens}")
 
         try:
             collected = await collect_variables_in_range(self.variable_nodes, start_line_ctx, end_line_ctx)
@@ -246,8 +265,6 @@ class ServicePreprocessor:
             self.service_skeleton,
             self.used_variables,
             self.command_class_variable,
-            context_range,
-            1,
             self.used_query_method_dict,
             self.sequence_methods,
             self.api_key,
@@ -255,19 +272,14 @@ class ServicePreprocessor:
         )
         await self._update_variables(analysis_result)
         # 생성된 자바 코드를 누적 (부모 진행 중이면 java_buffer, 아니면 merged_java_code)
-        code_map = analysis_result.get('analysis', {}).get('code', {}) or {}
-        def _key_order(k: str) -> int:
-            parts = str(k).replace('-', '~').split('~')
-            try:
-                return int(parts[0])
-            except Exception:
-                return 0
-        generated_java = "\n".join(code_map[k] for k in sorted(code_map.keys(), key=_key_order))
+        generated_java = analysis_result.get('analysis', {}).get('code', '') or ''
         if generated_java:
             if self.current_parent:
                 self.java_buffer += f"\n{generated_java}"
-                else:
+                logging.info("🔗 병합: 부모 활성 → java_buffer")
+            else:
                 self.merged_java_code += f"\n{generated_java}"
+                logging.info("🔗 병합: 부모 없음 → merged_java_code")
 
         # 임계 초기화
         self.total_tokens = 0
@@ -275,6 +287,7 @@ class ServicePreprocessor:
         self.used_query_method_dict.clear()
         self.sp_code = ""
         self.sp_range = {"startLine": None, "endLine": None}
+        logging.info("🤖 분석 종료: 컨텍스트 초기화")
 
     #==================================================================
     # 메인 처리
@@ -284,8 +297,10 @@ class ServicePreprocessor:
         역할:
           - 전체 노드를 순회하며 단일 컨텍스트 누적과 대용량 스켈레톤 병합, 임계 분석 트리거를 수행
         """
+        logging.info(f"📋 처리 시작: object={self.object_name} procedure={self.procedure_name}")
         for record in self.traverse_nodes:
             start_node = record['n']
+            type = start_node.get('labels', 'UNKNOWN')
             has_children = bool(start_node.get('has_children', False))
             token = int(start_node.get('token', 0) or 0)
             start_line = int(start_node.get('startLine', 0) or 0)
@@ -299,10 +314,8 @@ class ServicePreprocessor:
             # 부모 종료 판단 및 마무리
             await self._finalize_parent_if_passed(start_line, relationship)
 
-            # 범위 갱신은 pending_code 누적 시점에서만 수행
-
-            # 분기: 큰 부모 vs 일반 노드
-            if token >= self.TOKEN_THRESHOLD and has_children:
+            # 분기: 큰 부모 vs 일반 노드(DML 제외)
+            if token >= self.TOKEN_THRESHOLD and has_children and start_node and type not in self.DML_TYPES:
                 await self._handle_large_node(start_node.get('summarized_code', '') or '', start_line, end_line, token)
             else:
                 # 작은/자식없음 노드 처리
@@ -313,13 +326,14 @@ class ServicePreprocessor:
         # 남아 있는 부모 정리(1회 치환 후 병합)
         if self.current_parent:
             # 부모 마무리 전에 남은 pending 변환을 먼저 처리
-            if self.pending_code:
+            if self.sp_code:
                 await self._analyze_and_update()
             await self._finalize_current_parent()
 
         # 남은 변환 대기 코드가 있으면 마지막 분석 실행
-        if self.pending_code:
+        if self.sp_code:
             await self._analyze_and_update()
+        logging.info("✅ 처리 완료")
 
 
 async def start_service_preprocessing(service_skeleton: str, command_class_variable: dict, procedure_name: str,
@@ -350,22 +364,22 @@ async def start_service_preprocessing(service_skeleton: str, command_class_varia
     try:
         node_query = [
             f"""
-            MATCH (p) 
-            WHERE p.object_name = $object_name 
-                AND p.procedure_name = $procedure_name 
-                AND p.user_id = $user_id 
-                AND (p:FUNCTION OR p:PROCEDURE OR p:CREATE_PROCEDURE_BODY OR p:TRIGGER) 
-            MATCH (p)-[:PARENT_OF]->(c) 
-            WHERE NOT (c:ROOT OR c:Variable OR c:DECLARE OR c:Table OR c:SPEC) 
-            MATCH path = (c)-[:PARENT_OF*0..]->(n) 
+            MATCH (p)
+            WHERE p.object_name = '{object_name}'
+                AND p.procedure_name = '{procedure_name}'
+                AND p.user_id = '{user_id}'
+                AND (p:FUNCTION OR p:PROCEDURE OR p:CREATE_PROCEDURE_BODY OR p:TRIGGER)
+            MATCH (p)-[:PARENT_OF]->(c)
+            WHERE NOT (c:ROOT OR c:Variable OR c:DECLARE OR c:Table OR c:SPEC)
+            MATCH path = (c)-[:PARENT_OF*0..]->(n)
             WHERE NOT (n:ROOT OR n:Variable OR n:DECLARE OR n:Table OR n:SPEC)
-            OPTIONAL MATCH (n)-[r]->(m) 
-            WHERE m.object_name = $object_name 
-                AND m.user_id = $user_id 
-                AND NOT (m:ROOT OR m:Variable OR m:DECLARE OR m:Table OR m:SPEC) 
-                AND NOT type(r) CONTAINS 'CALL' 
-                AND NOT type(r) CONTAINS 'WRITES' 
-                AND NOT type(r) CONTAINS 'FROM' 
+            OPTIONAL MATCH (n)-[r]->(m)
+            WHERE m.object_name = '{object_name}'
+                AND m.user_id = '{user_id}'
+                AND NOT (m:ROOT OR m:Variable OR m:DECLARE OR m:Table OR m:SPEC)
+                AND NOT type(r) CONTAINS 'CALL'
+                AND NOT type(r) CONTAINS 'WRITES'
+                AND NOT type(r) CONTAINS 'FROM'
             RETURN DISTINCT n, r, m ORDER BY n.startLine
             """,
             f"""

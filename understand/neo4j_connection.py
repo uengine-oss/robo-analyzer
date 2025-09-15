@@ -1,39 +1,42 @@
 import logging
-from neo4j import AsyncGraphDatabase
 import os
+from neo4j import AsyncGraphDatabase
 from util.exception import Neo4jError
 
 class Neo4jConnection:
+    """Neo4j 비동기 연결을 관리하고 쿼리 실행/그래프 조회를 제공합니다."""
 
     database_name = "neo4j"
 
-    # 역할 : Neo4j 데이터베이스와의 연결을 초기화합니다. 환경변수를 통해 연결 정보를 설정하며, 설정되지 않은 경우 기본값을 사용합니다.
-    #
-    # 매개변수:
-    #   - uri: 데이터베이스 URI (기본값: "bolt://localhost:실제 포트 번호")
-    #   - user: 데이터베이스 사용자 이름 (기본값: "neo4j")
-    #   - password: 데이터베이스 비밀번호 (기본값: "neo4j")
     def __init__(self):
+        """환경변수에서 연결 정보를 읽어 드라이버를 초기화합니다.
+
+        환경변수:
+        - NEO4J_URI (기본: bolt://localhost:7687)
+        - NEO4J_USER (기본: neo4j)
+        - NEO4J_PASSWORD (기본: an1021402)
+        """
         uri = os.getenv("NEO4J_URI", "bolt://localhost:7687")
         user = os.getenv("NEO4J_USER", "neo4j")
         password = os.getenv("NEO4J_PASSWORD", "an1021402")
         self.__driver = AsyncGraphDatabase.driver(uri, auth=(user, password))
 
 
-    # 역할: 데이터베이스 연결을 안전하게 종료하고 리소스를 정리합니다.
     async def close(self):
+        """데이터베이스 연결을 안전하게 종료합니다."""
         await self.__driver.close()
 
 
 
-    # 역할: 여러 개의 사이퍼 쿼리를 순차적으로 실행하고 결과를 수집합니다.
-    #
-    # 매개변수: 
-    #   - queries: 실행할 사이퍼 쿼리 문자열의 리스트
-    #
-    # 반환값: 
-    #   - results: 각 쿼리의 실행 결과를 담은 리스트
     async def execute_queries(self, queries: list) -> list:
+        """여러 사이퍼 쿼리를 순차 실행하고 결과를 리스트로 반환합니다.
+
+        매개변수:
+        - queries: 사이퍼 쿼리 문자열 리스트
+
+        반환값:
+        - list: 각 쿼리 결과(data()) 리스트
+        """
         try:
             results = [] 
             async with self.__driver.session(database=self.database_name) as session:
@@ -48,43 +51,39 @@ class Neo4jConnection:
             raise Neo4jError(error_msg)
     
     
-    # 역할: 그래프 데이터베이스의 노드와 관계를 그래프 형태로 조회합니다.
-    #
-    # 매개변수: 
-    #   - package_names: 패키지 이름 목록
-    #   - user_id: 사용자 ID
-    #   - custom_query: 사용자가 정의한 조회 쿼리 (선택적)
-    #
-    # 반환값: 
-    #   - graph_data: 노드와 관계 정보를 포함하는 그래프 데이터 딕셔너리
-    async def execute_query_and_return_graph(self, user_id: str, package_names: list, custom_query=None) -> dict:
+    async def execute_query_and_return_graph(self, user_id: str, file_names: list, custom_query: str | None = None) -> dict:
+        """노드/관계를 조회하여 그래프 형태의 딕셔너리로 반환합니다.
+
+        매개변수:
+        - user_id: 사용자 ID
+        - file_names: (folder_name, file_name) 튜플 리스트
+        - custom_query: 사용자 정의 조회 쿼리(선택)
+
+        반환값:
+        - dict: { Nodes: [...], Relationships: [...] }
+        """
         try:
-            # * 패키지 별 노드를 가져오기 위한 정보를 추출
-            # * 패키지 별 노드를 가져오기 위한 정보를 추출
-            default_query = custom_query or f"""
-            MATCH (n)-[r]->(m)
-            WHERE NOT n:Variable AND NOT n:PACKAGE_VARIABLE
-            AND NOT m:Variable AND NOT m:PACKAGE_VARIABLE
-            AND n.user_id = $user_id
-            AND m.user_id = $user_id
-            AND ( (n:Table OR n.object_name IN $package_names) AND (m:Table OR m.object_name IN $package_names) )
-            RETURN n, r, m
-            """
-
-            # * 파라미터 설정
-            params = {
-                "package_names": package_names,
-                "user_id": user_id
-            }
+            pairs = [{"folder_name": f, "file_name": s} for f, s in file_names]
+            query = custom_query or (
+                """
+                UNWIND $pairs as target
+                MATCH (n)-[r]->(m)
+                WHERE NOT n:Variable AND NOT n:PACKAGE_VARIABLE
+                  AND NOT m:Variable AND NOT m:PACKAGE_VARIABLE
+                  AND n.user_id = $user_id AND m.user_id = $user_id
+                  AND ((n:Table OR (n.folder_name = target.folder_name AND n.file_name = target.file_name))
+                       AND (m:Table OR (m.folder_name = target.folder_name AND m.file_name = target.file_name)))
+                RETURN DISTINCT n, r, m
+                """
+            )
+            params = {"user_id": user_id, "pairs": pairs}
 
 
-            # * 쿼리 실행
             async with self.__driver.session(database=self.database_name) as session:
-                result = await session.run(default_query, params)
+                result = await session.run(query, params)
                 graph = await result.graph()
 
 
-                # * 노드 데이터 추출
                 nodes_data = [
                     {
                         "Node ID": node.element_id,
@@ -95,7 +94,6 @@ class Neo4jConnection:
                 ]
 
 
-                # * 관계 데이터 추출
                 relationships_data = [
                     {
                         "Relationship ID": relationship.element_id,
@@ -108,7 +106,6 @@ class Neo4jConnection:
                 ]
 
 
-                # * 쿼리 실행 결과 반환
                 logging.info("Queries executed successfully")
                 return {"Nodes": nodes_data, "Relationships": relationships_data}
             
@@ -118,37 +115,31 @@ class Neo4jConnection:
             raise Neo4jError(error_msg)
         
 
-    # 역할: 이전에 사용자가 생성한 노드 존재 여부를 확인합니다.
-    #
-    # 매개변수:
-    #   - user_id: 사용자 ID
-    #   - object_names: 패키지 이름
-    #
-    # 반환값:
-    #   - node_exists: 노드 존재 여부 (True 또는 False)
-    async def node_exists(self, user_id: str, package_names: list) -> bool:
+    async def node_exists(self, user_id: str, file_names: list) -> bool:
+        """사용자/파일 쌍 기준으로 그래프 내 노드 존재 여부를 반환합니다.
+
+        매개변수:
+        - user_id: 사용자 ID
+        - file_names: (folder_name, file_name) 튜플 리스트
+
+        반환값:
+        - bool: 노드 존재 여부
+        """
         try:
-            # * 패키지 이름이 존재하는 노드 조회
-            print(package_names)
-            print(user_id)
+            pairs = [{"folder_name": f, "file_name": s} for f, s in file_names]
             query = """
+            UNWIND $pairs as target
             MATCH (n)
-            WHERE n.object_name IN $package_names
-            AND n.user_id = $user_id
+            WHERE n.user_id = $user_id
+              AND n.folder_name = target.folder_name
+              AND n.file_name = target.file_name
             RETURN COUNT(n) > 0 AS exists
             """
-            
-            # * 파라미터 설정
-            params = {
-                "package_names": package_names,
-                "user_id": user_id
-            }
+            params = {"pairs": pairs, "user_id": user_id}
 
-            # * 쿼리 실행
             async with self.__driver.session(database=self.database_name) as session:
                 result = await session.run(query, params)
                 record = await result.single()
-                print(record["exists"])
                 return record["exists"]
             
         except Exception as e:
