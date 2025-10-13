@@ -3,8 +3,8 @@ from typing import Iterable, Tuple
 
 
 # ===== 사용자가 여기 두 값만 수정하면 됩니다 =====
-BASE_DIR = r"C:\uEngine\Deploy\Legacy-modernizer\data\TestSession\src\RWIS(실시간수도)"  # 검색 시작 폴더 경로
-QUERY = "TI_RWIS_05MI"              # 검색할 단어 (부분 일치, 대소문자 구분)
+BASE_DIR = r"D:\다운로드\HDAPS 프로시저 모음"  # 검색 시작 폴더 경로
+QUERY = "LK_HDAPS"              # 검색할 단어 (부분 일치, 대소문자 구분)
 # ================================================
 
 

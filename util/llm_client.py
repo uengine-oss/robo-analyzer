@@ -6,9 +6,8 @@ from openai import OpenAI
 
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
 DEFAULT_API_KEY = "dream-flow"
-DEFAULT_MODEL = "gpt-4.1"
+DEFAULT_MODEL = "gpt-5-mini"
 DEFAULT_MAX_TOKENS = 32768
-
 
 def get_llm(model: str | None = None,
             temperature: float = 0.0,
@@ -36,8 +35,8 @@ def get_llm(model: str | None = None,
         model=resolved_model,
         openai_api_key=resolved_api_key,
         openai_api_base=resolved_base_url,
-        temperature=temperature,
         max_tokens=resolved_max_tokens,
+        reasoning_effort="minimal",
         **kwargs,
     )
 

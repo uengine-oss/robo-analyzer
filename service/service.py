@@ -24,6 +24,7 @@ from convert.create_main import start_main_processing
 from prompt.convert_project_name_prompt import generate_project_name_prompt
 from prompt.understand_ddl import understand_ddl
 from prompt.understand_variables_prompt import resolve_table_variable_type
+from prompt.understand_column_prompt import understand_column_roles
 from understand.neo4j_connection import Neo4jConnection
 from understand.analysis import Analyzer
 from util.exception import ConvertingError, Neo4jError, UnderstandingError, FileProcessingError
@@ -186,15 +187,14 @@ async def _run_understanding(
     await analysis_task
 
 
-async def resolve_table_variables_with_llm(connection: Neo4jConnection, user_id: str, folder_name: str, file_name: str, api_key: str, locale: str) -> None:
-    """Table: 마커가 있는 변수들을 테이블 메타와 함께 LLM에 전달해 타입을 해석하고 변수 노드를 업데이트합니다.
-
-    절차:
-    1) 변수/테이블 메타 수집 (Neo4j)
-    2) LLM 호출로 최종 타입 결정
-    3) 변수 노드 type/resolved만 업데이트 (관계는 건드리지 않음)
+async def postprocess_table_variables(connection: Neo4jConnection, user_id: str, folder_name: str, file_name: str, api_key: str, locale: str) -> None:
+    """사후 처리:
+    1) 변수 타입 해석(기존 로직 유지): 변수별로 테이블 메타를 가져와 타입을 결정하고 Variable 노드를 업데이트.
+    2) 테이블 단위 컬럼 역할: 각 테이블당 컬럼/DML 요약을 모아 컬럼 역할을 도출하고 Column.description을 업데이트.
     """
-    fetch_query = f"""
+
+    # 1) 변수 타입 해석 - 변수별 처리(기존 로직 단순화)
+    fetch_vars = f"""
     MATCH (v:Variable {{folder_name: '{folder_name}', file_name: '{file_name}', user_id: '{user_id}'}})
     WHERE v.value STARTS WITH 'Table: '
     WITH v, trim(replace(v.value, 'Table: ', '')) AS fullName
@@ -202,43 +202,102 @@ async def resolve_table_variables_with_llm(connection: Neo4jConnection, user_id:
     WITH v,
          CASE WHEN size(parts) = 2 THEN parts[0] ELSE null END AS schemaName,
          CASE WHEN size(parts) = 2 THEN parts[1] ELSE parts[0] END AS tableName
-    OPTIONAL MATCH (t:Table {{user_id: '{user_id}', name: toUpper(tableName)}})
+    MATCH (t:Table {{user_id: '{user_id}', name: toUpper(tableName)}})
     WHERE (schemaName IS NULL AND (t.schema IS NULL OR t.schema = '')) OR t.schema = toUpper(schemaName)
-    RETURN v.name AS varName, v.type AS declaredType, toUpper(schemaName) AS schema, toUpper(tableName) AS table, t.columns AS columns
+    OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column {{user_id: '{user_id}'}})
+    WITH v, toUpper(schemaName) AS schema, toUpper(tableName) AS table,
+         collect(DISTINCT {{name: c.name, dtype: coalesce(c.dtype, ''), nullable: toBoolean(c.nullable), comment: coalesce(c.description, '')}}) AS columns
+    RETURN v.name AS varName, v.type AS declaredType, schema, table, columns
     """
 
-    results = await connection.execute_queries([fetch_query])
-    rows = results[0] if results else []
-    if not rows:
+    res_vars = await connection.execute_queries([fetch_vars])
+    var_rows = res_vars[0] if res_vars else []
+    if var_rows:
+        update_queries = []
+        type_tasks = []
+        type_meta = []
+        for row in var_rows:
+            var_name = row.get('varName')
+            declared_type = row.get('declaredType')
+            schema = row.get('schema')
+            table = row.get('table')
+            columns_raw = row.get('columns')
+            columns = json.loads(columns_raw) if isinstance(columns_raw, str) else (columns_raw or [])
+            type_tasks.append(asyncio.create_task(
+                resolve_table_variable_type(var_name, declared_type, schema, table, columns, api_key, locale)
+            ))
+            type_meta.append((var_name, declared_type))
+
+        type_results = await asyncio.gather(*type_tasks)
+        for (var_name, declared_type), result in zip(type_meta, type_results):
+            resolved = (result or {}).get('resolvedType') or declared_type
+            resolved_esc = resolved.replace("'", "\\'")
+            var_name_esc = (var_name or '').replace("'", "\\'")
+            update_queries.append(
+                f"""
+                MATCH (v:Variable {{name: '{var_name_esc}', folder_name: '{folder_name}', file_name: '{file_name}', user_id: '{user_id}'}})
+                SET v.type = '{resolved_esc}', v.resolved = true
+                """
+            )
+
+        if update_queries:
+            await connection.execute_queries(update_queries)
+
+    # 2) 테이블 단위 처리 - 테이블 하나씩 컬럼 역할 산출 후 Column.description 업데이트
+    fetch_tables = f"""
+    MATCH (folder:Folder {{user_id: '{user_id}', name: '{folder_name}'}})-[:CONTAINS]->(t:Table)
+    OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column {{user_id: '{user_id}'}})
+    OPTIONAL MATCH (dml)-[:FROM|:WRITES]->(t)
+    WITH t, collect(DISTINCT dml.summary) AS dmlSummaries,
+         collect(DISTINCT {{name: c.name, dtype: coalesce(c.dtype, ''), nullable: toBoolean(c.nullable), comment: coalesce(c.description, '')}}) AS columns
+    RETURN coalesce(t.schema,'') AS schema, t.name AS table, columns, dmlSummaries
+    """
+
+    res_tables = await connection.execute_queries([fetch_tables])
+    table_rows = res_tables[0] if res_tables else []
+    if not table_rows:
         return
 
-    update_queries = []
-    for row in rows:
-        var_name = row.get('varName')
-        declared_type = row.get('declaredType')
-        schema = row.get('schema')
+    column_update_queries = []
+    roles_tasks = []
+    roles_meta = []
+    for row in table_rows:
+        schema = row.get('schema') or ''
         table = row.get('table')
         columns_raw = row.get('columns')
-        columns = []
-        try:
-            columns = json.loads(columns_raw) if isinstance(columns_raw, str) else (columns_raw or [])
-        except Exception:
-            columns = []
+        dml_summaries_raw = row.get('dmlSummaries')
+        columns = json.loads(columns_raw) if isinstance(columns_raw, str) else (columns_raw or [])
+        dml_summaries = json.loads(dml_summaries_raw) if isinstance(dml_summaries_raw, str) else (dml_summaries_raw or [])
+        roles_tasks.append(asyncio.create_task(understand_column_roles(columns, dml_summaries, api_key, locale)))
+        roles_meta.append((schema, table))
 
-        result = resolve_table_variable_type(var_name, declared_type, schema, table, columns, api_key, locale)
-        resolved = (result or {}).get('resolvedType') or declared_type
-        resolved_esc = resolved.replace("'", "\\'")
-        var_name_esc = (var_name or '').replace("'", "\\'")
-
-        update_queries.append(
-            f"""
-            MATCH (v:Variable {{name: '{var_name_esc}', folder_name: '{folder_name}', file_name: '{file_name}', user_id: '{user_id}'}})
-            SET v.type = '{resolved_esc}', v.resolved = true
-            """
+    roles_results = await asyncio.gather(*roles_tasks)
+    for (schema, table), roles_result in zip(roles_meta, roles_results):
+        schema_upper = (schema or '').upper()
+        table_upper = (table or '').upper()
+        match_table = (
+            f"MATCH (t:Table {{user_id: '{user_id}', name: '{table_upper}', schema: '{schema_upper}'}})"
+            if schema_upper else
+            f"MATCH (t:Table {{user_id: '{user_id}', name: '{table_upper}'}})"
         )
 
-    if update_queries:
-        await connection.execute_queries(update_queries)
+        roles = (roles_result or {}).get('roles') or []
+        for role_item in roles:
+            col_name_esc = (role_item.get('name') or '').replace("'", "\\'")
+            if not col_name_esc:
+                continue
+            desc_esc = (role_item.get('description') or '').replace("'", "\\'")
+            column_update_queries.append(
+                f"""
+                {match_table}
+                MATCH (t)-[:HAS_COLUMN]->(c:Column {{user_id: '{user_id}', name: '{col_name_esc}'}})
+                SET c.description = '{desc_esc}'
+                """
+            )
+
+    if column_update_queries:
+        await connection.execute_queries(column_update_queries)
+
 
 #-------------------------------------------------------------------------#
 # Understanding Entry Point
@@ -316,77 +375,129 @@ async def generate_and_execute_cypherQuery(file_names: list, user_id: str, api_k
 # DDL Processing
 #-------------------------------------------------------------------------#
 async def process_ddl_and_table_nodes(ddl_file_path: str, connection: Neo4jConnection, object_name: str, user_id: str, api_key: str, locale: str):
-    """DDL 파일을 분석하여 테이블 정보를 Neo4j에 저장하고 결과를 반환합니다.
+    """DDL을 분석하여 Table/Column 노드를 생성하고 관계를 구성합니다.
 
-    매개변수:
-    - ddl_file_path: DDL 파일 경로
-    - connection: Neo4j 연결 객체
-    - object_name: 패키지/객체 이름
-    - user_id: 사용자 ID
-    - api_key: OpenAI 호환 API 키
-    - locale: 로케일 문자열
-
-    반환값:
-    - dict: 분석 결과(테이블/컬럼/키 정보)
+    - Table 노드 속성: description, name, schema, table_type, user_id
+    - Column 노드 속성: description(comment), dtype, name, fqn, nullable, user_id
+    - 관계:
+      * (Table)-[:HAS_COLUMN]->(Column)
+      * (Table)-[:FK_TO_TABLE]->(Table)
+      * (Column)-[:FK_TO]->(Column)
     """
-    
+
     try:
         async with aiofiles.open(ddl_file_path, 'r', encoding='utf-8') as ddl_file:
             ddl_content = await ddl_file.read()
             parsed = understand_ddl(ddl_content, api_key, locale)
             cypher_queries = []
-            
+
             for table in parsed['analysis']:
                 table_info = table['table']
                 columns = table.get('columns', [])
-                primary_list = table.get('primaryKeys', [])
                 foreign_list = table.get('foreignKeys', [])
+                primary_list = [str(pk).strip().upper() for pk in (table.get('primaryKeys') or []) if str(pk).strip()]
 
-                schema_val = (table_info.get('schema') or '').upper()
-                table_name_val = table_info['name'].upper()
+                schema_raw = (table_info.get('schema') or '').strip()
+                schema_val = schema_raw.upper() if schema_raw else ''
+                table_name_raw = (table_info.get('name') or '').strip()
+                table_name_val = table_name_raw.upper()
+                table_comment = (table_info.get('comment') or '').strip()
+                table_type = (table_info.get('table_type') or 'BASE TABLE').strip().upper()
 
-                foreign_keys_str = ','.join([fk.get('column', '') for fk in foreign_list if fk.get('column')])
-                reference_tables_str = ','.join([(fk.get('ref') or '').strip().upper() for fk in foreign_list if (fk.get('ref') or '').strip()])
+                # Table 노드 MERGE
+                t_merge_key = {
+                    'user_id': user_id,
+                    'schema': schema_val,
+                    'name': table_name_val,
+                }
+                t_merge_key_str = ', '.join(f"`{k}`: '{v}'" for k, v in t_merge_key.items())
+                t_set_props = {
+                    'description': table_comment.replace("'", "\\'"),
+                    'table_type': table_type,
+                }
+                t_set_clause = ', '.join(f"t.`{k}` = '{v}'" for k, v in t_set_props.items())
+                cypher_queries.append(f"MERGE (t:Table {{{t_merge_key_str}}}) SET {t_set_clause}")
 
-                column_entries = [
-                    {
-                        'name': (col.get('name') or '').strip(),
-                        'type': (col.get('type') or '').strip(),
-                        'nullable': (bool(col.get('nullable')) if isinstance(col.get('nullable', True), bool) else str(col.get('nullable', True)).strip().lower() not in {'false', 'f', '0', 'no', 'n'})
+                # Column 노드 MERGE 및 HAS_COLUMN
+                for col in columns:
+                    col_name_raw = (col.get('name') or '').strip()
+                    if not col_name_raw:
+                        continue
+                    col_name = col_name_raw
+                    dtype = (col.get('dtype') or col.get('type') or '').strip()
+                    nullable_val = col.get('nullable', True)
+                    description = (col.get('comment') or '').strip()
+                    # fqn: schema.table.column (소문자)
+                    fqn_parts = [schema_raw or '', table_name_raw, col_name]
+                    fqn = '.'.join([p for p in fqn_parts if p]).lower()
+
+                    c_merge_key = {
+                        'user_id': user_id,
+                        'name': col_name,
+                        'fqn': fqn,
                     }
-                    for col in columns
-                    if (col.get('name') or '').strip()
-                ]
+                    c_merge_key_str = ', '.join(f"`{k}`: '{v}'" for k, v in c_merge_key.items())
+                    c_set_props = {
+                        'dtype': dtype.replace("'", "\\'"),
+                        'description': description.replace("'", "\\'"),
+                        'nullable': str(bool(nullable_val)).lower(),
+                    }
+                    if col_name.upper() in primary_list:
+                        c_set_props['pk_constraint'] = f"{table_name_raw}_pkey"
+                    c_set_clause = ', '.join(f"c.`{k}` = '{v}'" for k, v in c_set_props.items())
 
-                props = {
-                    'schema': schema_val,
-                    'name': table_name_val,
-                    'user_id': user_id,
-                    'primary_keys': ','.join(primary_list),
-                    'foreign_keys': foreign_keys_str,
-                    'reference_tables': reference_tables_str,
-                    'columns': json.dumps(column_entries, ensure_ascii=False)
-                }
+                    cypher_queries.append(f"MERGE (c:Column {{{c_merge_key_str}}}) SET {c_set_clause}")
+                    # HAS_COLUMN 관계
+                    cypher_queries.append(
+                        f"MATCH (t:Table {{{t_merge_key_str}}}), (c:Column {{{c_merge_key_str}}}) MERGE (t)-[:HAS_COLUMN]->(c)"
+                    )
 
-                merge_key = {
-                    'user_id': user_id,
-                    'schema': schema_val,
-                    'name': table_name_val,
-                }
-                merge_key_str = ', '.join(f"`{k}`: '{v}'" for k, v in merge_key.items())
-                set_props = {
-                    'primary_keys': ','.join(primary_list),
-                    'foreign_keys': foreign_keys_str,
-                    'reference_tables': reference_tables_str,
-                    'columns': json.dumps(column_entries, ensure_ascii=False)
-                }
-                set_clause = ', '.join(f"t.`{k}` = '{v}'" for k, v in set_props.items())
-                query = f"MERGE (t:Table {{{merge_key_str}}}) SET {set_clause}"
-                cypher_queries.append(query)
-            
+                # FK 관계 구성
+                for fk in foreign_list:
+                    src_col = (fk.get('column') or '').strip()
+                    ref = (fk.get('ref') or '').strip()
+                    if not src_col or not ref:
+                        continue
+                    # ref 형식: SCHEMA.TABLE.COLUMN 또는 TABLE.COLUMN
+                    parts = [p.strip() for p in ref.split('.') if p.strip()]
+                    if len(parts) == 3:
+                        ref_schema, ref_table, ref_column = parts
+                    elif len(parts) == 2:
+                        ref_schema, ref_table, ref_column = schema_raw, parts[0], parts[1]
+                    else:
+                        continue
+
+                    # 대상 Table
+                    ref_table_merge_key = {
+                        'user_id': user_id,
+                        'schema': (ref_schema or '').upper(),
+                        'name': (ref_table or '').upper(),
+                    }
+                    ref_table_merge_key_str = ', '.join(f"`{k}`: '{v}'" for k, v in ref_table_merge_key.items())
+                    cypher_queries.append(f"MERGE (rt:Table {{{ref_table_merge_key_str}}})")
+                    # FK_TO_TABLE
+                    cypher_queries.append(
+                        f"MATCH (t:Table {{{t_merge_key_str}}}), (rt:Table {{{ref_table_merge_key_str}}}) MERGE (t)-[:FK_TO_TABLE]->(rt)"
+                    )
+
+                    # Column FK_TO
+                    src_fqn = '.'.join([p for p in [schema_raw or '', table_name_raw, src_col] if p]).lower()
+                    ref_fqn = '.'.join([p for p in [ref_schema or '', ref_table, ref_column] if p]).lower()
+
+                    src_c_key = { 'user_id': user_id, 'name': src_col, 'fqn': src_fqn }
+                    ref_c_key = { 'user_id': user_id, 'name': ref_column, 'fqn': ref_fqn }
+                    src_c_key_str = ', '.join(f"`{k}`: '{v}'" for k, v in src_c_key.items())
+                    ref_c_key_str = ', '.join(f"`{k}`: '{v}'" for k, v in ref_c_key.items())
+
+                    cypher_queries.append(f"MERGE (sc:Column {{{src_c_key_str}}})")
+                    cypher_queries.append(f"MERGE (dc:Column {{{ref_c_key_str}}})")
+                    cypher_queries.append(
+                        f"MATCH (sc:Column {{{src_c_key_str}}}), (dc:Column {{{ref_c_key_str}}}) MERGE (sc)-[:FK_TO]->(dc)"
+                    )
+
             await connection.execute_queries(cypher_queries)
             logging.info(f"DDL 파일 처리 완료: {object_name}")
-    
+
     except UnderstandingError as e:
         raise
     except Exception as e:

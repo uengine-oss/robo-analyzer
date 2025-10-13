@@ -15,7 +15,7 @@ set_llm_cache(SQLiteCache(database_path=db_path))
 
 prompt = PromptTemplate.from_template(
 """
-당신은 DDL을 분석하여 테이블 구조를 파악하는 전문가입니다. 주어진 DDL에서 테이블 정보와 관계를 추출합니다.
+당신은 DDL을 분석하여 테이블과 컬럼, 그리고 외래키 관계를 구조화해 반환합니다.
 
 사용자 언어 설정: {locale}
 
@@ -23,24 +23,32 @@ DDL:
 {ddl_content}
 
 [규칙]
-- 컬럼명은 DDL 표기를 그대로 사용 (대소문자/언더스코어 보존)
-- 존재하지 않는 컬럼/키를 추정하여 추가하지 않음
-- nullable은 불리언(boolean)으로 표기
-- 외래키 참조는 "SCHEMA.TABLE.COLUMN" 형식의 단일 문자열로 평탄화(스키마 없으면 "TABLE.COLUMN")
+- 추정 금지: DDL에 없는 정보는 추가하지 않음
+- 컬럼명/타입 표기는 DDL 그대로 유지 (대소문자/언더스코어 보존)
+- nullable은 불리언(boolean) true/false
+- 테이블 설명은 DDL 내 주석/COMMENT 구문으로 파악해 간단 명료하게 1문장
+- table_type: CREATE 구문으로부터 BASE TABLE/VIEW 등으로 식별
+- 외래키는 소스 컬럼과 대상 "SCHEMA.TABLE.COLUMN" 형태로만 표현
+- 존재하지 않는 정보는 빈 값으로 표현현
 
 [JSON 출력]
-주석 없이 아래 형식으로만 출력:
+- 주석 없이, 형식을 엄격히 준수하여 출력
 ```json
 {{
   "analysis": [
     {{
-      "table": {{"schema": "스키마 또는 null", "name": "테이블명"}},
+      "table": {{
+        "schema": "스키마 또는 null",
+        "name": "테이블명",
+        "table_type": "BASE TABLE 또는 VIEW",
+        "comment": "테이블 한줄 설명"
+      }},
       "columns": [
-        {{"name": "컬럼명", "type": "데이터타입", "nullable": true}}
+        {{"name": "컬럼명", "dtype": "데이터타입", "nullable": true, "comment": "컬럼 설명 또는 빈 문자열"}}
       ],
       "primaryKeys": ["PK_COL1", "PK_COL2"],
       "foreignKeys": [
-        {{"column": "FK_COL", "ref": "SCHEMA.TABLE.COLUMN"}}
+        {{"column": "소스FK컬럼명", "ref": "SCHEMA.TABLE.COLUMN"}}
       ]
     }}
   ]

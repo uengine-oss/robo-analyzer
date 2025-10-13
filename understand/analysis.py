@@ -54,7 +54,7 @@ def get_table_relationship(statement_type: str | None) -> str | None:
         return "FROM"
     if statement_type in ["UPDATE", "INSERT", "DELETE", "MERGE"]:
         return "WRITES"
-    if statement_type in ["EXECUTE_IMMEDIATE", "ASSIGNMENT"]:
+    if statement_type in ["EXECUTE_IMMEDIATE", "ASSIGNMENT", "CALL"]:
         return "EXECUTE"
     return None
 
@@ -145,35 +145,6 @@ def extract_code_within_range(code: str, context_range: list[dict]) -> tuple[str
     
     except Exception as e:
         err_msg = f"Understanding 과정에서 범위내에 코드 추출 도중에 오류가 발생했습니다: {str(e)}"
-        logging.error(err_msg)
-        raise ProcessAnalyzeCodeError(err_msg)
-
-
-
-_line_head_pat = re.compile(r'^(\d+)(?:~\d+)?:\s')
-
-def _trim_before_start(code: str, start_line: int) -> str:
-    """역할:
-    - 주어진 코드에서 라인 헤더 숫자가 start_line 미만인 행을 제거합니다.
-
-    매개변수:
-    - code (str): 라인 헤더가 포함된 코드 문자열
-    - start_line (int): 보존할 최소 시작 라인
-
-    반환값:
-    - str: 트리밍된 코드 문자열
-    """
-    try:
-        out = []
-        for line in code.split('\n'):
-            m = _line_head_pat.match(line)
-            if not m:
-                continue
-            if int(m.group(1)) >= start_line:
-                out.append(line)
-        return '\n'.join(out)
-    except Exception as e:
-        err_msg = f"Understanding 과정에서 코드 트리밍 도중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise ProcessAnalyzeCodeError(err_msg)
 
@@ -614,6 +585,59 @@ class Analyzer:
                     """
                     self.cypher_query.append(table_relationship_query)
 
+                # fkRelations 병합 처리: FK(소스) → PK/UK(타겟)
+                fk_relations = result.get('fkRelations', [])
+                for fk in fk_relations:
+                    src_table = (fk.get('sourceTable') or '').strip().upper()
+                    src_column = (fk.get('sourceColumn') or '').strip()
+                    tgt_table = (fk.get('targetTable') or '').strip().upper()
+                    tgt_column = (fk.get('targetColumn') or '').strip()
+                    if not (src_table and src_column and tgt_table and tgt_column):
+                        continue
+
+                    # 파싱: SCHEMA.TABLE
+                    def split_table(qualified_table: str) -> tuple[str | None, str]:
+                        if '.' in qualified_table:
+                            s, t = qualified_table.split('.', 1)
+                            return (s or '').upper(), (t or '').upper()
+                        return None, qualified_table.upper()
+
+                    src_schema, src_table_name = split_table(src_table)
+                    tgt_schema, tgt_table_name = split_table(tgt_table)
+
+                    # Table 노드 MERGE (소스/타겟)
+                    src_t_merge_key = {
+                        'user_id': self.user_id,
+                        'schema': (src_schema or ''),
+                        'name': src_table_name,
+                    }
+                    tgt_t_merge_key = {
+                        'user_id': self.user_id,
+                        'schema': (tgt_schema or ''),
+                        'name': tgt_table_name,
+                    }
+                    src_t_merge_key_str = ', '.join(f"`{k}`: '{v}'" for k, v in src_t_merge_key.items())
+                    tgt_t_merge_key_str = ', '.join(f"`{k}`: '{v}'" for k, v in tgt_t_merge_key.items())
+
+                    # FK_TO_TABLE 관계 (노드 생성 금지: MATCH로 바인딩, 관계만 MERGE)
+                    self.cypher_query.append(
+                        f"MATCH (st:Table {{{src_t_merge_key_str}}}), (tt:Table {{{tgt_t_merge_key_str}}}) MERGE (st)-[:FK_TO_TABLE]->(tt)"
+                    )
+
+                    # Column 노드 MERGE 및 FK_TO 관계
+                    src_fqn = '.'.join([p for p in [(src_schema or ''), src_table_name, src_column] if p]).lower()
+                    tgt_fqn = '.'.join([p for p in [(tgt_schema or ''), tgt_table_name, tgt_column] if p]).lower()
+
+                    src_c_key = { 'user_id': self.user_id, 'name': src_column, 'fqn': src_fqn }
+                    tgt_c_key = { 'user_id': self.user_id, 'name': tgt_column, 'fqn': tgt_fqn }
+                    src_c_key_str = ', '.join(f"`{k}`: '{v}'" for k, v in src_c_key.items())
+                    tgt_c_key_str = ', '.join(f"`{k}`: '{v}'" for k, v in tgt_c_key.items())
+
+                    # 컬럼 노드 생성 금지: MATCH로 바인딩, 관계만 MERGE
+                    self.cypher_query.append(
+                        f"MATCH (sc:Column {{{src_c_key_str}}}), (dc:Column {{{tgt_c_key_str}}}) MERGE (sc)-[:FK_TO]->(dc)"
+                    )
+
                 for link_item in db_links:
                     mode = (link_item.get('mode') or 'r').lower()
                     name = (link_item.get('name') or '').strip().upper()
@@ -782,7 +806,7 @@ class Analyzer:
 
         self.sp_token_count = calculate_code_token(self.extract_code)
         if is_over_token_limit(node_size, self.sp_token_count, len(self.context_range)):
-            logging.info(f"⚠️ [{self.folder_name}-{self.file_name}] 리미트에 도달하여 중간 분석을 실행합니다 (토큰: {self.sp_token_count}) (개수: {len(self.context_range)})")
+            logging.info(f"⚠️ [{self.folder_name}-{self.file_name}] 리미트에 도달하여 중간 분석을 실행합니다 (토큰: {self.sp_token_count})")
             await self.send_analysis_event_and_wait(line_number)
 
         if not self.focused_code:
@@ -794,7 +818,7 @@ class Analyzer:
             else:
                 self.focused_code = self.focused_code.replace(placeholder, summarized_code, 1)
 
-        if not children:
+        if not children and statement_type not in NON_ANALYSIS_TYPES:
             self.context_range.append({"startLine": start_line, "endLine": end_line})
             self.cypher_query.append(f"""
                 MERGE (n:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}})
@@ -809,8 +833,7 @@ class Analyzer:
                 MERGE (folder)-[:CONTAINS]->(n)
             """)
         else:
-            if statement_type == "ROOT":
-                statement_type = "FILE"
+            if statement_type == "FILE":
                 file_summary = 'File Start Node' if self.locale == 'en' else '파일 노드'
                 self.cypher_query.append(f"""
                     MERGE (n:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}})
@@ -883,6 +906,7 @@ class Analyzer:
         if children:
             if (statement_type in PROCEDURE_TYPES) and (self.context_range and self.focused_code):
                 self.extract_code, line_number = extract_code_within_range(self.focused_code, self.context_range)
+                logging.info(f"📤 [{self.folder_name}-{self.file_name}] 중간 플러시 실행 (토큰: {self.sp_token_count})")
                 await self.send_analysis_event_and_wait(line_number, statement_type)
             elif statement_type not in NON_ANALYSIS_TYPES:
                 self.context_range.append({"startLine": start_line, "endLine": end_line})

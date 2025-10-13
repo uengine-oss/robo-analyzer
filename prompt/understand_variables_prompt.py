@@ -152,7 +152,7 @@ resolve_prompt = PromptTemplate.from_template(
 )
 
 
-def resolve_table_variable_type(var_name: str, declared_type: str, table_schema: str | None, table_name: str | None, columns: list | None, api_key: str, locale: str):
+async def resolve_table_variable_type(var_name: str, declared_type: str, table_schema: str | None, table_name: str | None, columns: list | None, api_key: str, locale: str):
     try:
         llm = get_llm(api_key=api_key)
         chain = (
@@ -162,7 +162,7 @@ def resolve_table_variable_type(var_name: str, declared_type: str, table_schema:
             | JsonOutputParser()
         )
         columns_json = json.dumps(columns or [], ensure_ascii=False)
-        result = chain.invoke({
+        result = await chain.ainvoke({
             "var_name": var_name,
             "declared_type": declared_type,
             "table_schema": table_schema or "",

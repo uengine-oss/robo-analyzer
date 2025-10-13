@@ -25,7 +25,7 @@ async def main() -> None:
     test_data = []  # [(folder_name, file_name_with_ext)]
 
     # * 검증 로직 없이 함수 실행만 확인 (제너레이터 안전 종료 + 한 틱 양보)
-    session_uuid = os.getenv("TEST_SESSION_UUID", "KO_TestSession")
+    session_uuid = os.getenv("TEST_SESSION_UUID", "TestSession")
     api_key = os.getenv("LLM_API_KEY", "")
     locale = os.getenv("TEST_LOCALE", "ko")
 
