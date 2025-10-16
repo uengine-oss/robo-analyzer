@@ -42,6 +42,7 @@ async def _resolve_user_and_api_key(request: Request, missing_env_status: int) -
         return user_id, api_key
 
     api_key = request.headers.get('OpenAI-Api-Key') or request.headers.get('Anthropic-Api-Key')
+    print("api_key: ", api_key)
     if not api_key:
         raise HTTPException(status_code=401, detail="Anthropic API 키가 없습니다.")
     return user_id, api_key
@@ -60,12 +61,29 @@ def _locale(request: Request) -> str:
     return request.headers.get('Accept-Language', 'ko')
 
 
-def _extract_file_names(file_data: dict) -> list[tuple[str, str]]:
-    """요청 JSON에서 (folderName, fileName) 튜플 리스트를 추출합니다."""
-    files = [(item['folderName'], item['fileName']) for item in file_data.get('fileInfos', [])]
+def _extract_payload(file_data: dict) -> tuple[str, str, list[tuple[str, str]]]:
+    """요청 JSON에서 projectName, dbms, (systemName, fileName) 리스트를 추출합니다.
+
+    매개변수:
+    - file_data: 요청 JSON
+
+    반환값:
+    - (projectName, [(systemName, fileName), ...])
+    """
+    project_name = file_data.get('projectName')
+    dbms = (file_data.get('dbms') or 'postgres').strip().lower()
+    if not project_name:
+        raise HTTPException(status_code=400, detail="projectName이 없습니다.")
+    systems = file_data.get('systems') or []
+    files: list[tuple[str, str]] = []
+    for system in systems:
+        system_name = system.get('name')
+        for sp_name in system.get('sp') or []:
+            if system_name and sp_name:
+                files.append((system_name, sp_name))
     if not files:
-        raise HTTPException(status_code=400, detail="파일 정보가 없습니다.")
-    return files
+        raise HTTPException(status_code=400, detail="시스템 또는 파일 정보가 없습니다.")
+    return project_name, dbms, files
 
 
 #-------------------------------------------------------------------------#
@@ -86,9 +104,9 @@ async def understand_data(request: Request):
         await _ensure_valid_key(user_id, api_key)
         locale = _locale(request)
         file_data = await request.json()
-        file_names = _extract_file_names(file_data)
-        logging.info("User ID: %s, File Infos: %s", user_id, file_names)
-        return StreamingResponse(generate_and_execute_cypherQuery(file_names, user_id, api_key, locale))
+        project_name, dbms, file_names = _extract_payload(file_data)
+        logging.info("User ID: %s, Project: %s, DBMS: %s, File Infos: %s", user_id, project_name, dbms, file_names)
+        return StreamingResponse(generate_and_execute_cypherQuery(file_names, user_id, api_key, locale, project_name, dbms))
     
     except Exception as e:
         error_message = f"Understanding 처리 중 오류 발생: {str(e)}"
@@ -111,9 +129,9 @@ async def covnert_spring_project(request: Request):
         await _ensure_valid_key(user_id, api_key)
         locale = _locale(request)
         file_data = await request.json()
-        logging.info("Received File Info for Convert Spring Boot: %s", file_data)
-        file_names = _extract_file_names(file_data)
-        return StreamingResponse(generate_spring_boot_project(file_names, user_id, api_key, locale), media_type="text/plain")
+        project_name, dbms, file_names = _extract_payload(file_data)
+        logging.info("Received Convert Spring Boot: project=%s, dbms=%s, files=%s", project_name, dbms, file_names)
+        return StreamingResponse(generate_spring_boot_project(file_names, user_id, api_key, locale, project_name), media_type="text/plain")
     
     except Exception as e:
         error_message = f"스프링 부트 프로젝트 생성 도중 오류 발생: {str(e)}"
@@ -142,7 +160,7 @@ async def download_spring_project(request: Request):
 
         base_dir = os.getenv('DOCKER_COMPOSE_CONTEXT') or os.path.dirname(os.getcwd())
         target_path = os.path.join(base_dir, 'target', 'java', user_id, project_name)
-        zipfile_dir = os.path.join(base_dir, user_id, 'zipfile') if base_dir.endswith('/data') or base_dir.endswith('\\data') else os.path.join(base_dir, 'data', user_id, 'zipfile')
+        zipfile_dir = os.path.join(base_dir, 'data', user_id, 'zipfile')
         os.makedirs(zipfile_dir, exist_ok=True)
         output_zip_path = os.path.join(zipfile_dir, f'{project_name}.zip')
 

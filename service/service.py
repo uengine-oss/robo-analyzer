@@ -21,7 +21,6 @@ from convert.create_service_preprocessing import start_service_preprocessing
 from convert.create_service_postprocessing import generate_service_class, start_service_postprocessing
 from convert.create_service_skeleton import start_service_skeleton_processing
 from convert.create_main import start_main_processing
-from prompt.convert_project_name_prompt import generate_project_name_prompt
 from prompt.understand_ddl import understand_ddl
 from prompt.understand_variables_prompt import resolve_table_variable_type
 from prompt.understand_column_prompt import understand_column_roles
@@ -45,16 +44,20 @@ else:
 #-------------------------------------------------------------------------#
 # Path Utilities
 #-------------------------------------------------------------------------#
-def get_user_directories(user_id: str):
-    """사용자 ID를 기준으로 작업 디렉터리 경로 딕셔너리를 반환합니다.
+def get_user_directories(user_id: str, project_name: str):
+    """세션 ID와 프로젝트명을 기준으로 작업 디렉터리 경로 딕셔너리를 반환합니다.
 
     매개변수:
-    - user_id: 사용자 ID
+    - user_id: 사용자 ID(세션)
+    - project_name: 프로젝트 이름
 
     반환값:
     - 'plsql', 'analysis', 'ddl' 키를 갖는 디렉터리 경로 딕셔너리
+      - plsql: data/{user_id}/{project_name}/src
+      - analysis: data/{user_id}/{project_name}/analysis
+      - ddl: data/{user_id}/{project_name}/ddl
     """
-    user_base = os.path.join(BASE_DIR, 'data', user_id)
+    user_base = os.path.join(BASE_DIR, 'data', user_id, project_name)
     return {
         'plsql': os.path.join(user_base, "src"),
         'analysis': os.path.join(user_base, "analysis"),
@@ -97,11 +100,12 @@ def _list_ddl_files(dirs: dict) -> list:
 #-------------------------------------------------------------------------#
 # Understanding Flow Helpers
 #-------------------------------------------------------------------------#
-async def _ensure_folder_node(connection: Neo4jConnection, user_id: str, folder_name: str) -> None:
+async def _ensure_folder_node(connection: Neo4jConnection, user_id: str, folder_name: str, project_name: str) -> None:
     """폴더 노드를 (user_id, name) 기준으로 없을 때만 생성합니다."""
     escaped_user_id = str(user_id).replace("'", r"\'")
     escaped_name = str(folder_name).replace("'", r"\'")
-    query = f"MERGE (f:Folder {{user_id: '{escaped_user_id}', name: '{escaped_name}', has_children: true}}) RETURN f"
+    escaped_project = str(project_name).replace("'", r"\'")
+    query = f"MERGE (f:Folder {{user_id: '{escaped_user_id}', name: '{escaped_name}', project_name: '{escaped_project}', has_children: true}}) RETURN f"
     await connection.execute_queries([query])
 
 async def _already_analyzed_flow(connection: Neo4jConnection, user_id: str, file_pairs: list[tuple[str, str]]) -> AsyncGenerator[bytes, None]:
@@ -121,7 +125,7 @@ async def _load_assets(dirs: dict, folder_name: str, file_name: str):
     folder_dir = os.path.join(dirs['plsql'], folder_name)
     plsql_file_path = os.path.join(folder_dir, file_name)
     base_name = os.path.splitext(file_name)[0]
-    analysis_file_path = os.path.join(dirs['analysis'], f"{base_name}.json")
+    analysis_file_path = os.path.join(dirs['analysis'], folder_name, f"{base_name}.json")
 
     async with aiofiles.open(analysis_file_path, 'r', encoding='utf-8') as antlr_file, \
              aiofiles.open(plsql_file_path, 'r', encoding='utf-8') as plsql_file:
@@ -140,6 +144,8 @@ async def _run_understanding(
     connection: Neo4jConnection,
     events_from_analyzer: asyncio.Queue,
     events_to_analyzer: asyncio.Queue,
+    dbms: str,
+    project_name: str,
 ) -> AsyncGenerator[bytes, None]:
     """이해(understanding) 분석을 수행하고 단계별 스트림을 생성합니다."""
     antlr_data, plsql_content = await _load_assets(dirs, folder_name, file_name)
@@ -157,6 +163,8 @@ async def _run_understanding(
         user_id=user_id,
         api_key=api_key,
         locale=locale,
+        dbms=dbms,
+        project_name=project_name,
     )
     analysis_task = asyncio.create_task(analyzer.run())
 
@@ -251,7 +259,7 @@ async def postprocess_table_variables(connection: Neo4jConnection, user_id: str,
     fetch_tables = f"""
     MATCH (folder:Folder {{user_id: '{user_id}', name: '{folder_name}'}})-[:CONTAINS]->(t:Table)
     OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column {{user_id: '{user_id}'}})
-    OPTIONAL MATCH (dml)-[:FROM|:WRITES]->(t)
+    OPTIONAL MATCH (dml)-[:FROM|WRITES]->(t)
     WITH t, collect(DISTINCT dml.summary) AS dmlSummaries,
          collect(DISTINCT {{name: c.name, dtype: coalesce(c.dtype, ''), nullable: toBoolean(c.nullable), comment: coalesce(c.description, '')}}) AS columns
     RETURN coalesce(t.schema,'') AS schema, t.name AS table, columns, dmlSummaries
@@ -319,7 +327,7 @@ async def postprocess_table_variables(connection: Neo4jConnection, user_id: str,
 #-------------------------------------------------------------------------#
 # Understanding Entry Point
 #-------------------------------------------------------------------------#
-async def generate_and_execute_cypherQuery(file_names: list, user_id: str, api_key: str, locale: str) -> AsyncGenerator[Any, None]:
+async def generate_and_execute_cypherQuery(file_names: list, user_id: str, api_key: str, locale: str, project_name: str, dbms: str) -> AsyncGenerator[Any, None]:
     """사이퍼 쿼리를 생성·실행하여 그래프 데이터 스트림을 반환합니다.
 
     매개변수:
@@ -334,7 +342,7 @@ async def generate_and_execute_cypherQuery(file_names: list, user_id: str, api_k
     connection = Neo4jConnection()
     events_from_analyzer = asyncio.Queue()
     events_to_analyzer = asyncio.Queue()
-    dirs = get_user_directories(user_id)
+    dirs = get_user_directories(user_id, project_name)
 
     try:
         file_pairs = [(fn, fl) for fn, fl in file_names]
@@ -355,13 +363,13 @@ async def generate_and_execute_cypherQuery(file_names: list, user_id: str, api_k
                 logging.info(f"DDL 파일 처리 시작: {ddl_file_name}")
                 try:
                     base_object_name = os.path.splitext(ddl_file_name)[0]
-                    await process_ddl_and_table_nodes(ddl_file_path, connection, base_object_name, user_id, api_key, locale)
+                    await process_ddl_and_table_nodes(ddl_file_path, connection, base_object_name, user_id, api_key, locale, dbms, project_name)
                 except Exception as _e:
                     logging.error(f"DDL 파일 처리 실패: {ddl_file_name} - {_e}")
                     continue
 
         for folder_name, file_name in file_names:
-            await _ensure_folder_node(connection, user_id, folder_name)
+            await _ensure_folder_node(connection, user_id, folder_name, project_name)
             async for chunk in _run_understanding(
                 dirs,
                 folder_name,
@@ -373,6 +381,8 @@ async def generate_and_execute_cypherQuery(file_names: list, user_id: str, api_k
                 connection,
                 events_from_analyzer,
                 events_to_analyzer,
+                dbms,
+                project_name,
             ):
                 yield chunk
 
@@ -391,7 +401,7 @@ async def generate_and_execute_cypherQuery(file_names: list, user_id: str, api_k
 #-------------------------------------------------------------------------#
 # DDL Processing
 #-------------------------------------------------------------------------#
-async def process_ddl_and_table_nodes(ddl_file_path: str, connection: Neo4jConnection, object_name: str, user_id: str, api_key: str, locale: str):
+async def process_ddl_and_table_nodes(ddl_file_path: str, connection: Neo4jConnection, object_name: str, user_id: str, api_key: str, locale: str, dbms: str, project_name: str):
     """DDL을 분석하여 Table/Column 노드를 생성하고 관계를 구성합니다.
 
     - Table 노드 속성: description, name, schema, table_type, user_id
@@ -431,12 +441,15 @@ async def process_ddl_and_table_nodes(ddl_file_path: str, connection: Neo4jConne
                     'user_id': user_id,
                     'schema': effective_schema,
                     'name': table_name_text,
+                    'db': dbms,
+                    'project_name': project_name,
                 }
                 t_merge_key_str = ', '.join(f"`{k}`: '{v}'" for k, v in t_merge_key.items())
                 t_set_props = {
                     'description': table_comment.replace("'", "\\'"),
                     'table_type': table_type,
-                    'db': 'postgres',
+                    'db': dbms,
+                    'project_name': project_name,
                 }
                 t_set_clause = ', '.join(f"t.`{k}` = '{v}'" for k, v in t_set_props.items())
                 cypher_queries.append(f"MERGE (t:Table {{{t_merge_key_str}}}) SET {t_set_clause}")
@@ -458,22 +471,27 @@ async def process_ddl_and_table_nodes(ddl_file_path: str, connection: Neo4jConne
                         'user_id': user_id,
                         'name': col_name,
                         'fqn': fqn,
+                        'project_name': project_name,
                     }
                     c_merge_key_str = ', '.join(f"`{k}`: '{v}'" for k, v in c_merge_key.items())
                     c_set_props = {
                         'dtype': columnTypeText.replace("'", "\\'"),
                         'description': columnCommentText.replace("'", "\\'"),
                         'nullable': str(bool(isNullable)).lower(),
+                        'project_name': project_name,
                     }
                     if col_name.upper() in primary_list:
                         c_set_props['pk_constraint'] = f"{table_name_raw}_pkey"
                     c_set_clause = ', '.join(f"c.`{k}` = '{v}'" for k, v in c_set_props.items())
 
                     cypher_queries.append(f"MERGE (c:Column {{{c_merge_key_str}}}) SET {c_set_clause}")
-                    # HAS_COLUMN 관계
-                    cypher_queries.append(
-                        f"MATCH (t:Table {{{t_merge_key_str}}}), (c:Column {{{c_merge_key_str}}}) MERGE (t)-[:HAS_COLUMN]->(c)"
+                    # HAS_COLUMN 관계 (카티전 곱 경고 방지: 하나의 쿼리로 묶음)
+                    has_column_query = (
+                        f"MATCH (t:Table {{{t_merge_key_str}}})\n"
+                        f"MATCH (c:Column {{{c_merge_key_str}}})\n"
+                        f"MERGE (t)-[:HAS_COLUMN]->(c)"
                     )
+                    cypher_queries.append(has_column_query)
 
                 # FK 관계 구성
                 for fk in foreign_list:
@@ -493,13 +511,18 @@ async def process_ddl_and_table_nodes(ddl_file_path: str, connection: Neo4jConne
                         'user_id': user_id,
                         'schema': (ref_schema or ''),
                         'name': (ref_table or ''),
+                        'db': dbms,
+                        'project_name': project_name,
                     }
                     ref_table_merge_key_str = ', '.join(f"`{k}`: '{v}'" for k, v in ref_table_merge_key.items())
                     cypher_queries.append(f"MERGE (rt:Table {{{ref_table_merge_key_str}}})")
-                    # FK_TO_TABLE
-                    cypher_queries.append(
-                        f"MATCH (t:Table {{{t_merge_key_str}}}), (rt:Table {{{ref_table_merge_key_str}}}) MERGE (t)-[:FK_TO_TABLE]->(rt)"
+                    # FK_TO_TABLE (카티전 곱 경고 방지: 하나의 쿼리로 묶음)
+                    fk_table_query = (
+                        f"MATCH (t:Table {{{t_merge_key_str}}})\n"
+                        f"MATCH (rt:Table {{{ref_table_merge_key_str}}})\n"
+                        f"MERGE (t)-[:FK_TO_TABLE]->(rt)"
                     )
+                    cypher_queries.append(fk_table_query)
 
                     # Column FK_TO
                     src_fqn = '.'.join([p for p in [effective_schema or '', table_name_text, src_col] if p]).lower()
@@ -510,11 +533,20 @@ async def process_ddl_and_table_nodes(ddl_file_path: str, connection: Neo4jConne
                     src_c_key_str = ', '.join(f"`{k}`: '{v}'" for k, v in src_c_key.items())
                     ref_c_key_str = ', '.join(f"`{k}`: '{v}'" for k, v in ref_c_key.items())
 
+                    # 프로젝트 기준 컬럼 식별 강화
+                    src_c_key['project_name'] = project_name
+                    ref_c_key['project_name'] = project_name
+                    src_c_key_str = ', '.join(f"`{k}`: '{v}'" for k, v in src_c_key.items())
+                    ref_c_key_str = ', '.join(f"`{k}`: '{v}'" for k, v in ref_c_key.items())
                     cypher_queries.append(f"MERGE (sc:Column {{{src_c_key_str}}})")
                     cypher_queries.append(f"MERGE (dc:Column {{{ref_c_key_str}}})")
-                    cypher_queries.append(
-                        f"MATCH (sc:Column {{{src_c_key_str}}}), (dc:Column {{{ref_c_key_str}}}) MERGE (sc)-[:FK_TO]->(dc)"
+                    # FK_TO (카티전 곱 경고 방지: 하나의 쿼리로 묶음)
+                    fk_col_query = (
+                        f"MATCH (sc:Column {{{src_c_key_str}}})\n"
+                        f"MATCH (dc:Column {{{ref_c_key_str}}})\n"
+                        f"MERGE (sc)-[:FK_TO]->(dc)"
                     )
+                    cypher_queries.append(fk_col_query)
 
             await connection.execute_queries(cypher_queries)
             logging.info(f"DDL 파일 처리 완료: {object_name}")
@@ -531,7 +563,7 @@ async def process_ddl_and_table_nodes(ddl_file_path: str, connection: Neo4jConne
 #-------------------------------------------------------------------------#
 # Conversion: Spring Boot Generation
 #-------------------------------------------------------------------------#
-async def generate_spring_boot_project(file_names: list, user_id: str, api_key: str, locale: str) -> AsyncGenerator[Any, None]:
+async def generate_spring_boot_project(file_names: list, user_id: str, api_key: str, locale: str, project_name: str) -> AsyncGenerator[Any, None]:
     """PL/SQL을 스프링 부트 프로젝트로 변환하고 산출물을 스트림으로 반환합니다.
 
     매개변수:
@@ -547,9 +579,8 @@ async def generate_spring_boot_project(file_names: list, user_id: str, api_key: 
         def emit(data_type: str, **kwargs) -> bytes:
             return json.dumps({"data_type": data_type, **kwargs}).encode('utf-8') + b"send_stream"
 
-        # 프로젝트 이름 생성
-        project_name = await generate_project_name_prompt(file_names, api_key)
-        logging.info(f"프로젝트 이름 생성 완료: {project_name}")
+        # 프로젝트 이름: 요청에서 전달된 값을 사용
+        logging.info(f"프로젝트 이름 수신: {project_name}")
         yield emit("data", file_type="project_name", project_name=project_name)
 
         file_count = len(file_names)
@@ -727,7 +758,7 @@ async def validate_anthropic_api_key(api_key: str) -> bool:
     - bool: 유효 시 True, 실패 시 False
     """
     try:
-        llm = get_llm(max_tokens=8, api_key=api_key)
+        llm = get_llm(api_key=api_key)
         result = (llm).invoke("ping")
         return bool(result)
     except Exception as e:

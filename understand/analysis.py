@@ -336,7 +336,7 @@ class Analyzer:
     - 기존 기능/사이드이펙트(큐 프로토콜, 사이퍼 쿼리, 토큰 임계치, 요약/관계 생성)와 완전 동일하게 동작합니다.
     """
 
-    def __init__(self, antlr_data: dict, file_content: str, send_queue: asyncio.Queue, receive_queue: asyncio.Queue, last_line: int, folder_name: str, file_name: str, user_id: str, api_key: str, locale: str):
+    def __init__(self, antlr_data: dict, file_content: str, send_queue: asyncio.Queue, receive_queue: asyncio.Queue, last_line: int, folder_name: str, file_name: str, user_id: str, api_key: str, locale: str, dbms: str, project_name: str):
         """생성자
 
         매개변수:
@@ -361,6 +361,8 @@ class Analyzer:
         self.user_id = user_id
         self.api_key = api_key
         self.locale = locale
+        self.dbms = (dbms or 'postgres').lower()
+        self.project_name = project_name or ''
 
         self.schedule_stack = []
         self.context_range = []
@@ -425,8 +427,8 @@ class Analyzer:
                 self.cypher_query.append(f"""
                     MATCH (n:{statement_type})
                     WHERE n.folder_name = '{self.folder_name}' AND n.file_name = '{self.file_name}'
-                        AND n.procedure_name = '{self.procedure_name}'
-                        AND n.user_id = '{self.user_id}'
+                        AND n.procedure_name = '{self.procedure_name}' AND n.project_name = '{self.project_name}'
+                        AND n.user_id = '{self.user_id}' AND n.project_name = '{self.project_name}'
                     SET n.summary = {json.dumps(summary['summary'])}
                 """)
                 self.schedule_stack.clear()
@@ -474,7 +476,7 @@ class Analyzer:
                 self.summary_dict[summary_key] = summary
 
                 summary_query = f"""
-                    MATCH (n:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}})
+                    MATCH (n:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
                     SET n.summary = {json.dumps(summary)}
                 """
                 self.cypher_query.append(summary_query)
@@ -486,7 +488,7 @@ class Analyzer:
 
                 for var_name in variables:
                     variable_usage_query = f"""
-                        MATCH (v:Variable {{name: '{var_name}', folder_name: '{self.folder_name}', file_name: '{self.file_name}', procedure_name: '{self.procedure_name}', user_id: '{self.user_id}'}})
+                        MATCH (v:Variable {{name: '{var_name}', folder_name: '{self.folder_name}', file_name: '{self.file_name}', procedure_name: '{self.procedure_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
                         SET v.`{var_range}` = 'Used'
                     """
                     self.cypher_query.append(variable_usage_query)
@@ -494,7 +496,7 @@ class Analyzer:
                 if statement_type in ["CALL", "ASSIGNMENT"]:
                     if statement_type == "ASSIGNMENT" and called_nodes:
                         label_change_query = f"""
-                            MATCH (a:ASSIGNMENT {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}})
+                            MATCH (a:ASSIGNMENT {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
                             REMOVE a:ASSIGNMENT
                             SET a:CALL, a.name = 'CALL[{start_line}]'
                         """
@@ -509,7 +511,7 @@ class Analyzer:
                                 proc_name = proc_name.upper()
 
                                 call_relation_query = f"""
-                                    MATCH (c:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}}) 
+                                    MATCH (c:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}}) 
                                     OPTIONAL MATCH (p)
                                     WHERE (p:PROCEDURE OR p:FUNCTION)
                                     AND p.folder_name = '{package_name}' 
@@ -517,7 +519,7 @@ class Analyzer:
                                     AND p.user_id = '{self.user_id}'
                                     WITH c, p
                                     FOREACH(ignoreMe IN CASE WHEN p IS NULL THEN [1] ELSE [] END |
-                                        CREATE (new:PROCEDURE:FUNCTION {{folder_name: '{package_name}', procedure_name: '{proc_name}', user_id: '{self.user_id}'}})
+                                        CREATE (new:PROCEDURE:FUNCTION {{folder_name: '{package_name}', procedure_name: '{proc_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
                                         MERGE (c)-[:CALL {{scope: 'external'}}]->(new)
                                     )
                                     FOREACH(ignoreMe IN CASE WHEN p IS NOT NULL THEN [1] ELSE [] END |
@@ -527,9 +529,9 @@ class Analyzer:
                                 self.cypher_query.append(call_relation_query)
                             else:
                                 call_relation_query = f"""
-                                    MATCH (c:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}})
+                                    MATCH (c:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
                                     WITH c
-                                    MATCH (p {{folder_name: '{self.folder_name}', file_name: '{self.file_name}', procedure_name: '{name}', user_id: '{self.user_id}'}} )
+                                    MATCH (p {{folder_name: '{self.folder_name}', file_name: '{self.file_name}', procedure_name: '{name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}} )
                                     WHERE p:PROCEDURE OR p:FUNCTION
                                     MERGE (c)-[:CALL {{scope: 'internal'}}]->(p)
                                 """
@@ -545,20 +547,21 @@ class Analyzer:
                         continue
 
                     merge_table = (
-                        f"MERGE (t:Table {{user_id: '{self.user_id}', name: '{name_part}', schema: '{schema_part}'}})\n"
+                        f"MERGE (t:Table {{user_id: '{self.user_id}', name: '{name_part}', schema: '{schema_part}', db: '{self.dbms}', project_name: '{self.project_name}'}})\n"
                         if schema_part else
-                        f"MERGE (t:Table {{user_id: '{self.user_id}', name: '{name_part}'}})\n"
+                        f"MERGE (t:Table {{user_id: '{self.user_id}', name: '{name_part}', db: '{self.dbms}', project_name: '{self.project_name}'}})\n"
                     )
 
                     table_relationship_query = f"""
-                        MERGE (n:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}})
+                        MERGE (n:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
                         WITH n
                         {merge_table}
                         ON CREATE SET t.folder_name = '{self.folder_name}'
                         ON MATCH  SET t.folder_name = CASE WHEN coalesce(t.folder_name,'') = '' THEN '{self.folder_name}' ELSE t.folder_name END
                         WITH n, t
-                        MERGE (folder:Folder {{user_id: '{self.user_id}', name: '{self.folder_name}'}})
+                        MERGE (folder:Folder {{user_id: '{self.user_id}', name: '{self.folder_name}', project_name: '{self.project_name}'}})
                         MERGE (folder)-[:CONTAINS]->(t)
+                        SET t.db = coalesce(t.db, '{self.dbms}')
                         MERGE (n)-[:{relationship_label}]->(t)
                     """
                     self.cypher_query.append(table_relationship_query)
@@ -582,18 +585,26 @@ class Analyzer:
                         'user_id': self.user_id,
                         'schema': (src_schema or ''),
                         'name': src_table_name,
+                        'db': self.dbms,
+                        'project_name': self.project_name,
                     }
                     tgt_t_merge_key = {
                         'user_id': self.user_id,
                         'schema': (tgt_schema or ''),
                         'name': tgt_table_name,
+                        'db': self.dbms,
+                        'project_name': self.project_name,
                     }
                     src_t_merge_key_str = ', '.join(f"`{k}`: '{v}'" for k, v in src_t_merge_key.items())
                     tgt_t_merge_key_str = ', '.join(f"`{k}`: '{v}'" for k, v in tgt_t_merge_key.items())
 
-                    # FK_TO_TABLE 관계 (노드 생성 금지: MATCH로 바인딩, 관계만 MERGE)
+                    # FK_TO_TABLE 관계 (카티전 곱 방지: MATCH 분리 후 MERGE)
                     self.cypher_query.append(
-                        f"MATCH (st:Table {{{src_t_merge_key_str}}}), (tt:Table {{{tgt_t_merge_key_str}}}) MERGE (st)-[:FK_TO_TABLE]->(tt)"
+                        f"MATCH (st:Table {{{src_t_merge_key_str}}})\n"
+                        f"MATCH (tt:Table {{{tgt_t_merge_key_str}}})\n"
+                        f"SET st.db = coalesce(st.db, 'postgres')\n"
+                        f"SET tt.db = coalesce(tt.db, 'postgres')\n"
+                        f"MERGE (st)-[:FK_TO_TABLE]->(tt)"
                     )
 
                     # Column 노드 MERGE 및 FK_TO 관계
@@ -605,9 +616,11 @@ class Analyzer:
                     src_c_key_str = ', '.join(f"`{k}`: '{v}'" for k, v in src_c_key.items())
                     tgt_c_key_str = ', '.join(f"`{k}`: '{v}'" for k, v in tgt_c_key.items())
 
-                    # 컬럼 노드 생성 금지: MATCH로 바인딩, 관계만 MERGE
+                    # 컬럼 FK 관계 (카티전 곱 방지: MATCH 분리 후 MERGE)
                     self.cypher_query.append(
-                        f"MATCH (sc:Column {{{src_c_key_str}}}), (dc:Column {{{tgt_c_key_str}}}) MERGE (sc)-[:FK_TO]->(dc)"
+                        f"MATCH (sc:Column {{{src_c_key_str}}})\n"
+                        f"MATCH (dc:Column {{{tgt_c_key_str}}})\n"
+                        f"MERGE (sc)-[:FK_TO]->(dc)"
                     )
 
                 for link_item in db_links:
@@ -619,19 +632,19 @@ class Analyzer:
                         continue
 
                     merge_table = (
-                        f"MERGE (t:Table {{user_id: '{self.user_id}', name: '{name_part}', schema: '{schema_part}'}})\n"
+                        f"MERGE (t:Table {{user_id: '{self.user_id}', name: '{name_part}', schema: '{schema_part}', project_name: '{self.project_name}'}})\n"
                         if schema_part else
-                        f"MERGE (t:Table {{user_id: '{self.user_id}', name: '{name_part}'}})\n"
+                        f"MERGE (t:Table {{user_id: '{self.user_id}', name: '{name_part}', project_name: '{self.project_name}'}})\n"
                     )
 
                     table_relationship_query = f"""
-                        MERGE (n:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}})
+                        MERGE (n:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
                         WITH n
                         {merge_table}
                         ON CREATE SET t.folder_name = ''
                         SET t.db_link = '{link_name}'
                         WITH n, t
-                        MERGE (l:DBLink {{user_id: '{self.user_id}', name: '{link_name}'}})
+                        MERGE (l:DBLink {{user_id: '{self.user_id}', name: '{link_name}', project_name: '{self.project_name}'}})
                         MERGE (l)-[:CONTAINS]->(t)
                         MERGE (n)-[:DB_LINK {{mode: '{mode}'}}]->(t)
                     """
@@ -671,9 +684,9 @@ class Analyzer:
 
                 if statement_type == 'DECLARE':
                     cypher_query = f"""
-                    MERGE (v:Variable {{name: '{var_name}', folder_name: '{self.folder_name}', file_name: '{self.file_name}', type: '{var_type}', parameter_type: '{var_parameter_type}', procedure_name: '{self.procedure_name}', role: '{role}', scope: 'Local', value: {json.dumps(var_value)}, user_id: '{self.user_id}'}})
+                    MERGE (v:Variable {{name: '{var_name}', folder_name: '{self.folder_name}', file_name: '{self.file_name}', type: '{var_type}', parameter_type: '{var_parameter_type}', procedure_name: '{self.procedure_name}', role: '{role}', scope: 'Local', value: {json.dumps(var_value)}, user_id: '{self.user_id}', project_name: '{self.project_name}'}})
                     WITH v
-                    MATCH (p:{statement_type} {{startLine: {node_startLine}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', procedure_name: '{self.procedure_name}', user_id: '{self.user_id}'}})
+                    MATCH (p:{statement_type} {{startLine: {node_startLine}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', procedure_name: '{self.procedure_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
                     SET p.summary = {var_summary}
                     WITH p, v
                     MERGE (p)-[:SCOPE]->(v)
@@ -684,9 +697,9 @@ class Analyzer:
                     self.cypher_query.append(cypher_query)
                 elif statement_type == 'PACKAGE_VARIABLE':
                     cypher_query = f"""
-                    MERGE (v:Variable {{name: '{var_name}', folder_name: '{self.folder_name}', file_name: '{self.file_name}', type: '{var_type}', parameter_type: '{var_parameter_type}', role: '{role}', scope: 'Global', value: {json.dumps(var_value)}, user_id: '{self.user_id}'}})
+                    MERGE (v:Variable {{name: '{var_name}', folder_name: '{self.folder_name}', file_name: '{self.file_name}', type: '{var_type}', parameter_type: '{var_parameter_type}', role: '{role}', scope: 'Global', value: {json.dumps(var_value)}, user_id: '{self.user_id}', project_name: '{self.project_name}'}})
                     WITH v
-                    MATCH (p:{statement_type} {{startLine: {node_startLine}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}})
+                    MATCH (p:{statement_type} {{startLine: {node_startLine}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
                     SET p.summary = {var_summary}
                     WITH p, v
                     MERGE (p)-[:SCOPE]->(v)
@@ -697,9 +710,9 @@ class Analyzer:
                     self.cypher_query.append(cypher_query)
                 else:
                     cypher_query = f"""
-                    MERGE (v:Variable {{name: '{var_name}', folder_name: '{self.folder_name}', file_name: '{self.file_name}', type: '{var_type}', parameter_type: '{var_parameter_type}', procedure_name: '{self.procedure_name}', role: '{role}', scope: 'Local', value: {json.dumps(var_value)}, user_id: '{self.user_id}'}})
+                    MERGE (v:Variable {{name: '{var_name}', folder_name: '{self.folder_name}', file_name: '{self.file_name}', type: '{var_type}', parameter_type: '{var_parameter_type}', procedure_name: '{self.procedure_name}', role: '{role}', scope: 'Local', value: {json.dumps(var_value)}, user_id: '{self.user_id}', project_name: '{self.project_name}'}})
                     WITH v
-                    MATCH (p:{statement_type} {{startLine: {node_startLine}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', procedure_name: '{self.procedure_name}', user_id: '{self.user_id}'}})
+                    MATCH (p:{statement_type} {{startLine: {node_startLine}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', procedure_name: '{self.procedure_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
                     SET p.summary = {var_summary}
                     WITH p, v
                     MERGE (p)-[:SCOPE]->(v)
@@ -793,7 +806,7 @@ class Analyzer:
         if not children and statement_type not in NON_ANALYSIS_TYPES:
             self.context_range.append({"startLine": start_line, "endLine": end_line})
             self.cypher_query.append(f"""
-                MERGE (n:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}})
+                MERGE (n:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
                 SET n.endLine = {end_line},
                     n.name = '{statement_type}[{start_line}]',
                     n.node_code = '{node_code.replace("'", "\\'")}',
@@ -801,25 +814,25 @@ class Analyzer:
                     n.procedure_name = '{self.procedure_name}',
                     n.has_children = {has_children_value}
                 WITH n
-                MERGE (folder:Folder {{user_id: '{self.user_id}', name: '{self.folder_name}'}})
+                        MERGE (folder:Folder {{user_id: '{self.user_id}', name: '{self.folder_name}', project_name: '{self.project_name}'}})
                 MERGE (folder)-[:CONTAINS]->(n)
             """)
         else:
             if statement_type == "FILE":
                 file_summary = 'File Start Node' if self.locale == 'en' else '파일 노드'
                 self.cypher_query.append(f"""
-                    MERGE (n:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}})
+                    MERGE (n:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
                     SET n.endLine = {end_line},
                         n.name = '{self.file_name}',
                         n.summary = '{file_summary}',
                         n.has_children = {has_children_value}
                     WITH n
-                    MERGE (folder:Folder {{user_id: '{self.user_id}', name: '{self.folder_name}'}})
+                    MERGE (folder:Folder {{user_id: '{self.user_id}', name: '{self.folder_name}', project_name: '{self.project_name}'}})
                     MERGE (folder)-[:CONTAINS]->(n)
                 """)
             elif statement_type in ["PROCEDURE", "FUNCTION"]:
                 self.cypher_query.append(f"""
-                    MERGE (n:{statement_type} {{procedure_name: '{self.procedure_name}', folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}})
+                    MERGE (n:{statement_type} {{procedure_name: '{self.procedure_name}', folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
                     SET n.startLine = {start_line},
                         n.endLine = {end_line},
                         n.name = '{statement_type}[{start_line}]',
@@ -830,12 +843,12 @@ class Analyzer:
                     WITH n
                     REMOVE n:{('FUNCTION' if statement_type == 'PROCEDURE' else 'PROCEDURE')}
                     WITH n
-                    MERGE (folder:Folder {{user_id: '{self.user_id}', name: '{self.folder_name}'}})
+                    MERGE (folder:Folder {{user_id: '{self.user_id}', name: '{self.folder_name}', project_name: '{self.project_name}'}})
                     MERGE (folder)-[:CONTAINS]->(n)
                 """)
             else:
                 self.cypher_query.append(f"""
-                    MERGE (n:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}})
+                    MERGE (n:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
                     SET n.endLine = {end_line},
                         n.name = '{statement_type}[{start_line}]',
                         n.summarized_code = '{escape_for_cypher_multiline(summarized_code)}',
@@ -844,7 +857,7 @@ class Analyzer:
                         n.procedure_name = '{self.procedure_name}',
                         n.has_children = {has_children_value}
                     WITH n
-                    MERGE (folder:Folder {{user_id: '{self.user_id}', name: '{self.folder_name}'}})
+                    MERGE (folder:Folder {{user_id: '{self.user_id}', name: '{self.folder_name}', project_name: '{self.project_name}'}})
                     MERGE (folder)-[:CONTAINS]->(n)
                 """)
 
@@ -856,9 +869,9 @@ class Analyzer:
 
         if parent_statementType:
             self.cypher_query.append(f"""
-                MATCH (parent:{parent_statementType} {{startLine: {parent_startLine}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}})
+                MATCH (parent:{parent_statementType} {{startLine: {parent_startLine}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
                 WITH parent
-                MATCH (child:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}})
+                MATCH (child:{statement_type} {{startLine: {start_line}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
                 MERGE (parent)-[:PARENT_OF]->(child)
             """)
         prev_statement = prev_id = None
@@ -868,9 +881,9 @@ class Analyzer:
 
             if prev_id and prev_statement not in NON_NEXT_RECURSIVE_TYPES:
                 self.cypher_query.append(f"""
-                    MATCH (prev:{prev_statement} {{startLine: {prev_id}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}})
+                    MATCH (prev:{prev_statement} {{startLine: {prev_id}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
                     WITH prev
-                    MATCH (current:{child['type']} {{startLine: {child['startLine']}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}'}})
+                    MATCH (current:{child['type']} {{startLine: {child['startLine']}, folder_name: '{self.folder_name}', file_name: '{self.file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})
                     MERGE (prev)-[:NEXT]->(current)
                 """)
             prev_statement, prev_id = child['type'], child['startLine']
