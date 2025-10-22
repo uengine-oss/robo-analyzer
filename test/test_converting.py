@@ -1,7 +1,3 @@
-"""
-실제 데이터 기반 Converting 완벽 테스트
-배포 전 필수 통과 테스트 - 각 단계별 결과를 JSON으로 저장하고 다음 단계에서 참조
-"""
 import pytest
 import asyncio
 import os
@@ -14,10 +10,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from convert.create_entity import EntityGenerator
 from convert.create_repository import RepositoryGenerator
 from convert.create_service_skeleton import ServiceSkeletonGenerator
-from convert.create_controller_skeleton import start_controller_skeleton_processing
-from convert.create_controller import start_controller_processing
+from convert.create_controller import ControllerGenerator
 from convert.create_main import MainClassGenerator
 from convert.create_config_files import ConfigFilesGenerator
+from service.service import ServiceOrchestrator
 from understand.neo4j_connection import Neo4jConnection
 
 
@@ -28,6 +24,7 @@ TEST_PROJECT_NAME = "HOSPITAL_PROJECT"
 TEST_API_KEY = os.getenv("LLM_API_KEY")
 TEST_DB_NAME = "test"
 TEST_LOCALE = "ko"
+TEST_TARGET_LANG = "java"  # 타겟 언어 설정
 
 # 결과 저장 파일
 RESULTS_FILE = Path(__file__).parent / "test_converting_results.json"
@@ -88,7 +85,7 @@ class TestEntityGeneration:
         print(f"📊 설정: USER_ID={TEST_USER_ID}, PROJECT={TEST_PROJECT_NAME}, DB={Neo4jConnection.DATABASE_NAME}\n")
         
         # Entity 생성
-        generator = EntityGenerator(TEST_PROJECT_NAME, TEST_USER_ID, TEST_API_KEY, TEST_LOCALE)
+        generator = EntityGenerator(TEST_PROJECT_NAME, TEST_USER_ID, TEST_API_KEY, TEST_LOCALE, TEST_TARGET_LANG)
         entity_results = await generator.generate()
         
         # 검증
@@ -126,7 +123,7 @@ class TestRepositoryGeneration:
         print(f"{'='*60}\n")
         
         # Repository 생성
-        generator = RepositoryGenerator(TEST_PROJECT_NAME, TEST_USER_ID, TEST_API_KEY, TEST_LOCALE)
+        generator = RepositoryGenerator(TEST_PROJECT_NAME, TEST_USER_ID, TEST_API_KEY, TEST_LOCALE, TEST_TARGET_LANG)
         used_query_methods, global_variables, sequence_methods, repository_list = await generator.generate()
         
         # 검증
@@ -167,7 +164,7 @@ class TestServiceSkeletonGeneration:
         global_variables = results_storage['global_variables']
         
         # Service Skeleton 생성
-        generator = ServiceSkeletonGenerator(TEST_PROJECT_NAME, TEST_USER_ID, TEST_API_KEY, TEST_LOCALE)
+        generator = ServiceSkeletonGenerator(TEST_PROJECT_NAME, TEST_USER_ID, TEST_API_KEY, TEST_LOCALE, TEST_TARGET_LANG)
         
         # 각 프로시저별로 생성
         skeleton_results = {}
@@ -459,6 +456,118 @@ class TestFullPipeline:
         print(f"\n{'='*60}")
         print("🎉 배포 준비 완료!")
         print(f"{'='*60}\n")
+
+
+# ==================== 통합 테스트: 전체 파이프라인 ====================
+
+class TestConvertingPipeline:
+    """Converting 전체 파이프라인 통합 테스트 (실제 API 동작 검증)"""
+    
+    @pytest.mark.asyncio
+    async def test_complete_converting_pipeline(self, setup_test_db):
+        """convert_to_springboot() 전체 파이프라인 실행 테스트"""
+        if not TEST_API_KEY:
+            pytest.skip("LLM_API_KEY가 설정되지 않았습니다")
+        
+        print(f"\n{'='*80}")
+        print("🚀 통합 테스트: convert_to_springboot() 전체 파이프라인")
+        print(f"{'='*80}")
+        print(f"📊 설정: USER_ID={TEST_USER_ID}, PROJECT={TEST_PROJECT_NAME}")
+        print(f"🎯 타겟: {TEST_TARGET_LANG}")
+        print(f"{'='*80}\n")
+        
+        # ServiceOrchestrator 생성
+        orchestrator = ServiceOrchestrator(
+            user_id=TEST_USER_ID,
+            api_key=TEST_API_KEY,
+            locale=TEST_LOCALE,
+            project_name=TEST_PROJECT_NAME,
+            dbms="postgres",
+            target_lang=TEST_TARGET_LANG
+        )
+        
+        # 변환할 파일
+        file_names = [("HOSPITAL_RECEPTION", "SP_HOSPITAL_RECEPTION.sql")]
+        
+        # 전체 파이프라인 실행
+        events = []
+        step_messages = []
+        generated_files = {}
+        
+        try:
+            print("📝 Converting 파이프라인 실행 중...\n")
+            
+            async for chunk in orchestrator.convert_to_springboot(file_names):
+                # 이벤트 수집
+                events.append(chunk)
+                
+                # 파싱하여 내용 확인
+                chunk_str = chunk.decode('utf-8').replace('send_stream', '')
+                if chunk_str:
+                    try:
+                        data = json.loads(chunk_str)
+                        data_type = data.get('data_type')
+                        
+                        # 단계 메시지
+                        if data_type == 'message':
+                            step = data.get('step')
+                            content = data.get('content')
+                            step_messages.append(f"Step {step}: {content}")
+                            print(f"  📌 {content}")
+                        
+                        # 생성된 파일
+                        elif data_type == 'data':
+                            file_type = data.get('file_type')
+                            file_name = data.get('file_name')
+                            
+                            if file_type == 'project_name':
+                                print(f"  📦 프로젝트: {data.get('project_name')}")
+                            elif file_name:
+                                generated_files.setdefault(file_type, []).append(file_name)
+                                print(f"  ✅ 생성: {file_name} ({file_type})")
+                        
+                        # 단계 완료
+                        elif data_type == 'Done':
+                            step = data.get('step')
+                            if step:
+                                print(f"  ✔️  Step {step} 완료\n")
+                    
+                    except json.JSONDecodeError:
+                        pass
+            
+            print(f"\n{'='*80}")
+            print("📊 통합 테스트 결과")
+            print(f"{'='*80}")
+            
+            # 검증 1: 이벤트 수신 확인
+            assert len(events) > 0, "이벤트가 수신되지 않았습니다"
+            print(f"✅ 스트리밍 이벤트: {len(events)}개 수신")
+            
+            # 검증 2: 파일 생성 확인
+            assert 'entity_class' in generated_files, "Entity 파일이 생성되지 않았습니다"
+            assert 'repository_class' in generated_files, "Repository 파일이 생성되지 않았습니다"
+            assert 'pom' in generated_files, "pom.xml이 생성되지 않았습니다"
+            assert 'main' in generated_files, "Main 클래스가 생성되지 않았습니다"
+            
+            print(f"✅ Entity: {len(generated_files.get('entity_class', []))}개")
+            print(f"✅ Repository: {len(generated_files.get('repository_class', []))}개")
+            print(f"✅ Command: {len(generated_files.get('command_class', []))}개")
+            print(f"✅ Service: {len(generated_files.get('service_class', []))}개")
+            print(f"✅ Controller: {len(generated_files.get('controller_class', []))}개")
+            print(f"✅ Config: pom.xml, application.properties")
+            print(f"✅ Main: {generated_files.get('main', ['N/A'])[0]}")
+            
+            # 검증 3: 단계 메시지 확인
+            assert len(step_messages) > 0, "단계 메시지가 없습니다"
+            print(f"\n✅ 파이프라인 단계: {len(step_messages)}개 메시지")
+            
+            print(f"\n{'='*80}")
+            print("🎉 통합 테스트 성공: convert_to_springboot() 정상 작동!")
+            print(f"{'='*80}\n")
+        
+        except Exception as e:
+            print(f"\n❌ 통합 테스트 실패: {str(e)}\n")
+            raise
 
 
 # ==================== 실행 ====================

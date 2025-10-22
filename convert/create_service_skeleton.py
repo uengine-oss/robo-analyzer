@@ -1,12 +1,11 @@
 import os
 import logging
 import textwrap
-from prompt.convert_variable_prompt import convert_variables
-from prompt.convert_service_skeleton_prompt import convert_method_code
-from prompt.convert_command_prompt import convert_command_code
+import json
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError
 from util.utility_tool import convert_to_camel_case, convert_to_pascal_case, save_file, build_java_base_path
+from util.prompt_loader import PromptLoader
 
 
 # ----- Service Skeleton 생성 관리 클래스 -----
@@ -18,9 +17,9 @@ class ServiceSkeletonGenerator:
     """
     __slots__ = ('project_name', 'user_id', 'api_key', 'locale',
                  'folder_name', 'file_name', 'dir_name', 'service_class_name',
-                 'external_packages', 'exist_command_class', 'global_vars')
+                 'external_packages', 'exist_command_class', 'global_vars', 'prompt_loader')
 
-    def __init__(self, project_name: str, user_id: str, api_key: str, locale: str = 'ko'):
+    def __init__(self, project_name: str, user_id: str, api_key: str, locale: str = 'ko', target_lang: str = 'java'):
         """
         ServiceSkeletonGenerator 초기화
         
@@ -29,11 +28,13 @@ class ServiceSkeletonGenerator:
             user_id: 사용자 식별자
             api_key: LLM API 키
             locale: 언어 설정 (기본값: 'ko')
+            target_lang: 타겟 언어 (기본값: 'java')
         """
         self.project_name = project_name
         self.user_id = user_id
         self.api_key = api_key
         self.locale = locale
+        self.prompt_loader = PromptLoader(target_lang=target_lang)
 
     # ----- 공개 메서드 -----
 
@@ -51,7 +52,7 @@ class ServiceSkeletonGenerator:
             global_variables: 전역 변수 목록
         
         Returns:
-            tuple: (method_info_list, service_skeleton, service_class_name, exist_command_class, command_class_list)
+            tuple: (method_info_list, service_class_name, exist_command_class, command_class_list)
         
         Raises:
             ConvertingError: Service Skeleton 생성 중 오류 발생 시
@@ -73,8 +74,18 @@ class ServiceSkeletonGenerator:
             procedure_groups, self.external_packages = await self._fetch_procedures(connection)
             self.exist_command_class = any(g['parameters'] for g in procedure_groups.values())
             
-            # 전역 변수 변환
-            self.global_vars = convert_variables(global_variables, self.api_key, self.locale) if global_variables else {"variables": []}
+            # 전역 변수 변환 (Role 파일 사용)
+            if global_variables:
+                self.global_vars = self.prompt_loader.execute(
+                    role_name='variable',
+                    inputs={
+                        'variables': json.dumps(global_variables, ensure_ascii=False, indent=2),
+                        'locale': self.locale
+                    },
+                    api_key=self.api_key
+                )
+            else:
+                self.global_vars = {"variables": []}
             
             # 서비스 템플릿 생성
             service_skeleton = self._build_template(entity_name_list)
@@ -98,7 +109,7 @@ class ServiceSkeletonGenerator:
             logging.info(f"   - Command 클래스: {len(command_class_list)}개")
             logging.info("-"*80 + "\n")
             
-            return method_info_list, service_skeleton, self.service_class_name, self.exist_command_class, command_class_list
+            return method_info_list, self.service_class_name, self.exist_command_class, command_class_list
         
         except ConvertingError:
             raise
@@ -276,12 +287,18 @@ CodePlaceHolder
         
         out_count = len(out_params)
         
-        # Command 클래스 생성 (IN 파라미터만 사용)
+        # Command 클래스 생성 (IN 파라미터만 사용) - Role 파일 사용
         cmd_var = cmd_name = cmd_code = None
         if node_type != 'FUNCTION' and in_params:
-            analysis_cmd = convert_command_code(
-                {'parameters': in_params, 'procedure_name': proc_name},
-                self.dir_name, self.api_key, self.project_name, self.locale
+            analysis_cmd = self.prompt_loader.execute(
+                role_name='command',
+                inputs={
+                    'command_class_data': json.dumps({'parameters': in_params, 'procedure_name': proc_name}, ensure_ascii=False, indent=2),
+                    'dir_name': self.dir_name,
+                    'project_name': self.project_name,
+                    'locale': self.locale
+                },
+                api_key=self.api_key
             )
             cmd_name, cmd_code, cmd_var = analysis_cmd['commandName'], analysis_cmd['command'], analysis_cmd['command_class_variable']
             
@@ -289,11 +306,15 @@ CodePlaceHolder
             cmd_path = build_java_base_path(self.project_name, self.user_id, 'command', self.dir_name)
             await save_file(cmd_code, f"{cmd_name}.java", cmd_path)
         
-        # Service 메서드 생성 (IN 파라미터, 지역변수, OUT 파라미터를 별도로 전달)
-        analysis_method = convert_method_code(
-            {'procedure_name': proc_name, 'local_variables': proc_data['local_variables'], 'declaration': proc_data['declaration']},
-            {'in_parameters': in_params, 'out_parameters': out_params, 'out_count': out_count, 'procedure_name': proc_name},
-            self.api_key, self.locale
+        # Service 메서드 생성 (IN 파라미터, 지역변수, OUT 파라미터를 별도로 전달) - Role 파일 사용
+        analysis_method = self.prompt_loader.execute(
+            role_name='service_skeleton',
+            inputs={
+                'method_skeleton_data': json.dumps({'procedure_name': proc_name, 'local_variables': proc_data['local_variables'], 'declaration': proc_data['declaration']}, ensure_ascii=False, indent=2),
+                'parameter_data': json.dumps({'in_parameters': in_params, 'out_parameters': out_params, 'out_count': out_count, 'procedure_name': proc_name}, ensure_ascii=False, indent=2),
+                'locale': self.locale
+            },
+            api_key=self.api_key
         )
         
         method_text, method_name, method_signature = analysis_method['method'], analysis_method['methodName'], analysis_method['methodSignature']

@@ -1,0 +1,105 @@
+# Entity 클래스 생성 Role (Python)
+# 타겟: SQLAlchemy ORM Model
+
+name: "Entity 클래스 생성 (Python)"
+description: "Oracle 테이블을 SQLAlchemy ORM Model로 변환"
+version: "1.0"
+
+# 입력 스키마
+input_schema:
+  required:
+    - table_json_data  # 테이블 메타데이터 (JSON 문자열)
+    - project_name     # 프로젝트 이름
+    - locale          # 언어 설정 (ko/en)
+
+# LLM 설정
+llm_config:
+  max_tokens: 8192
+  temperature: 0.1
+
+# 프롬프트
+prompt: |
+  당신은 Python SQLAlchemy ORM 전문가입니다. 
+  주어진 JSON 형식의 테이블 데이터를 기반으로 SQLAlchemy Model 클래스를 생성하는 작업을 맡았습니다.
+  
+  사용자 언어 설정 : {{locale}}, 입니다. 이를 반영하여 결과를 생성해주세요.
+  
+  테이블 데이터(JSON)입니다:
+  {{table_json_data}}
+  
+  
+  [SECTION 1] Model 클래스 생성 규칙
+  ===============================================
+  1. 변환 범위
+     - 각 테이블(JSON) 객체는 독립적인 Model 클래스로 변환
+     - 하나의 JSON 객체 -> 하나의 Model 클래스
+  
+  2. 클래스 명명 규칙
+     - JSON 객체의 'name' 필드를 파스칼 케이스로 변환
+     - 복수형을 단수형으로 변경
+     - TPJ_ , DDL_ 같은 접두사를 절대적으로 유지하세요
+     예시) 
+     - b_plcy_month -> BPlcyMonth
+     - employees -> Employee
+     - tpj_employee -> TpjEmployee
+  
+  3. 필드 규칙
+     - SQLAlchemy Column 사용
+     - 명명규칙: 스네이크 케이스 유지 (Python 컨벤션)
+     예시) B_PLCY_MONTH -> b_plcy_month
+  
+  4. 기본키(Primary Key) 선정 규칙
+     - 모든 모델은 'id' 필드를 기본키로 사용
+       * Column(Integer, primary_key=True, autoincrement=True)
+     
+     - 테이블 메타 데이터에 기본키 정보가 있을 경우:
+       * 원래 기본키 필드들은 일반 필드로 변환
+       * unique=True 설정
+  
+  5. 데이터 타입 매핑
+     - NUMBER, NUMERIC, INTEGER -> Integer
+     - DECIMAL, FLOAT, DOUBLE -> Float
+     - VARCHAR2, CHAR, CLOB -> String
+     - DATE -> Date
+     - TIMESTAMP -> DateTime
+     - BOOLEAN -> Boolean
+     - BLOB, RAW -> LargeBinary
+  
+  6. Import 선언
+     - from sqlalchemy import Column, Integer, String, Date, DateTime, Boolean, Float, LargeBinary
+     - from sqlalchemy.ext.declarative import declarative_base
+     - from sqlalchemy.orm import relationship
+  
+  
+  [SECTION 2] Model 클래스 기본 템플릿
+  ===============================================
+  from sqlalchemy import Column, Integer, String, Date, DateTime, Boolean, Float, LargeBinary
+  from sqlalchemy.ext.declarative import declarative_base
+  from sqlalchemy.orm import relationship
+  
+  Base = declarative_base()
+  
+  class EntityName(Base):
+      __tablename__ = 'table_name'
+      
+      id = Column(Integer, primary_key=True, autoincrement=True)
+      original_primary_key = Column(String, unique=True)
+      required_field = Column(Date, nullable=False)
+      optional_field = Column(DateTime)
+      
+      def __repr__(self):
+          return f"<EntityName(id={self.id})>"
+  
+  
+  [SECTION 3] JSON 출력 형식
+  ===============================================
+  부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요:
+  {
+      "analysis": [
+          {
+              "entityName": "EntityName",
+              "code": "Python Code"
+          }
+      ]
+  }
+

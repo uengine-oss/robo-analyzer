@@ -1,10 +1,10 @@
 import logging
 import textwrap
-from prompt.convert_service_prompt import convert_service_code, convert_exception_code
-from prompt.convert_summarized_service_prompt import convert_summarized_code
+import json
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError
 from util.utility_tool import extract_used_query_methods, collect_variables_in_range, build_java_base_path, save_file, convert_to_pascal_case
+from util.prompt_loader import PromptLoader
 
 
 # ----- 상수 정의 -----
@@ -27,12 +27,13 @@ class ServicePreprocessingGenerator:
         'user_id', 'api_key', 'locale', 'project_name',
         'merged_java_code', 'total_tokens', 'tracking_variables', 'current_parent', 
         'java_buffer', 'sp_code_parts', 'sp_start', 'sp_end',
-        'pending_try_mode'
+        'pending_try_mode', 'prompt_loader'
     )
 
     def __init__(self, traverse_nodes: list, variable_nodes: list, command_class_variable: dict,
                  service_skeleton: str, query_method_list: dict, folder_name: str, file_name: str,
-                 procedure_name: str, sequence_methods: list, user_id: str, api_key: str, locale: str, project_name: str = "demo"):
+                 procedure_name: str, sequence_methods: list, user_id: str, api_key: str, locale: str, 
+                 project_name: str = "demo", target_lang: str = 'java'):
         self.traverse_nodes = traverse_nodes
         self.variable_nodes = variable_nodes
         self.command_class_variable = command_class_variable
@@ -59,6 +60,9 @@ class ServicePreprocessingGenerator:
         
         # TRY-EXCEPTION 처리
         self.pending_try_mode = False
+        
+        # Role 파일 로더
+        self.prompt_loader = PromptLoader(target_lang=target_lang)
 
     # ----- 공개 메서드 -----
 
@@ -152,16 +156,19 @@ class ServicePreprocessingGenerator:
         # 현재 컨텍스트 수집
         used_vars, used_queries = await self._collect_current_context()
 
-        # LLM으로 스켈레톤 생성
-        result = convert_summarized_code(
-            summarized,
-            self.service_skeleton,
-            used_vars,
-            self.command_class_variable,
-            used_queries,
-            self.sequence_methods,
-            self.api_key,
-            self.locale
+        # LLM으로 스켈레톤 생성 (Role 파일 사용)
+        result = self.prompt_loader.execute(
+            role_name='service_summarized',
+            inputs={
+                'summarized_code': summarized,
+                'service_skeleton': json.dumps(self.service_skeleton, ensure_ascii=False),
+                'variable': json.dumps(used_vars, ensure_ascii=False, indent=2),
+                'command_variables': json.dumps(self.command_class_variable, ensure_ascii=False, indent=2),
+                'query_method_list': json.dumps(used_queries, ensure_ascii=False, indent=2),
+                'sequence_methods': json.dumps(self.sequence_methods, ensure_ascii=False, indent=2),
+                'locale': self.locale
+            },
+            api_key=self.api_key
         )
         skeleton = result['code']
 
@@ -271,13 +278,20 @@ class ServicePreprocessingGenerator:
         if self.sp_code_parts:
             await self._analyze_and_merge()
         
-        # 2. EXCEPTION 블록을 Java try-catch 구조로 변환
+        # 2. EXCEPTION 블록을 Java try-catch 구조로 변환 (Role 파일 사용)
         node_code = (node.get('node_code') or '').strip()
         if not node_code:
             logging.warning(f"     ⚠️  EXCEPTION 노드 코드가 비어있음")
             return
             
-        result = convert_exception_code(node_code, self.api_key, self.locale)
+        result = self.prompt_loader.execute(
+            role_name='service_exception',
+            inputs={
+                'node_code': node_code,
+                'locale': self.locale
+            },
+            api_key=self.api_key
+        )
         exception_java_code = result.get('code', '').strip()
         
         if 'CodePlaceHolder' not in exception_java_code:
@@ -332,17 +346,19 @@ class ServicePreprocessingGenerator:
         except Exception as e:
             logging.debug(f"JPA 수집 스킵: {e}")
 
-        # LLM 분석 (일반 프롬프트만 사용)
-        result = convert_service_code(
-            sp_code,
-            self.service_skeleton,
-            used_variables,
-            self.command_class_variable,
-            used_query_methods,
-            self.sequence_methods,
-            self.api_key,
-            self.locale,
-            self.current_parent['code'] if self.current_parent else ""
+        # LLM 분석 (Role 파일 사용)
+        result = self.prompt_loader.execute(
+            role_name='service',
+            inputs={
+                'code': sp_code,
+                'service_skeleton': json.dumps(self.service_skeleton, ensure_ascii=False),
+                'variable': json.dumps(used_variables, ensure_ascii=False, indent=2),
+                'query_method_list': json.dumps(used_query_methods, ensure_ascii=False, indent=2),
+                'sequence_methods': json.dumps(self.sequence_methods, ensure_ascii=False, indent=2),
+                'locale': self.locale,
+                'parent_code': self.current_parent['code'] if self.current_parent else ""
+            },
+            api_key=self.api_key
         )
 
         # 변수 추적 업데이트
@@ -421,7 +437,8 @@ async def start_service_preprocessing(
     project_name: str,
     user_id: str,
     api_key: str,
-    locale: str
+    locale: str,
+    target_lang: str = 'java'
 ) -> tuple:
     """
     서비스 전처리 시작
@@ -523,18 +540,21 @@ async def start_service_preprocessing(
             user_id,
             api_key,
             locale,
-            project_name
+            project_name,
+            target_lang
         )
 
         await generator.generate()
         
         # 🚀 성능 최적화된 자동 파일 저장
         service_class_name = convert_to_pascal_case(procedure_name) + "Service"
-        await generator._save_service_file(service_class_name)
+        service_code = await generator._save_service_file(service_class_name)
 
         logging.info("\n" + "-"*80)
         logging.info(f"✅ STEP 4 완료: {service_class_name} 생성 및 저장 완료")
         logging.info("-"*80 + "\n")
+        
+        return service_code
 
     except ConvertingError:
         raise

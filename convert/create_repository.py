@@ -1,10 +1,11 @@
 from collections import defaultdict
 import logging
 import textwrap
-from prompt.convert_repository_prompt import convert_repository_code
+import json
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError
 from util.utility_tool import convert_to_camel_case, convert_to_pascal_case, save_file, build_java_base_path, build_variable_index, extract_used_variable_nodes
+from util.prompt_loader import PromptLoader
 
 
 MAX_TOKENS = 2000  # LLM 처리를 위한 배치당 최대 토큰 수
@@ -34,9 +35,9 @@ class RepositoryGenerator:
     """
     __slots__ = ('project_name', 'user_id', 'api_key', 'locale', 'save_path', 
                  'global_vars', 'var_index', 'all_used_query_methods', 
-                 'all_sequence_methods', 'aggregated_query_methods')
+                 'all_sequence_methods', 'aggregated_query_methods', 'prompt_loader')
 
-    def __init__(self, project_name: str, user_id: str, api_key: str, locale: str = 'ko'):
+    def __init__(self, project_name: str, user_id: str, api_key: str, locale: str = 'ko', target_lang: str = 'java'):
         """
         RepositoryGenerator 초기화
         
@@ -45,12 +46,14 @@ class RepositoryGenerator:
             user_id: 사용자 식별자
             api_key: LLM API 키
             locale: 언어 설정 (기본값: 'ko')
+            target_lang: 타겟 언어 (기본값: 'java')
         """
         self.project_name = project_name
         self.user_id = user_id
         self.api_key = api_key
         self.locale = locale
         self.save_path = build_java_base_path(project_name, user_id, 'repository')
+        self.prompt_loader = PromptLoader(target_lang=target_lang)
 
     async def generate(self) -> tuple:
         """
@@ -181,7 +184,18 @@ class RepositoryGenerator:
             codes: DML 코드 리스트
             vars_dict: 변수 정보 딕셔너리
         """
-        analysis_data = convert_repository_code(codes, vars_dict, len(codes), self.global_vars, self.api_key, self.locale)
+        # Role 파일 기반 프롬프트 실행
+        analysis_data = self.prompt_loader.execute(
+            role_name='repository',
+            inputs={
+                'repository_nodes': json.dumps(codes, ensure_ascii=False, indent=2),
+                'used_variable_nodes': json.dumps(vars_dict, ensure_ascii=False, indent=2),
+                'count': len(codes),
+                'global_variable_nodes': json.dumps(self.global_vars, ensure_ascii=False, indent=2),
+                'locale': self.locale
+            },
+            api_key=self.api_key
+        )
         
         # 메서드를 Entity별로 그룹화하여 누적
         for method in analysis_data['analysis']:

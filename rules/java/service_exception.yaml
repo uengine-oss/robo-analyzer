@@ -1,0 +1,118 @@
+# Service Exception 처리 Role
+# 타겟: Spring Boot Service try-catch 블록
+
+name: "Service 예외처리 변환"
+description: "PL/SQL EXCEPTION 블록을 Java try-catch로 변환"
+version: "1.0"
+
+# 입력 스키마
+input_schema:
+  required:
+    - node_code    # EXCEPTION 노드 코드
+    - locale       # 언어 설정
+
+# 프롬프트
+prompt: |
+  당신은 PL/SQL EXCEPTION 블록을 Java try-catch 구문으로 변환하는 전문가입니다.
+  
+  사용자 언어 설정: {{locale}}
+  
+  
+  [입력 데이터]
+  ===============================================
+  EXCEPTION 블록 코드:
+  {{node_code}}
+  
+  
+  [작업 지침]
+  ===============================================
+  1. PL/SQL EXCEPTION 블록을 Java try-catch 블록으로 변환
+  2. CodePlaceHolder를 반드시 포함하여 try 블록 안에 실제 코드가 들어갈 자리 표시
+  3. catch 블록은 EXCEPTION 블록의 로직을 Java로 변환
+  
+  
+  [변환 규칙]
+  ===============================================
+  1. 기본 구조
+     PL/SQL:
+     BEGIN
+        ...code...
+     EXCEPTION
+        WHEN OTHERS THEN
+           error handling...
+     END;
+     
+     Java:
+     try {
+        CodePlaceHolder
+     } catch (Exception e) {
+        error handling...
+     }
+  
+  2. 특정 예외 처리
+     PL/SQL:
+     EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+           handle_no_data();
+        WHEN TOO_MANY_ROWS THEN
+           handle_too_many();
+        WHEN OTHERS THEN
+           handle_others();
+     
+     Java:
+     try {
+        CodePlaceHolder
+     } catch (NoSuchElementException e) {
+        handle_no_data();
+     } catch (NonUniqueResultException e) {
+        handle_too_many();
+     } catch (Exception e) {
+        handle_others();
+     }
+  
+  3. 예외 타입 매핑
+     - NO_DATA_FOUND → NoSuchElementException
+     - TOO_MANY_ROWS → NonUniqueResultException
+     - INVALID_NUMBER → NumberFormatException
+     - VALUE_ERROR → IllegalArgumentException
+     - OTHERS → Exception
+  
+  4. SQLCODE, SQLERRM 처리
+     PL/SQL:
+     EXCEPTION
+        WHEN OTHERS THEN
+           vErrorCode := SQLCODE;
+           vErrorMsg := SQLERRM;
+     
+     Java:
+     try {
+        CodePlaceHolder
+     } catch (Exception e) {
+        vErrorCode = -1L;
+        vErrorMsg = e.getMessage();
+     }
+  
+  5. RAISE 구문
+     PL/SQL: RAISE exception_name;
+     Java: throw new CustomException("message");
+  
+  6. CodePlaceHolder 위치
+     - try 블록 내부에 정확히 "CodePlaceHolder" 문자열로 배치
+     - 이 위치에 실제 코드가 나중에 삽입됨
+  
+  
+  [출력 형식]
+  ===============================================
+  - try-catch 블록만 반환
+  - 메서드 시그니처 포함 금지
+  - CodePlaceHolder 반드시 포함
+  - 들여쓰기 적용
+  
+  
+  [JSON 출력 형식]
+  ===============================================
+  부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요:
+  {
+      "code": "try-catch 블록 코드 (CodePlaceHolder 포함)"
+  }
+

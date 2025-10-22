@@ -464,6 +464,22 @@ python main.py
    - AST JSON: `data/{session-id}/{projectName}/analysis/{systemName}/{baseName}.json`
    - (선택) DDL: `data/{session-id}/{projectName}/ddl/*.sql`
 
+**요청 바디 스키마:**
+
+```json
+{
+  "projectName": "string",     // 프로젝트 이름 (필수)
+  "dbms": "string",           // 데이터베이스 종류 (기본: "postgres")
+  "targetLang": "string",     // 타겟 언어 (기본: "java")
+  "systems": [                // 시스템 및 파일 목록 (필수)
+    {
+      "name": "string",       // 시스템명 (필수)
+      "sp": ["string"]        // SP 파일명 배열 (필수)
+    }
+  ]
+}
+```
+
 **요청 예시:**
 
 ```bash
@@ -475,6 +491,7 @@ curl -N -X POST "http://localhost:5502/cypherQuery/" \
   -d '{
     "projectName": "OrderSystem",
     "dbms": "postgres",
+    "targetLang": "java",
     "systems": [
       {
         "name": "PKG_ORDER",
@@ -554,6 +571,22 @@ curl -N -X POST "http://localhost:5502/cypherQuery/" \
 - `/cypherQuery/` API를 먼저 호출하여 분석이 완료되어야 함
 - ANTLR로부터 받은 **시스템명(`systemName`)** 과 **파일명(`fileName`)** 을 요청 바디에 포함
 
+**요청 바디 스키마:**
+
+```json
+{
+  "projectName": "string",     // 프로젝트 이름 (필수)
+  "dbms": "string",           // 데이터베이스 종류 (기본: "postgres")
+  "targetLang": "string",     // 타겟 언어 (기본: "java")
+  "systems": [                // 시스템 및 파일 목록 (필수)
+    {
+      "name": "string",       // 시스템명 (필수)
+      "sp": ["string"]        // SP 파일명 배열 (필수)
+    }
+  ]
+}
+```
+
 **요청 예시:**
 
 ```bash
@@ -565,6 +598,7 @@ curl -N -X POST "http://localhost:5502/springBoot/" \
   -d '{
     "projectName": "OrderSystem",
     "dbms": "postgres",
+    "targetLang": "java",
     "systems": [
       {
         "name": "PKG_ORDER",
@@ -573,6 +607,12 @@ curl -N -X POST "http://localhost:5502/springBoot/" \
     ]
   }'
 ```
+
+**🆕 targetLang 파라미터:**
+- `targetLang` (선택): 타겟 언어 (기본값: `java`)
+  - 지원: `java`, `python` (향후 확장)
+  - 예시: `"targetLang": "python"` → SQLAlchemy Model 생성
+  - Rule 파일 경로: `rules/{targetLang}/*.yaml`
 
 **응답 형식 (Streaming):**
 
@@ -845,33 +885,41 @@ Backend/
 │   └── neo4j_connection.py         # Neo4j 연결 및 쿼리 실행
 │
 ├── 📁 convert/                     # 변환(Converting) 단계
-│   ├── create_entity.py            # JPA Entity 생성
-│   ├── create_repository.py        # Repository 인터페이스 생성
-│   ├── create_service_skeleton.py  # Service 클래스 뼈대 생성
-│   ├── create_service_preprocessing.py   # Service 전처리 (토큰 임계 기반 배치 처리 및 TRY-CATCH 조립)
-│   ├── create_controller_skeleton.py     # Controller 뼈대 생성
-│   ├── create_controller.py        # Controller 메서드 생성
+│   ├── create_entity.py            # Entity 생성 (Rule 파일 사용)
+│   ├── create_repository.py        # Repository 생성 (Rule 파일 사용)
+│   ├── create_service_skeleton.py  # Service Skeleton 생성 (Rule 파일 사용)
+│   ├── create_service_preprocessing.py   # Service 전처리 (Rule 파일 사용: service, service_summarized, service_exception)
+│   ├── create_controller.py        # Controller 생성 (통합 - Skeleton + 메서드)
 │   ├── create_main.py              # Main 클래스 생성
 │   └── create_config_files.py      # pom.xml 및 application.properties 생성
 │
-├── 📁 prompt/                      # LLM 프롬프트 정의
+├── 📁 rules/                         # 🆕 Rule 파일 (프롬프트 설정)
+│   ├── java/                      # Java 타겟용 프롬프트
+│   │   ├── entity.yaml            # Entity 생성 프롬프트
+│   │   ├── repository.yaml        # Repository 생성 프롬프트
+│   │   ├── variable.yaml          # 변수 타입 변환 프롬프트
+│   │   ├── command.yaml           # Command DTO 생성 프롬프트
+│   │   ├── service_skeleton.yaml  # Service Skeleton 프롬프트
+│   │   ├── service.yaml           # Service 메서드 바디 프롬프트
+│   │   ├── service_summarized.yaml # Service 대용량 노드 스켈레톤 프롬프트
+│   │   ├── service_exception.yaml # Service 예외처리 프롬프트
+│   │   └── controller.yaml        # Controller REST API 프롬프트
+│   │
+│   └── python/                    # Python 타겟용 프롬프트 (확장 예시)
+│       ├── entity.yaml            # SQLAlchemy Model 생성 프롬프트
+│       └── ...                    # 추가 프롬프트
+│
+├── 📁 prompt/                      # LLM 프롬프트 정의 (레거시 - Understanding용으로만 사용)
 │   ├── understand_ddl.py           # DDL 분석 프롬프트
 │   ├── understand_prompt.py        # 코드 분석 프롬프트
 │   ├── understand_summarized_prompt.py    # 요약 프롬프트
 │   ├── understand_column_prompt.py        # 컬럼 역할 분석
-│   ├── understand_variables_prompt.py     # 변수 분석
-│   ├── convert_entity_prompt.py           # Entity 변환 프롬프트
-│   ├── convert_repository_prompt.py       # Repository 변환 프롬프트
-│   ├── convert_service_prompt.py          # Service 변환 프롬프트
-│   ├── convert_service_skeleton_prompt.py # Service 뼈대 프롬프트
-│   ├── convert_summarized_service_prompt.py # Service 요약 프롬프트
-│   ├── convert_controller_prompt.py       # Controller 변환 프롬프트
-│   ├── convert_command_prompt.py          # Command 클래스 프롬프트
-│   └── convert_variable_prompt.py         # 변수 변환 프롬프트
+│   └── understand_variables_prompt.py     # 변수 분석
 │
 ├── 📁 util/                        # 유틸리티
 │   ├── utility_tool.py             # 공통 유틸 함수 (라인 번호, 토큰 계산 등)
 │   ├── llm_client.py               # LLM API 클라이언트
+│   ├── prompt_loader.py            # 🆕 Rule 파일 로더 (YAML 기반)
 │   └── exception.py                # 커스텀 예외 정의
 │
 └── 📁 test/                        # 테스트 코드
@@ -950,8 +998,61 @@ Spring Boot 프로젝트의 각 구성 요소를 생성합니다.
 | `create_main.py` | Main 클래스 | Spring Boot 애플리케이션 진입점 |
 | `create_config_files.py` | pom.xml & application.properties | 빌드 설정 및 DB 연결 설정 |
 
-#### 💬 `prompt/*`
-LLM에게 전달할 프롬프트를 정의합니다.
+#### 🎨 `rules/*` - Rule 파일 시스템 (프롬프트 관리) 🆕
+
+**Converting 단계는 Rule 파일 기반으로 동작합니다.**
+
+Rule 파일은 YAML 형식으로 프롬프트를 정의하며, **코드 수정 없이 프롬프트만 교체 가능**합니다.
+
+**Java 타겟 프롬프트 (`rules/java/`):**
+- `entity.yaml`: JPA Entity 클래스 생성
+- `repository.yaml`: JPA Repository 인터페이스 생성
+- `variable.yaml`: PL/SQL 변수 → Java 타입 변환
+- `command.yaml`: Command DTO 클래스 생성
+- `service_skeleton.yaml`: Service 메서드 시그니처 생성
+- `service.yaml`: **Service 메서드 바디 생성** (Parent Context 지원)
+- `service_summarized.yaml`: **대용량 노드 스켈레톤 생성** (자식 `...code...` 처리)
+- `service_exception.yaml`: **예외처리 try-catch 블록 생성**
+- `controller.yaml`: REST Controller 메서드 생성
+
+**Python 타겟 프롬프트 (`rules/python/`):**
+- `entity.yaml`: SQLAlchemy Model 클래스 생성 (확장 예시)
+- *향후 추가 예정...*
+
+**Rule 파일 구조:**
+```yaml
+name: "역할 이름"
+description: "설명"
+version: "1.0"
+
+input_schema:
+  required:
+    - field1  # 필수 입력
+    - field2
+  optional:
+    - field3:
+        default: ""
+
+prompt: |
+  프롬프트 내용 (Jinja2 템플릿)
+  {{field1}}
+  {{field2}}
+```
+
+**⚠️ 중요 변경사항:**
+- `llm_config` 섹션 제거됨 (LLM 파라미터는 `util/llm_client.py`에서 중앙 관리)
+- Rule 파일은 프롬프트 내용만 포함
+
+**장점:**
+- ✅ **코드 변경 없이 프롬프트 수정** (YAML만 편집)
+- ✅ **다국어/다타겟 언어 확장 용이** (python, typescript 등 추가 가능)
+- ✅ **버전 관리 쉬움** (Git으로 프롬프트 이력 추적)
+- ✅ **LLM 파라미터 중앙 관리** (llm_client.py에서 일괄 설정)
+- ✅ **A/B 테스트 간편** (파일 교체만)
+- ✅ **비개발자 접근 가능** (프롬프트 엔지니어가 직접 튜닝)
+
+#### 💬 `prompt/*` - Understanding 프롬프트 (레거시)
+LLM에게 전달할 프롬프트를 정의합니다. **(Understanding 단계용으로만 사용)**
 
 **이해 단계 프롬프트:**
 - `understand_ddl.py`: DDL 테이블/컬럼 분석
@@ -960,18 +1061,7 @@ LLM에게 전달할 프롬프트를 정의합니다.
 - `understand_column_prompt.py`: 컬럼 역할 파악
 - `understand_variables_prompt.py`: 변수 분석
 
-**변환 단계 프롬프트:**
-- `convert_entity_prompt.py`: Entity 클래스 생성
-- `convert_repository_prompt.py`: Repository 인터페이스 생성
-- `convert_service_skeleton_prompt.py`: Service 메서드 시그니처 생성
-- `convert_service_prompt.py`: **Service 메서드 바디 생성** (토큰 임계 시 호출)
-  - ✅ Parent Context 지원 (부모 노드의 Java 스켈레톤 전달)
-  - ✅ 원본 구조 유지 지침 (임의 return/if 문 방지)
-  - ✅ 변수 타입 및 제어 흐름 정확성 강화
-- `convert_summarized_service_prompt.py`: **대용량 노드 스켈레톤 생성** (자식을 `...code...`로 요약)
-- `convert_controller_prompt.py`: Controller 메서드 생성
-- `convert_command_prompt.py`: Command 클래스 생성
-- `convert_variable_prompt.py`: 변수 변환
+*※ Converting 단계는 `rules/` 디렉토리의 YAML 파일을 사용합니다.*
 
 #### 🛠️ `util/llm_client.py`
 LLM API 클라이언트를 생성합니다.
@@ -1073,6 +1163,149 @@ if (condition1) {
 
 ---
 
+## 🎨 Rule 파일 커스터마이징 가이드
+
+### 📝 프롬프트 수정 방법
+
+Rule 파일을 수정하면 **코드 재배포 없이 즉시 적용**됩니다.
+
+#### 예시 1: Entity 생성 지침 수정
+
+```bash
+# rules/java/entity.yaml 편집
+nano rules/java/entity.yaml
+```
+
+```yaml
+# 데이터 타입 매핑 규칙 수정
+5. 데이터 타입 매핑
+   - NUMBER, NUMERIC -> Long  # 기존
+   - NUMBER, NUMERIC -> BigDecimal  # 수정 (더 정확한 숫자 처리)
+```
+
+**결과**: 다음 변환부터 자동 적용 (서버 재시작 불필요)
+
+#### 예시 2: Service 변환에 로깅 추가
+
+```yaml
+# rules/java/service.yaml 편집
+prompt: |
+  ...기존 내용...
+  
+  ### 🆕 추가 규칙
+  - 모든 메서드 시작 부분에 로깅 추가:
+    log.info("메서드 시작: {메서드명}");
+  - 메서드 종료 전에 로깅 추가:
+    log.info("메서드 완료: {메서드명}");
+```
+
+#### 예시 3: Repository 성능 힌트 추가
+
+```yaml
+# rules/java/repository.yaml 편집
+prompt: |
+  ...기존 내용...
+  
+  ### 성능 최적화 규칙
+  1. SELECT는 가능하면 Projection 사용
+  2. 대량 조회는 Pageable 파라미터 추가
+  3. INDEX가 있는 컬럼은 메서드명에 우선 배치
+```
+
+---
+
+### 🌍 다국어 지원
+
+여러 언어 버전의 프롬프트를 준비하고 전환할 수 있습니다.
+
+```bash
+# 영어 버전 생성
+cp -r rules/java rules/java_en
+nano rules/java_en/entity.yaml  # 영어로 번역
+
+# 요청 시 언어 선택
+{
+  "projectName": "OrderSystem",
+  "targetLang": "java_en"  # ← 영어 프롬프트 사용
+}
+```
+
+---
+
+### 🔧 새로운 타겟 언어 추가 (예: Python)
+
+#### Step 1: Rule 파일 디렉토리 생성
+
+```bash
+mkdir -p rules/python
+```
+
+#### Step 2: Python용 프롬프트 작성
+
+```yaml
+# rules/python/entity.yaml
+name: "SQLAlchemy Model 생성"
+prompt: |
+  당신은 Python SQLAlchemy 전문가입니다.
+  다음 테이블을 SQLAlchemy Model로 변환하세요:
+  
+  {{table_json_data}}
+  
+  [변환 규칙]
+  - Base = declarative_base() 사용
+  - Column, Integer, String 등 타입 정의
+  - __tablename__ 설정
+  ...
+```
+
+#### Step 3: API 요청
+
+```json
+{
+  "projectName": "OrderSystem",
+  "dbms": "postgres",
+  "targetLang": "python",  # ← Python으로 변환
+  "systems": [...]
+}
+```
+
+**결과**: Python FastAPI + SQLAlchemy 프로젝트 생성!
+
+---
+
+### 📊 A/B 테스트
+
+두 가지 프롬프트 버전을 테스트할 수 있습니다.
+
+```bash
+# 버전 1 백업
+cp roles/java/service.yaml roles/java/service_v1.yaml
+
+# 버전 2 작성
+nano roles/java/service.yaml  # 새로운 지침 추가
+
+# 테스트 후 롤백
+cp roles/java/service_v1.yaml roles/java/service.yaml
+```
+
+---
+
+### ⚡ 성능 최적화: Rule 파일 캐싱
+
+`PromptLoader`는 LRU 캐싱을 사용합니다:
+- 로드한 YAML 파일은 메모리에 캐싱
+- 최대 32개 rule 파일 캐시
+- 파일 수정 시 서버 재시작하면 캐시 갱신
+
+**캐시 수동 초기화:**
+```python
+# 필요 시 캐시 클리어
+loader = PromptLoader(target_lang='java')
+loader.clear_cache()
+```
+
+---
+
 ## 🧪 테스트
 
 이 프로젝트는 pytest 기반 테스트를 제공합니다.
@@ -1097,29 +1330,89 @@ export TEST_LOCALE="ko"
 - 환경 변수의 `LLM_API_KEY` 또는 `API_KEY`를 자동으로 사용
 - 헤더에 API 키를 포함하지 않아도 됨
 
-### 이해 단계 테스트
+### 테스트 실행 방법
+
+#### 1️⃣ Understanding 테스트 (통합)
 
 ```bash
-python test/test_understanding.py
+# 전체 파이프라인 테스트
+pipenv run pytest test/test_understanding.py -v -s
+
+# 또는
+pipenv run python test/test_understanding.py
 ```
 
 **동작:**
-- `data/{TEST_SESSION_UUID}/src/` 폴더의 모든 파일을 자동으로 스캔
-- ANTLR 분석 결과 및 원본 SP 코드 로딩
-- LLM 분석 및 Neo4j 저장 실행
-- 결과 검증 없이 실행 완료 확인만 수행
+- `understand_project()` 전체 파이프라인 실행
+- 스트리밍 응답 검증
+- Neo4j 그래프 데이터 검증
+- DDL 처리 검증
 
-### 변환 단계 테스트
+---
+
+#### 2️⃣ Converting 테스트
+
+**A. 개별 테스트 (단계별 디버깅용)**
 
 ```bash
-# 변환 단계 통합 테스트
-python test/test_converting.py
+# Entity만 테스트
+pipenv run pytest test/test_converting.py::TestEntityGeneration -v -s
+
+# Repository만 테스트
+pipenv run pytest test/test_converting.py::TestRepositoryGeneration -v -s
+
+# Service Skeleton만 테스트
+pipenv run pytest test/test_converting.py::TestServiceGeneration -v -s
+
+# Config 파일만 테스트
+pipenv run pytest test/test_converting.py::TestConfigGeneration -v -s
+
+# 전체 개별 테스트 순차 실행
+pipenv run python test/test_converting.py
 ```
 
 **동작:**
-- Entity, Repository, Service, Controller, Main 클래스, Config 파일을 순차적으로 생성
-- `test/test_converting_results.json`에 중간 결과가 저장됨
-- 각 단계는 이전 단계의 결과를 사용하므로 순서대로 실행됨
+- 각 Generator를 **독립적으로** 실행
+- `test/test_converting_results.json`에 중간 결과 저장
+- 다음 테스트가 이전 결과 사용
+- **빠른 검증** 가능 (특정 단계만)
+
+**B. 통합 테스트 (실제 API 동작 검증) 🆕**
+
+```bash
+# convert_to_springboot() 전체 파이프라인 테스트
+pipenv run pytest test/test_converting.py::TestConvertingPipeline -v -s
+```
+
+**동작:**
+- `convert_to_springboot()` 전체 파이프라인 실행
+- 스트리밍 응답 검증
+- 모든 파일 생성 검증 (Entity, Repository, Service, Controller, Config, Main)
+- 단계 간 데이터 전달 검증
+- **실제 API와 동일한 동작**
+
+---
+
+#### 3️⃣ 전체 테스트 (배포 전 필수)
+
+```bash
+# 모든 테스트 실행
+pipenv run pytest test/ -v -s
+
+# 또는 빠른 실행 (출력 최소화)
+pipenv run pytest test/ -v
+```
+
+---
+
+### 테스트 전략
+
+| 상황 | 명령어 | 소요 시간 |
+|------|--------|----------|
+| **빠른 확인** | `pytest test/test_converting.py::TestEntityGeneration -v` | ~30초 |
+| **단계별 디버깅** | `pytest test/test_converting.py::TestRepositoryGeneration -v` | ~1분 |
+| **API 동작 검증** | `pytest test/test_converting.py::TestConvertingPipeline -v` | ~5분 |
+| **배포 전 전체** | `pytest test/ -v` | ~10분 |
 
 ### 테스트 데이터 준비
 

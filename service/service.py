@@ -8,8 +8,7 @@ import os
 from typing import Any, AsyncGenerator
 from fastapi import HTTPException
 
-from convert.create_controller import start_controller_processing, finalize_controller
-from convert.create_controller_skeleton import start_controller_skeleton_processing
+from convert.create_controller import ControllerGenerator, start_controller_skeleton_processing
 from convert.create_config_files import ConfigFilesGenerator
 from convert.create_repository import RepositoryGenerator
 from convert.create_entity import EntityGenerator
@@ -38,7 +37,7 @@ class ServiceOrchestrator:
     Understanding과 Converting 전체 프로세스를 관리하는 오케스트레이터 클래스
     """
 
-    def __init__(self, user_id: str, api_key: str, locale: str, project_name: str, dbms: str):
+    def __init__(self, user_id: str, api_key: str, locale: str, project_name: str, dbms: str, target_lang: str = 'java'):
         """
         ServiceOrchestrator 초기화
         
@@ -48,12 +47,14 @@ class ServiceOrchestrator:
             locale: 언어 설정
             project_name: 프로젝트 이름
             dbms: 데이터베이스 종류
+            target_lang: 타겟 언어 (기본값: 'java')
         """
         self.user_id = user_id
         self.api_key = api_key
         self.locale = locale
         self.project_name = project_name
         self.dbms = dbms
+        self.target_lang = target_lang
         self.project_name_cap = project_name.capitalize() if project_name else ''
         
         # 디렉토리 경로 설정
@@ -417,7 +418,7 @@ class ServiceOrchestrator:
             file_count = len(file_names)
             
             # Generator 공통 파라미터
-            gen_params = (self.project_name, self.user_id, self.api_key, self.locale)
+            gen_params = (self.project_name, self.user_id, self.api_key, self.locale, self.target_lang)
 
             for current_index, (folder_name, file_name) in enumerate(file_names, start=1):
                 base_name = os.path.splitext(file_name)[0]
@@ -438,70 +439,65 @@ class ServiceOrchestrator:
                     yield self._emit("data", file_type="repository_class", file_name=f"{repo_name}.java", code=repo_code)
                 yield self._emit("Done", step=2, file_count=file_count, current_count=current_index)
 
-                # Step 3: Service Skeleton
+                # Step 3: Service Skeleton - service class 틀 생성
                 yield self._emit("message", step=3, content="Business Logic Processing")
                 logging.info(f"Start converting {base_name}\n")
 
                 yield self._emit("message", step=3, content=f"{base_name} - Service Skeleton")
-                service_creation_info, service_skeleton, service_class_name, exist_command_class, command_class_list = (
+                service_creation_info, service_class_name, exist_command_class, command_class_list = (
                     await ServiceSkeletonGenerator(*gen_params).generate(entity_result_list, folder_name, file_name, global_variables)
                 )
-                controller_skeleton, controller_class_name = await start_controller_skeleton_processing(base_name, exist_command_class, self.project_name)
 
+                # Step 3: Service Skeleton - command class 생성
                 yield self._emit("message", step=3, content=f"{base_name} - Command Class")
                 for command in command_class_list:
                     cmd_name, cmd_code = command['commandName'], command['commandCode']
                     yield self._emit("data", file_type="command_class", file_name=f"{cmd_name}.java", code=cmd_code)
                 yield self._emit("Done", step=3, file_count=file_count, current_count=current_index)
 
-                # Step 4: Service & Controller
+                # Step 4: Service 바디 & Controller 생성
                 yield self._emit("message", step=4, content=f"{base_name} - Service Controller Processing")
                 
-                # 공통 파라미터 캐싱
-                common_params = (self.user_id, self.api_key, self.locale)
-                
+                # Service 생성
                 for svc in service_creation_info:
-                    svc_skeleton, cmd_var, proc_name, method_sig, cmd_name, node_type = (
-                        svc['service_method_skeleton'], svc['command_class_variable'], svc['procedure_name'], 
-                        svc['method_signature'], svc['command_class_name'], svc['node_type']
+                    svc_skeleton, cmd_var, proc_name = (
+                        svc['service_method_skeleton'], svc['command_class_variable'], svc['procedure_name']
                     )
                     
-                    # Service 생성 및 저장 (pre에서 완료)
-                    await start_service_preprocessing(
+                    # Service 바디 생성
+                    service_code = await start_service_preprocessing(
                         svc_skeleton, cmd_var, proc_name,
                         used_query_methods, folder_name, file_name, sequence_methods,
                         self.project_name,
-                        *common_params
+                        self.user_id, self.api_key, self.locale,
+                        self.target_lang
                     )
                     
-                    # Controller 메서드 생성 (매니저에 누적)
-                    start_controller_processing(
-                        method_sig, proc_name, cmd_var, cmd_name, node_type,
-                        controller_skeleton, controller_class_name, base_name,
-                        self.user_id, self.project_name, *common_params
-                    )
+                    # Service 파일 스트리밍 이벤트 전송
+                    yield self._emit("data", file_type="service_class", file_name=f"{service_class_name}.java", code=service_code)
                 
-                # Controller 파일 저장 (한 번만)
-                await finalize_controller(self.user_id, base_name)
+                # Controller 생성 
+                controller_name, controller_code = await ControllerGenerator(*gen_params).generate(
+                    base_name, service_class_name, exist_command_class, service_creation_info
+                )
+                yield self._emit("data", file_type="controller_class", file_name=f"{controller_name}.java", code=controller_code)
                 
                 yield self._emit("message", step=4, content=f"{base_name} - Service & Controller 생성 완료")
                 yield self._emit("Done", step=4)
 
-            # Step 5 & 6: Config Files + Main Class (병렬 생성)
+            # Step 5: Config Files + Main Class
             yield self._emit("message", step=5, content="Generating Configuration Files")
             
-            (pom_xml_code, properties_code), main_code = await asyncio.gather(
-                ConfigFilesGenerator(self.project_name, self.user_id).generate(),
-                MainClassGenerator(self.project_name, self.user_id).generate()
-            )
-            
+            # Config Files 생성
+            pom_xml_code, properties_code = await ConfigFilesGenerator(self.project_name, self.user_id).generate()
             yield self._emit("data", file_type="pom", file_name="pom.xml", code=pom_xml_code)
             yield self._emit("data", file_type="properties", file_name="application.properties", code=properties_code)
-            yield self._emit("Done", step=5)
-            
-            yield self._emit("message", step=6, content="Generating Main Application")
+
+            # Main Class 생성
+            main_code = await MainClassGenerator(self.project_name, self.user_id).generate()
+            yield self._emit("message", step=5, content="Generating Main Application")
             yield self._emit("data", file_type="main", file_name=f"{self.project_name_cap}Application.java", code=main_code)
-            yield self._emit("Done", step=6)
+            yield self._emit("Done", step=5)
 
         except ConvertingError:
             raise

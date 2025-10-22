@@ -1,7 +1,3 @@
-"""
-실제 데이터 기반 Understanding 완벽 테스트 (Mock 없음)
-배포 전 필수 통과 테스트
-"""
 import pytest
 import pytest_asyncio
 import asyncio

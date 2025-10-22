@@ -46,10 +46,11 @@ def _locale(request: Request) -> str:
     return request.headers.get('Accept-Language', 'ko')
 
 
-def _extract_payload(file_data: dict) -> tuple[str, str, list[tuple[str, str]]]:
-    """요청 JSON에서 projectName, dbms, (systemName, fileName) 리스트를 추출"""
+def _extract_payload(file_data: dict) -> tuple[str, str, list[tuple[str, str]], str]:
+    """요청 JSON에서 projectName, dbms, (systemName, fileName) 리스트, targetLang을 추출"""
     project_name = file_data.get('projectName')
     dbms = (file_data.get('dbms') or 'postgres').strip().lower()
+    target_lang = (file_data.get('targetLang') or 'java').strip().lower()
     
     if not project_name:
         raise HTTPException(status_code=400, detail="projectName이 없습니다.")
@@ -64,7 +65,7 @@ def _extract_payload(file_data: dict) -> tuple[str, str, list[tuple[str, str]]]:
     if not files:
         raise HTTPException(status_code=400, detail="시스템 또는 파일 정보가 없습니다.")
     
-    return project_name, dbms, files
+    return project_name, dbms, files, target_lang
 
 
 #-------------------------------------------------------------------------#
@@ -76,11 +77,11 @@ async def understand_data(request: Request):
     try:
         file_data = await request.json()
         user_id, api_key = await _resolve_user_and_api_key(request, missing_env_status=401)
-        project_name, dbms, file_names = _extract_payload(file_data)
+        project_name, dbms, file_names, target_lang = _extract_payload(file_data)
         
-        logging.info("User ID: %s, Project: %s, DBMS: %s, Files: %d", user_id, project_name, dbms, len(file_names))
+        logging.info("User ID: %s, Project: %s, DBMS: %s, Target: %s, Files: %d", user_id, project_name, dbms, target_lang, len(file_names))
         
-        orchestrator = ServiceOrchestrator(user_id, api_key, _locale(request), project_name, dbms)
+        orchestrator = ServiceOrchestrator(user_id, api_key, _locale(request), project_name, dbms, target_lang)
         await orchestrator.validate_api_key()
         
         return StreamingResponse(orchestrator.understand_project(file_names))
@@ -98,11 +99,11 @@ async def convert_spring_project(request: Request):
     try:
         file_data = await request.json()
         user_id, api_key = await _resolve_user_and_api_key(request, missing_env_status=400)
-        project_name, dbms, file_names = _extract_payload(file_data)
+        project_name, dbms, file_names, target_lang = _extract_payload(file_data)
         
-        logging.info("Convert Spring Boot: project=%s, files=%d", project_name, len(file_names))
+        logging.info("Convert to %s: project=%s, files=%d", target_lang.upper(), project_name, len(file_names))
         
-        orchestrator = ServiceOrchestrator(user_id, api_key, _locale(request), project_name, dbms)
+        orchestrator = ServiceOrchestrator(user_id, api_key, _locale(request), project_name, dbms, target_lang)
         await orchestrator.validate_api_key()
         
         return StreamingResponse(orchestrator.convert_to_springboot(file_names), media_type="text/plain")
