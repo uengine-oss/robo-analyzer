@@ -102,9 +102,11 @@ Frontend → Backend API → PL/SQL + AST JSON 읽기 → AI 분석 → Neo4j �
 ```
 
 **무엇을 하나요?**
-1. 📤 **분석 요청**: Frontend가 Backend의 `/cypherQuery/` API 호출 (ANTLR에서 받은 폴더명, 파일명 전달)
-2. 📂 **파일 경로 구성**: Backend가 전달받은 폴더명/파일명으로 파일 경로 생성
+1. 📤 **분석 요청**: Frontend가 Backend의 `/cypherQuery/` API 호출 (projectName, dbms, systems 배열 전달)
+2. 📂 **파일 경로 구성**: Backend가 전달받은 projectName, systemName, fileName으로 파일 경로 생성
 3. 📄 **파일 로딩**: File System에서 원본 PL/SQL 코드와 ANTLR AST JSON 읽기
+   - PL/SQL: `data/{session-id}/{projectName}/src/{systemName}/{fileName}`
+   - AST JSON: `data/{session-id}/{projectName}/analysis/{systemName}/{baseName}.json`
 4. 🔍 **구문 탐색**: 구문 트리를 바탕으로, 각 구문들을 순회하면서, 분석할 구문들을 컨텍스트에 담습니다
 5. 🤖 **AI 분석**: 컨텍스트 사이즈가 한계에 도달하면, LLM을 활용하여, 분석을 진행합니다
 6. 💾 **그래프 저장**: 분석 결과로 나온 데이터를 활용하여, 사이퍼쿼리 형태로 만든 뒤, Neo4j에 노드와 관계 형태로 저장합니다
@@ -123,7 +125,7 @@ Frontend → Backend API → Neo4j 그래프 조회 → 코드 생성 → Spring
 ```
 
 **무엇을 생성하나요?**
-1. 📤 **변환 요청**: Frontend가 Backend의 `/springBoot/` API 호출 (폴더명, 파일명 전달)
+1. 📤 **변환 요청**: Frontend가 Backend의 `/springBoot/` API 호출 (projectName, dbms, systems 배열 전달)
 2. 📊 **그래프 조회**: Neo4j에서 저장된 관계 데이터 조회
 3. 📄 **원본 참조**: File System에서 원본 SP 코드 읽기 (필요시)
 4. 🗂️ **Entity 생성**: 테이블 구조를 JPA Entity 클래스로 변환
@@ -131,7 +133,7 @@ Frontend → Backend API → Neo4j 그래프 조회 → 코드 생성 → Spring
 6. ⚙️ **Service 생성**: 비즈니스 로직을 Java 메서드로 변환
 7. 🌐 **Controller 생성**: REST API 엔드포인트 생성
 8. 🔧 **설정 파일 생성**: pom.xml, application.properties, Main 클래스 생성
-9. 💾 **파일 저장**: `target/java/{session-id}/{project-name}/` 디렉터리에 저장
+9. 💾 **파일 저장**: `target/java/{session-id}/{projectName}/` 디렉터리에 저장
 10. 📡 **스트리밍 응답**: Frontend에 생성된 코드 조각 실시간 전송
 
 **변환 순서가 중요합니다:**
@@ -362,18 +364,18 @@ flowchart LR
 
 | 순서 | 흐름 | 설명 |
 |-----|------|------|
-| 1 | Frontend → ANTLR | PL/SQL 파일 업로드 |
-| 2 | ANTLR → File System | 원본 파일 저장 (`src/{folderName}/{fileName}`) |
+| 1 | Frontend → ANTLR | PL/SQL 파일 업로드 (projectName 포함) |
+| 2 | ANTLR → File System | 원본 파일 저장 (`data/{session-id}/{projectName}/src/{systemName}/{fileName}`) |
 | 3 | Frontend → ANTLR | 파싱 요청 |
-| 4 | ANTLR → File System | AST JSON 생성 및 저장 (`analysis/{baseName}.json`) |
-| 5 | ANTLR → Frontend | ✅ 업로드 및 파싱 완료 응답 (폴더명, 파일명 포함) |
+| 4 | ANTLR → File System | AST JSON 생성 및 저장 (`data/{session-id}/{projectName}/analysis/{systemName}/{baseName}.json`) |
+| 5 | ANTLR → Frontend | ✅ 업로드 및 파싱 완료 응답 (프로젝트명, 시스템명, 파일명 포함) |
 
 ### [1단계: Backend - 분석]
 
 | 순서 | 흐름 | 설명 |
 |-----|------|------|
-| 6 | Frontend → Backend | `/cypherQuery/` 분석 요청 (폴더명, 파일명 전달) |
-| 7 | Backend → File System | 📂 **전달받은 경로로 파일 읽기**<br/>- SP 코드: `src/{folderName}/{fileName}`<br/>- AST JSON: `analysis/{baseName}.json` |
+| 6 | Frontend → Backend | `/cypherQuery/` 분석 요청 (projectName, dbms, systems 배열 전달) |
+| 7 | Backend → File System | 📂 **전달받은 경로로 파일 읽기**<br/>- SP 코드: `data/{session-id}/{projectName}/src/{systemName}/{fileName}`<br/>- AST JSON: `data/{session-id}/{projectName}/analysis/{systemName}/{baseName}.json` |
 | 8 | Backend → LLM | 코드 분석 요청 (SP 코드 + AST 기반) |
 | 9 | Backend → Neo4j | 분석 결과 그래프 저장 |
 | 10 | Backend → Frontend | ✅ 스트리밍 응답 (그래프 + 진행률) |
@@ -382,11 +384,11 @@ flowchart LR
 
 | 순서 | 흐름 | 설명 |
 |-----|------|------|
-| 11 | Frontend → Backend | `/springBoot/` 변환 요청 (폴더명, 파일명 전달) |
+| 11 | Frontend → Backend | `/springBoot/` 변환 요청 (projectName, dbms, systems 배열 전달) |
 | 12 | Backend → Neo4j | 그래프 데이터 조회 |
 | 13 | Backend → File System | 📂 원본 SP 코드 읽기 (필요시) |
 | 14 | Backend → LLM | 코드 생성 요청 |
-| 15 | Backend → File System | 💾 생성된 Java 파일 저장 (`target/java/...`) |
+| 15 | Backend → File System | 💾 생성된 Java 파일 저장 (`target/java/{session-id}/{projectName}/...`) |
 | 16 | Backend → Frontend | ✅ 스트리밍 응답 (생성 코드) |
 
 ### [3단계: Backend - 다운로드]
@@ -492,11 +494,11 @@ python main.py
 
 **사전 준비:**
 1. ANTLR 서비스에서 파일 업로드 및 파싱 완료
-2. ANTLR로부터 받은 **폴더명(`folderName`)** 과 **파일명(`fileName`)** 을 요청 바디에 포함
+2. ANTLR로부터 받은 **시스템명(`systemName`)** 과 **파일명(`fileName`)** 을 요청 바디에 포함
 3. File System에 다음 파일들이 존재해야 함:
-   - 원본 PL/SQL: `data/{session-id}/src/{folderName}/{fileName}`
-   - AST JSON: `data/{session-id}/analysis/{baseName}.json`
-   - (선택) DDL: `data/{session-id}/ddl/*.sql`
+   - 원본 PL/SQL: `data/{session-id}/{projectName}/src/{systemName}/{fileName}`
+   - AST JSON: `data/{session-id}/{projectName}/analysis/{systemName}/{baseName}.json`
+   - (선택) DDL: `data/{session-id}/{projectName}/ddl/*.sql`
 
 **요청 예시:**
 
@@ -507,14 +509,16 @@ curl -N -X POST "http://localhost:5502/cypherQuery/" \
   -H "OpenAI-Api-Key: sk-..." \
   -H "Accept-Language: ko" \
   -d '{
-      "fileInfos": [
+    "projectName": "OrderSystem",
+    "dbms": "postgres",
+    "systems": [
       {
-        "folderName": "PKG_ORDER",
-        "fileName": "ORDER_PKG.sql"
+        "name": "PKG_ORDER",
+        "sp": ["ORDER_PKG.sql"]
       },
       {
-        "folderName": "PKG_USER",
-        "fileName": "USER_PKG.sql"
+        "name": "PKG_USER",
+        "sp": ["USER_PKG.sql"]
       }
     ]
   }'
@@ -584,7 +588,7 @@ curl -N -X POST "http://localhost:5502/cypherQuery/" \
 
 **사전 준비:**
 - `/cypherQuery/` API를 먼저 호출하여 분석이 완료되어야 함
-- ANTLR로부터 받은 **폴더명(`folderName`)** 과 **파일명(`fileName`)** 을 요청 바디에 포함
+- ANTLR로부터 받은 **시스템명(`systemName`)** 과 **파일명(`fileName`)** 을 요청 바디에 포함
 
 **요청 예시:**
 
@@ -595,10 +599,12 @@ curl -N -X POST "http://localhost:5502/springBoot/" \
   -H "OpenAI-Api-Key: sk-..." \
   -H "Accept-Language: ko" \
   -d '{
-    "fileInfos": [
+    "projectName": "OrderSystem",
+    "dbms": "postgres",
+    "systems": [
       {
-        "folderName": "PKG_ORDER",
-        "fileName": "ORDER_PKG.sql"
+        "name": "PKG_ORDER",
+        "sp": ["ORDER_PKG.sql"]
       }
     ]
   }'
@@ -709,15 +715,17 @@ curl -X DELETE "http://localhost:5502/deleteAll/" \
 BASE_DIR/  (프로젝트 루트 또는 DOCKER_COMPOSE_CONTEXT)
 ├── data/
 │   └── {Session-UUID}/              # 세션별 작업 공간
-│       ├── src/                     # 원본 PL/SQL 파일
-│       │   └── {folderName}/
-│       │       └── {fileName}.sql
-│       ├── analysis/                # ANTLR 파싱 결과
-│       │   └── {baseName}.json
-│       ├── ddl/                     # DDL 파일 (선택)
-│       │   └── *.sql
-│       └── zipfile/                 # 다운로드용 ZIP
-│           └── {projectName}.zip
+│       └── {ProjectName}/           # 프로젝트별 작업 공간
+│           ├── src/                 # 원본 PL/SQL 파일
+│           │   └── {SystemName}/
+│           │       └── {fileName}.sql
+│           ├── analysis/            # ANTLR 파싱 결과
+│           │   └── {SystemName}/
+│           │       └── {baseName}.json
+│           ├── ddl/                 # DDL 파일 (선택)
+│           │   └── *.sql
+│           └── zipfile/             # 다운로드용 ZIP
+│               └── {projectName}.zip
 └── target/
     └── java/
         └── {Session-UUID}/          # 생성된 Spring Boot 프로젝트
@@ -725,7 +733,7 @@ BASE_DIR/  (프로젝트 루트 또는 DOCKER_COMPOSE_CONTEXT)
                 ├── src/
                 │   └── main/
                 │       ├── java/
-                │       │   └── com/{projectName}/
+                │       │   └── com/example/{projectName}/
                 │       │       ├── entity/
                 │       │       ├── repository/
                 │       │       ├── service/
@@ -740,7 +748,7 @@ BASE_DIR/  (프로젝트 루트 또는 DOCKER_COMPOSE_CONTEXT)
 
 | 입력 | 출력 |
 |-----|------|
-| `ORDER_PKG.sql` | `analysis/ORDER_PKG.json` (ANTLR) |
+| `ORDER_PKG.sql` | `analysis/PKG_ORDER/ORDER_PKG.json` (ANTLR) |
 | `ORDER_PKG.sql` | `src/PKG_ORDER/ORDER_PKG.sql` (원본) |
 | `ORDER_PKG.sql` | `entity/Order.java` (Entity) |
 | `ORDER_PKG.sql` | `repository/OrderRepository.java` |
@@ -748,8 +756,10 @@ BASE_DIR/  (프로젝트 루트 또는 DOCKER_COMPOSE_CONTEXT)
 | `ORDER_PKG.sql` | `controller/OrderController.java` |
 
 **⚠️ 중요:**
-- `fileInfos`의 `folderName`과 `fileName`은 실제 파일 경로와 **정확히 일치**해야 합니다
-- ANTLR JSON 파일명은 원본 파일명에서 확장자만 제거한 것입니다 (`ORDER_PKG.sql` → `ORDER_PKG.json`)
+- `systems[].name`과 `systems[].sp[]`는 실제 파일 경로와 **정확히 일치**해야 합니다
+- 실제 파일 경로: `data/{session-id}/{projectName}/src/{systemName}/{fileName}`
+- ANTLR JSON 경로: `data/{session-id}/{projectName}/analysis/{systemName}/{baseName}.json`
+- `projectName`은 요청 바디에 **필수**로 포함되어야 합니다
 - 대소문자를 구분합니다
 
 ---
@@ -1130,10 +1140,23 @@ python test/test_converting/test_5_controller.py
 테스트를 실행하려면 다음 구조로 데이터를 준비하세요:
 
 ```
-data/{TEST_SESSION_UUID}/
-├── src/{folderName}/{fileName}.sql    # 원본 PL/SQL 파일
-├── analysis/{baseName}.json           # ANTLR 분석 결과
-└── ddl/*.sql                          # DDL 파일 (선택사항)
+data/{TEST_SESSION_UUID}/{TEST_PROJECT_NAME}/
+├── src/{SystemName}/{fileName}.sql               # 원본 PL/SQL 파일
+├── analysis/{SystemName}/{baseName}.json         # ANTLR 분석 결과
+└── ddl/*.sql                                     # DDL 파일 (선택사항)
+```
+
+**예시:**
+```
+data/TestSession/HOSPITAL_PROJECT/
+├── src/
+│   └── HOSPITAL_RECEPTION/
+│       └── SP_HOSPITAL_RECEPTION.sql
+├── analysis/
+│   └── HOSPITAL_RECEPTION/
+│       └── SP_HOSPITAL_RECEPTION.json
+└── ddl/
+    └── DDL_HOSPITAL_RECEPTION.sql
 ```
 ---
 
