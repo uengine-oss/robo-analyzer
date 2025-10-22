@@ -1,6 +1,6 @@
 import logging
 import textwrap
-from prompt.convert_service_prompt import convert_service_code
+from prompt.convert_service_prompt import convert_service_code, convert_exception_code
 from prompt.convert_summarized_service_prompt import convert_summarized_code
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError
@@ -26,7 +26,8 @@ class ServicePreprocessingGenerator:
         'query_method_list', 'folder_name', 'file_name', 'procedure_name', 'sequence_methods',
         'user_id', 'api_key', 'locale', 'project_name',
         'merged_java_code', 'total_tokens', 'tracking_variables', 'current_parent', 
-        'java_buffer', 'sp_code_parts', 'sp_start', 'sp_end'
+        'java_buffer', 'sp_code_parts', 'sp_start', 'sp_end',
+        'pending_try_mode'
     )
 
     def __init__(self, traverse_nodes: list, variable_nodes: list, command_class_variable: dict,
@@ -55,6 +56,9 @@ class ServicePreprocessingGenerator:
         self.sp_code_parts = []  # 문자열 연결 최적화
         self.sp_start = None
         self.sp_end = None
+        
+        # TRY-EXCEPTION 처리
+        self.pending_try_mode = False
 
     # ----- 공개 메서드 -----
 
@@ -103,6 +107,16 @@ class ServicePreprocessingGenerator:
         depth = "  " if self.current_parent else ""
         logging.debug(f"{depth}→ {name}[{start_line}~{end_line}] 토큰={token}")
 
+        # 🚀 TRY 노드 감지 → 플래그 설정
+        if node_type == 'TRY':
+            self.pending_try_mode = True
+            logging.info(f"  🔒 TRY 노드 감지 → EXCEPTION까지 merge 보류")
+        
+        # 🚀 EXCEPTION 노드 감지 → 전용 처리
+        if node_type == 'EXCEPTION':
+            await self._handle_exception_node(node, start_line, end_line)
+            return  # EXCEPTION 처리 완료, 다음 노드로
+        
         # 부모 경계 체크
         parent = self.current_parent
         if parent and relationship == 'NEXT' and start_line > parent['end']:
@@ -226,13 +240,68 @@ class ServicePreprocessingGenerator:
                 CODE_PLACEHOLDER, f"\n{textwrap.indent(self.java_buffer.strip(), '    ')}", 1
             )
 
-        # 병합
-        self.merged_java_code += f"\n{self.current_parent['code']}"
+        # 병합 (TRY 대기 중이면 보류)
+        if not self.pending_try_mode:
+            self.merged_java_code += f"\n{self.current_parent['code']}"
+            logging.info(f"     ✓ 부모 노드 병합 완료")
+        else:
+            logging.info(f"     ✓ TRY 부모 완료 (java_buffer 보관, EXCEPTION 대기)")
 
         # 초기화
         self.current_parent = None
         self.java_buffer = ""
-        logging.info(f"     ✓ 부모 노드 병합 완료")
+
+    # ----- EXCEPTION 노드 전용 처리 -----
+
+    async def _handle_exception_node(self, node: dict, start_line: int, end_line: int) -> None:
+        """EXCEPTION 노드 전용 처리: 전체 코드를 try-catch로 감싸는 예외처리 구조 생성
+        
+        처리 흐름:
+        1. TRY 노드 존재: TRY 블록 코드만 예외처리로 감싸기
+        2. TRY 노드 미존재: 전체 메서드 코드를 예외처리로 감싸기
+        
+        Args:
+            node: EXCEPTION 노드 데이터
+            start_line: 시작 라인
+            end_line: 종료 라인
+        """
+        logging.info(f"  ⚡ EXCEPTION 노드 감지 → 예외처리 구조 생성 시작")
+        
+        # 1. 쌓인 코드 먼저 분석
+        if self.sp_code_parts:
+            await self._analyze_and_merge()
+        
+        # 2. EXCEPTION 블록을 Java try-catch 구조로 변환
+        node_code = (node.get('node_code') or '').strip()
+        if not node_code:
+            logging.warning(f"     ⚠️  EXCEPTION 노드 코드가 비어있음")
+            return
+            
+        result = convert_exception_code(node_code, self.api_key, self.locale)
+        exception_java_code = result.get('code', '').strip()
+        
+        if 'CodePlaceHolder' not in exception_java_code:
+            logging.warning(f"     ⚠️  try-catch 템플릿에 CodePlaceHolder가 없음")
+            return
+        
+        # 3. 전체 코드를 예외처리로 감싸기
+        if self.pending_try_mode:
+            # Case 1: TRY 노드 존재 → TRY 블록 코드만 감싸기
+            try_block_code = self.java_buffer.strip()
+            wrapped_code = exception_java_code.replace('CodePlaceHolder', try_block_code)
+            self.merged_java_code += f"\n{wrapped_code}"
+            logging.info(f"     ✓ TRY 블록 코드를 예외처리로 감쌈 (java_buffer 사용)")
+        else:
+            # Case 2: TRY 노드 미존재 → 전체 메서드 코드를 감싸기
+            entire_code = self.merged_java_code.strip()
+            wrapped_code = exception_java_code.replace('CodePlaceHolder', entire_code)
+            self.merged_java_code = wrapped_code
+            logging.info(f"     ✓ 전체 메서드 코드를 예외처리로 감쌈 (merged_java_code 사용)")
+        
+        # 4. 상태 초기화
+        self.java_buffer = ""
+        self.pending_try_mode = False
+        logging.info(f"     ✓ 예외처리 완료 및 상태 초기화")
 
     # ----- 분석 및 병합 -----
 
@@ -263,7 +332,7 @@ class ServicePreprocessingGenerator:
         except Exception as e:
             logging.debug(f"JPA 수집 스킵: {e}")
 
-        # LLM 분석 (부모 코드가 있으면 컨텍스트로 전달)
+        # LLM 분석 (일반 프롬프트만 사용)
         result = convert_service_code(
             sp_code,
             self.service_skeleton,
@@ -283,11 +352,19 @@ class ServicePreprocessingGenerator:
         java_code = (result.get('analysis', {}).get('code') or '').strip()
         if java_code:
             if self.current_parent:
+                # 큰 노드 → java_buffer에 추가
                 self.java_buffer += f"\n{java_code}"
                 logging.info(f"     ✓ {target}에 추가")
             else:
-                self.merged_java_code += f"\n{java_code}"
-                logging.info(f"     ✓ {target}에 추가")
+                # 작은 노드 처리
+                if self.pending_try_mode:
+                    # TRY 노드 → java_buffer에 보관 (merge 안 함)
+                    self.java_buffer += f"\n{java_code}"
+                    logging.info(f"     ✓ TRY 코드 보관 → EXCEPTION 대기")
+                else:
+                    # 일반 노드 → 바로 merge
+                    self.merged_java_code += f"\n{java_code}"
+                    logging.info(f"     ✓ {target}에 추가")
 
         # 상태 초기화
         self.total_tokens = int(0)  # 명시적 int 타입

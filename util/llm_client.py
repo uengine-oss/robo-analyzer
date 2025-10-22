@@ -5,8 +5,8 @@ from openai import OpenAI
 
 # 상수 정의
 DEFAULT_BASE_URL = "https://api.openai.com/v1"
-DEFAULT_API_KEY = "dream-flow"
-DEFAULT_MODEL = "gpt-4o-mini"
+DEFAULT_API_KEY = ""
+DEFAULT_MODEL = "gpt-4.1"
 DEFAULT_MAX_TOKENS = 32768
 
 def get_llm(model: str | None = None,

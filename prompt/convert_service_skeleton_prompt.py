@@ -31,8 +31,12 @@ prompt = PromptTemplate.from_template(
 
 2. 파라미터 데이터:
 {parameter_data}
-- parameters: 파라미터 목록 (각 파라미터는 name, type, value, parameter_type 속성을 가짐)
+- in_parameters: 입력 파라미터 목록 (IN, IN_OUT 타입만 포함, 각 파라미터는 name, type, value 속성을 가짐)
+- out_parameters: 출력 파라미터 목록 (OUT 타입만 포함, 반환 타입 결정에만 사용)
+- out_count: OUT 파라미터 개수 (0, 1, 2 이상)
 - procedure_name: 함수 이름
+
+⚠️ 중요: out_parameters는 반환 타입 결정에만 사용하고, 지역변수 선언은 local_variables만 사용하세요!
 
 
 [SECTION 1] 메서드 생성 규칙
@@ -46,22 +50,37 @@ prompt = PromptTemplate.from_template(
 2. 메서드 생성 규칙
     - 메서드로 생성 (어노테이션 없음)
     - 반환타입:
-    - 반환타입:
-        * parameter_type이 'OUT'인 파라미터가 있는 경우:
-            - OUT 파라미터의 type을 메서드의 반환 타입으로 사용
-        * OUT 파라미터가 없는 경우:
-            - declaration에서 반환타입이 명시되지 않은 경우 void로 설정
-            - declaration에 반환타입이 있는 경우 해당 타입으로 매핑
-        * 반드시 RETURN 또는 OUT 파라미터의 타입에 맞춰서 반환타입을 설정하세요.
+        * OUT 파라미터 개수에 따라 결정 (out_count 참조):
+            
+            [CASE 1] out_count == 0 (OUT 파라미터 없음):
+                - declaration에서 반환타입이 명시되지 않은 경우 void로 설정
+                - declaration에 반환타입이 있는 경우 해당 타입으로 매핑
+            
+            [CASE 2] out_count == 1 (OUT 파라미터 1개):
+                - out_parameters[0]의 type을 메서드의 반환 타입으로 사용
+                - 타입 매핑 규칙 적용
+                - OUT 파라미터는 이미 local_variables에 포함되어 있으므로 별도 선언 불필요
+            
+            [CASE 3] out_count >= 2 (OUT 파라미터 2개 이상):
+                - 반환타입을 Map<String, Object>로 설정
+                - OUT 파라미터들은 이미 local_variables에 포함되어 있으므로 별도 선언 불필요
+                - 실제 Map 생성 및 반환 로직은 CodePlaceHolder에서 처리됨
+        
+        * 타입 매핑 규칙:
             - NUMBER -> Long
             - VARCHAR2, CHAR -> String
             - DATE -> LocalDate
             - TIME -> LocalDateTime
             - BOOLEAN -> Boolean
-    - 파라미터: 'parameter_data'의 'parameters' 정보를 기반으로 생성
     
-3. 메서드의 필드 규칙
-    - 오직 'local_variables' 목록에 있는 변수만 메서드 내부 변수로 생성
+    - 파라미터: 'parameter_data'의 'in_parameters' 정보만 사용하여 메서드 파라미터 생성
+        * out_parameters는 메서드 파라미터로 사용하지 않고, 지역변수로만 선언
+        * Java는 OUT 파라미터가 없으므로 메서드 파라미터에서 제외됨
+    
+3. 메서드의 지역변수 규칙
+    - ⚠️ 중요: 'local_variables' 목록에만 의존하여 지역변수 생성
+        * local_variables에는 이미 OUT 파라미터가 포함되어 있음 (DECLARE 변수 + OUT 파라미터)
+        * out_parameters는 지역변수 선언에 사용하지 않음 (반환 타입 결정에만 사용)
     - 명명규칙: 접두어 제거하지 말고, 원본 이름을 그대로 카멜케이스로 표현 (첫 글자 소문자)
     - 데이터 타입 매핑:
         * NUMBER, NUMERIC -> Long
@@ -73,10 +92,10 @@ prompt = PromptTemplate.from_template(
         - local_variables의 value 값이 존재하는 경우에만 해당 값으로 초기화합니다.
         - 테이블 명, 엔티티 클래스가 타입으로 선정된 경우 new EntityClass() 형태로 표현
         - 그 외 기본 타입들은 'value' 값이 없다면 변수 초기화 하지 않고 선언만 합니다.
-    - 'local_variables' 배열이 비어있다면 메서드의 필드는 생성하지 않습니다.
 
 4. 메서드의 파라미터 규칙
-    - 'parameter_data'의 'parameters' 목록에 있는 파라미터만 메서드 파라미터로 생성
+    - 'parameter_data'의 'in_parameters' 목록에 있는 파라미터만 메서드 파라미터로 생성
+    - ⚠️ 중요: 'out_parameters'는 메서드 파라미터로 생성하지 않음 (반환 타입 결정에만 사용)
     - 명명규칙: 카멜케이스 (첫 글자 소문자)
     - 데이터 타입 매핑:
         * NUMBER, NUMERIC -> Long
@@ -93,12 +112,29 @@ prompt = PromptTemplate.from_template(
     
 [SECTION 2] 메서드 예시 템플릿
 ===============================================
-public ReturnType methodName(Type1 param1, Type2 param2) {{
-    Long employeeId;
-    String name;
-    LocalDate date;
-    LocalDateTime time;
-    Employee employee;
+
+[예시 1] OUT 파라미터 없음 (out_count = 0, in_parameters = 2개):
+public void methodName(Long param1, String param2) {{  // IN 파라미터만 메서드 인자로
+    Long employeeId;   // DECLARE 변수
+    String name;       // DECLARE 변수
+    
+    CodePlaceHolder
+}}
+
+[예시 2] OUT 파라미터 1개 (out_count = 1, in_parameters = 1개, out_parameters = 1개):
+public String methodName(Long param1) {{  // IN 파라미터만 메서드 인자로 (OUT은 제외!)
+    String outResult;  // local_variables에서 가져옴 (OUT 파라미터 포함)
+    Long employeeId;   // local_variables에서 가져옴 (DECLARE 변수)
+    
+    CodePlaceHolder
+}}
+
+[예시 3] OUT 파라미터 2개 이상 (out_count = 3, in_parameters = 1개, out_parameters = 3개):
+public Map<String, Object> methodName(Long param1) {{  // IN 파라미터만 메서드 인자로 (OUT들은 제외!)
+    String outName;     // local_variables에서 가져옴 (OUT 파라미터)
+    Long outAge;        // local_variables에서 가져옴 (OUT 파라미터)
+    String outAddress;  // local_variables에서 가져옴 (OUT 파라미터)
+    Long employeeId;    // local_variables에서 가져옴 (DECLARE 변수)
     
     CodePlaceHolder
 }}

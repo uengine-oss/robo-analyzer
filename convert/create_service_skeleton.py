@@ -155,12 +155,19 @@ class ServiceSkeletonGenerator:
             # 파라미터 추가
             if sv := item.get('sv'):
                 sv_type, sv_name = sv['type'], sv['name']
+                sv_param_type = sv.get('parameter_type', '')
                 key = (sv_type, sv_name)
                 if key not in group['param_keys']:
                     group['param_keys'].add(key)
-                    group['parameters'].append({'type': sv_type, 'name': sv_name, 'parameter_type': sv.get('parameter_type', '')})
+                    group['parameters'].append({'type': sv_type, 'name': sv_name, 'parameter_type': sv_param_type})
+                    
+                    # OUT 파라미터는 지역변수로도 추가 (Java는 OUT 파라미터가 없으므로)
+                    if sv_param_type == 'OUT' and key not in group['var_keys']:
+                        group['var_keys'].add(key)
+                        sv_value = sv.get('value', '')
+                        group['local_variables'].append({'type': sv_type, 'name': sv_name, 'value': sv_value})
             
-            # 로컬 변수 추가
+            # 로컬 변수 추가 (DECLARE 노드에서)
             if dv := item.get('dv'):
                 dv_type, dv_name, dv_value = dv['type'], dv['name'], dv['value']
                 key = (dv_type, dv_name)
@@ -231,6 +238,8 @@ import org.springframework.stereotype.Service;
 import java.time.temporal.TemporalAdjusters;
 import java.time.*;
 import java.util.*;
+import java.util.Map;
+import java.util.HashMap;
 
 @Transactional
 @Service
@@ -255,11 +264,23 @@ CodePlaceHolder
         node_type = proc_data['node_type']
         parameters = proc_data['parameters']
         
-        # Command 클래스 생성
+        # 🚀 성능 최적화: 파라미터를 한 번에 분류 (IN vs OUT)
+        in_params = []
+        out_params = []
+        for p in parameters:
+            param_type = p.get('parameter_type', '')
+            if param_type == 'OUT':
+                out_params.append(p)
+            else:  # IN, IN_OUT, 또는 parameter_type이 없는 경우
+                in_params.append(p)
+        
+        out_count = len(out_params)
+        
+        # Command 클래스 생성 (IN 파라미터만 사용)
         cmd_var = cmd_name = cmd_code = None
-        if node_type != 'FUNCTION' and parameters:
+        if node_type != 'FUNCTION' and in_params:
             analysis_cmd = convert_command_code(
-                {'parameters': parameters, 'procedure_name': proc_name},
+                {'parameters': in_params, 'procedure_name': proc_name},
                 self.dir_name, self.api_key, self.project_name, self.locale
             )
             cmd_name, cmd_code, cmd_var = analysis_cmd['commandName'], analysis_cmd['command'], analysis_cmd['command_class_variable']
@@ -268,10 +289,10 @@ CodePlaceHolder
             cmd_path = build_java_base_path(self.project_name, self.user_id, 'command', self.dir_name)
             await save_file(cmd_code, f"{cmd_name}.java", cmd_path)
         
-        # Service 메서드 생성
+        # Service 메서드 생성 (IN 파라미터, 지역변수, OUT 파라미터를 별도로 전달)
         analysis_method = convert_method_code(
             {'procedure_name': proc_name, 'local_variables': proc_data['local_variables'], 'declaration': proc_data['declaration']},
-            {'parameters': parameters, 'procedure_name': proc_name},
+            {'in_parameters': in_params, 'out_parameters': out_params, 'out_count': out_count, 'procedure_name': proc_name},
             self.api_key, self.locale
         )
         

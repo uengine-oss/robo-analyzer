@@ -421,3 +421,94 @@ def convert_service_code(convert_sp_code: str, service_skeleton: str, variable_l
         err_msg = f"(전처리) 서비스 코드 생성 과정에서 LLM 호출 중 오류 발생: {str(e)}"
         logging.error(err_msg)
         raise LLMCallError(err_msg)
+
+
+# ----- EXCEPTION 노드 처리 프롬프트 -----
+exception_prompt = PromptTemplate.from_template(
+"""
+당신은 PL/SQL EXCEPTION 블록을 Java try-catch 구조로 변환하는 전문가입니다.
+
+사용자 언어 설정: {locale}
+
+[입력 데이터]
+===============================================
+EXCEPTION 블록 코드:
+{exception_code}
+
+
+[변환 규칙]
+===============================================
+1. Java try-catch 구조 생성
+   - try 블록 내부에 "CodePlaceHolder" 문자열만 삽입
+   - catch 블록에 EXCEPTION 블록의 예외 처리 로직 변환
+   
+2. 예외 타입 매핑
+   - WHEN OTHERS -> catch (Exception e)
+   - WHEN NO_DATA_FOUND -> catch (EntityNotFoundException e)
+   - WHEN TOO_MANY_ROWS -> catch (NonUniqueResultException e)
+   - WHEN VALUE_ERROR -> catch (IllegalArgumentException e)
+   - WHEN DUP_VAL_ON_INDEX -> catch (DataIntegrityViolationException e)
+   
+3. 예외 처리 로직 변환
+   - RAISE_APPLICATION_ERROR -> throw new RuntimeException(message)
+   - ROLLBACK -> 생략 (스프링 @Transactional에서 자동 처리)
+   - DBMS_OUTPUT.PUT_LINE -> logger.error(message)
+   - 기타 로직은 Java로 변환
+
+⚠️ 핵심: try 블록 내부는 반드시 "CodePlaceHolder" 문자열만 포함!
+
+
+[예시]
+PL/SQL:
+EXCEPTION
+    WHEN OTHERS THEN
+        RAISE_APPLICATION_ERROR(-20001, '오류 발생');
+        
+Java:
+{{
+    "code": "try {{\\n    CodePlaceHolder\\n}} catch (Exception e) {{\\n    throw new RuntimeException(\\"오류 발생\\");\\n}}"
+}}
+
+
+[출력 형식]
+===============================================
+JSON 형식으로 반환:
+{{
+    "code": "try {{\\n    CodePlaceHolder\\n}} catch (Exception e) {{\\n    logger.error(e.getMessage());\\n}}"
+}}
+"""
+)
+
+def convert_exception_code(exception_sp_code: str, api_key: str, locale: str = 'ko'):
+    """
+    EXCEPTION 노드를 Java try-catch 구조로 변환
+    
+    Args:
+        exception_sp_code: EXCEPTION 블록의 PL/SQL 코드
+        api_key: LLM API 키
+        locale: 언어 설정
+    
+    Returns:
+        dict: {"code": "try { CodePlaceHolder } catch (...) { ... }"}
+    """
+    try:
+        llm = get_llm(max_tokens=8192, api_key=api_key)
+        
+        chain = (
+            RunnablePassthrough()
+            | exception_prompt
+            | llm
+            | JsonOutputParser()
+        )
+        
+        result = chain.invoke({
+            "exception_code": exception_sp_code,
+            "locale": locale
+        })
+        
+        return result
+        
+    except Exception as e:
+        err_msg = f"EXCEPTION 코드 변환 중 LLM 호출 오류: {str(e)}"
+        logging.error(err_msg)
+        raise LLMCallError(err_msg)
