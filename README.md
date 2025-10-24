@@ -41,8 +41,9 @@ Legacy Modernizer Backend는 **레거시 PL/SQL 코드를 최신 Spring Boot Jav
 **Legacy Modernizer의 해결책:**
 - ⚡ 자동 변환: 몇 분 내 완료
 - 🎯 정확한 분석: AI가 코드 관계 파악
-- 💡 일관된 품질: 표준화된 Spring Boot 코드 생성
+- 💡 일관된 품질: 표준화된 Spring Boot Java 또는 Python FastAPI 코드 생성
 - 📊 시각화: Neo4j 그래프로 코드 구조 확인
+- 🌍 다중 언어 지원: Java, Python 등 다양한 타겟 언어 지원
 
 ---
 
@@ -54,11 +55,10 @@ Legacy Modernizer Backend는 **레거시 PL/SQL 코드를 최신 Spring Boot Jav
 - 이때, DDL은 또한 LLM을 활용하여 테이블/컬럼 형태로 그래프 데이터베이스에 저장됩니다.
 
 ### 2️⃣ **코드 변환 (Converting)**
-- Entity 클래스 생성
-- Repository 인터페이스 생성
-- Service 로직 변환
-- REST Controller 생성
-- 빌드 설정 파일 생성 (pom.xml, application.properties)
+- **Java 타겟**: JPA Entity, Repository, Service, Controller, pom.xml, application.properties
+- **Python 타겟**: SQLAlchemy Model, Repository, Service, FastAPI Router, requirements.txt, .env
+- Rule 파일 기반 다중 언어 지원
+- 성능 최적화된 토큰 임계 배치 처리
 
 ### 3️⃣ **스트리밍 응답**
 - 실시간 진행률 표시
@@ -895,19 +895,27 @@ Backend/
 │
 ├── 📁 rules/                         # 🆕 Rule 파일 (프롬프트 설정)
 │   ├── java/                      # Java 타겟용 프롬프트
-│   │   ├── entity.yaml            # Entity 생성 프롬프트
-│   │   ├── repository.yaml        # Repository 생성 프롬프트
+│   │   ├── entity.yaml            # JPA Entity 생성 프롬프트
+│   │   ├── repository.yaml        # JPA Repository 생성 프롬프트
 │   │   ├── variable.yaml          # 변수 타입 변환 프롬프트
 │   │   ├── command.yaml           # Command DTO 생성 프롬프트
-│   │   ├── service_skeleton.yaml  # Service Skeleton 프롬프트
+│   │   ├── service_class_skeleton.yaml  # Service 클래스 스켈레톤 프롬프트
+│   │   ├── service_method_skeleton.yaml # Service 메서드 스켈레톤 프롬프트
 │   │   ├── service.yaml           # Service 메서드 바디 프롬프트
 │   │   ├── service_summarized.yaml # Service 대용량 노드 스켈레톤 프롬프트
 │   │   ├── service_exception.yaml # Service 예외처리 프롬프트
-│   │   └── controller.yaml        # Controller REST API 프롬프트
+│   │   ├── controller.yaml        # Controller REST API 프롬프트
+│   │   ├── controller_skeleton.yaml # Controller 스켈레톤 프롬프트
+│   │   ├── main.yaml              # Main 클래스 프롬프트
+│   │   └── config.yaml            # 설정 파일 프롬프트
 │   │
-│   └── python/                    # Python 타겟용 프롬프트 (확장 예시)
+│   └── python/                    # Python 타겟용 프롬프트
 │       ├── entity.yaml            # SQLAlchemy Model 생성 프롬프트
-│       └── ...                    # 추가 프롬프트
+│       ├── repository.yaml        # SQLAlchemy Repository 생성 프롬프트
+│       ├── service.yaml           # FastAPI Service 생성 프롬프트
+│       ├── controller.yaml        # FastAPI Router 생성 프롬프트
+│       ├── main.yaml              # FastAPI 앱 생성 프롬프트
+│       └── config.yaml            # Python 설정 파일 프롬프트
 │
 ├── 📁 prompt/                      # LLM 프롬프트 정의 (레거시 - Understanding용으로만 사용)
 │   ├── understand_ddl.py           # DDL 분석 프롬프트
@@ -917,9 +925,9 @@ Backend/
 │   └── understand_variables_prompt.py     # 변수 분석
 │
 ├── 📁 util/                        # 유틸리티
-│   ├── utility_tool.py             # 공통 유틸 함수 (라인 번호, 토큰 계산 등)
+│   ├── utility_tool.py             # 공통 유틸 함수 (라인 번호, 토큰 계산, 경로 생성 등)
 │   ├── llm_client.py               # LLM API 클라이언트
-│   ├── prompt_loader.py            # 🆕 Rule 파일 로더 (YAML 기반)
+│   ├── rule_loader.py              # 🆕 Rule 파일 로더 (YAML 기반, 통합 로더)
 │   └── exception.py                # 커스텀 예외 정의
 │
 └── 📁 test/                        # 테스트 코드
@@ -1081,7 +1089,7 @@ LLM API 클라이언트를 생성합니다.
 - `save_file()`: 비동기 파일 저장
 
 **경로 유틸리티:**
-- `build_java_base_path()`: Java 소스 저장 경로 생성
+- `build_rule_based_path()`: Rule 파일 기반 다중 언어 저장 경로 생성
 
 **문자열 변환:**
 - `convert_to_pascal_case()`: 스네이크 케이스 → 파스칼 케이스
@@ -1292,15 +1300,16 @@ cp roles/java/service_v1.yaml roles/java/service.yaml
 
 ### ⚡ 성능 최적화: Rule 파일 캐싱
 
-`PromptLoader`는 LRU 캐싱을 사용합니다:
+`RuleLoader`는 LRU 캐싱을 사용합니다:
 - 로드한 YAML 파일은 메모리에 캐싱
 - 최대 32개 rule 파일 캐시
 - 파일 수정 시 서버 재시작하면 캐시 갱신
+- `__slots__` 사용으로 메모리 효율성 향상
 
 **캐시 수동 초기화:**
 ```python
 # 필요 시 캐시 클리어
-loader = PromptLoader(target_lang='java')
+loader = RuleLoader(target_lang='java')
 loader.clear_cache()
 ```
 
