@@ -1,0 +1,459 @@
+import logging
+import textwrap
+from typing import AsyncGenerator, Any
+from understand.neo4j_connection import Neo4jConnection
+from util.exception import ConvertingError
+from util.utility_tool import build_rule_based_path, save_file
+from util.rule_loader import RuleLoader
+
+
+# ----- 상수 정의 -----
+TOKEN_THRESHOLD = 1000
+CODE_PLACEHOLDER = "...code..."
+DML_TYPES = frozenset(["SELECT", "INSERT", "UPDATE", "DELETE", "FETCH", "MERGE", "JOIN", "ALL_UNION", "UNION"])
+
+
+# ----- DBMS 변환 클래스 -----
+class DbmsConversionGenerator:
+    """
+    DBMS 변환 전체 라이프사이클 관리
+    - 단일 컨텍스트 누적 방식으로 타겟 DBMS 코드 생성
+    - 대용량 부모(토큰≥1000, 자식 보유) 스켈레톤 관리
+    - 토큰 임계 도달 시 LLM 분석 수행
+    """
+    __slots__ = (
+        'traverse_nodes', 'folder_name', 'file_name', 'procedure_name',
+        'user_id', 'api_key', 'locale', 'project_name', 'target_dbms',
+        'merged_code', 'total_tokens', 'current_parent', 
+        'code_buffer', 'sp_code_parts', 'sp_start', 'sp_end',
+        'pending_try_mode', 'rule_loader'
+    )
+
+    def __init__(self, traverse_nodes: list, folder_name: str, file_name: str,
+                 procedure_name: str, user_id: str, api_key: str, locale: str, 
+                 project_name: str = "demo", target_dbms: str = "oracle"):
+        self.traverse_nodes = traverse_nodes
+        self.folder_name = folder_name
+        self.file_name = file_name
+        self.procedure_name = procedure_name
+        self.user_id = user_id
+        self.api_key = api_key
+        self.locale = locale
+        self.project_name = project_name or "demo"
+        self.target_dbms = target_dbms
+
+        # 상태 초기화
+        self.merged_code = ""
+        self.total_tokens = int(0)
+        self.current_parent = None
+        self.code_buffer = ""
+        self.sp_code_parts = []
+        self.sp_start = None
+        self.sp_end = None
+        
+        # TRY-EXCEPTION 처리
+        self.pending_try_mode = False
+        
+        # Rule 파일 로더 (target_dbms로 디렉토리 찾음)
+        self.rule_loader = RuleLoader(target_lang=target_dbms)
+
+    # ----- 공개 메서드 -----
+
+    async def generate(self) -> str:
+        """
+        전체 노드를 순회하며 타겟 DBMS 코드 생성
+        
+        Returns:
+            str: 최종 병합된 코드
+        """
+        logging.info(f"📋 DBMS 변환 노드 순회 시작: postgres → {self.target_dbms}")
+
+        # 중복 제거: 같은 라인 범위는 한 번만 처리
+        seen_nodes = set()
+        node_count = 0
+        for record in self.traverse_nodes:
+            node = record['n']
+            node_key = (node.get('startLine'), node.get('endLine'))
+            if node_key in seen_nodes:
+                continue
+            seen_nodes.add(node_key)
+            node_count += 1
+            await self._process_node(record)
+
+        await self._finalize_remaining()
+
+        logging.info(f"✅ 총 {node_count}개 노드 처리 완료\n")
+        return self.merged_code.strip()
+
+    # ----- 노드 처리 -----
+
+    async def _process_node(self, record: dict) -> None:
+        """단일 노드 처리"""
+        node = record['n']
+        node_labels = record.get('nodeLabels', [])
+        node_type = node_labels[0] if node_labels else node.get('name', 'UNKNOWN')
+        has_children = bool(node.get('has_children', False))
+        token = int(node.get('token', 0) or 0)
+        start_line = int(node.get('startLine', 0) or 0)
+        end_line = int(node.get('endLine', 0) or 0)
+        relationship = record['r'][1] if record.get('r') else 'NEXT'
+
+        # 노드 처리 로그
+        name = node_type.split('[')[0] if '[' in str(node_type) else str(node_type)
+        depth = "  " if self.current_parent else ""
+        logging.debug(f"{depth}→ {name}[{start_line}~{end_line}] 토큰={token}")
+
+        # TRY 노드 감지 → 플래그 설정
+        if node_type == 'TRY':
+            self.pending_try_mode = True
+            logging.info(f"  🔒 TRY 노드 감지 → EXCEPTION까지 merge 보류")
+        
+        # EXCEPTION 노드 감지 → 전용 처리
+        if node_type == 'EXCEPTION':
+            await self._handle_exception_node(node, start_line, end_line)
+            return
+        
+        # 부모 경계 체크
+        parent = self.current_parent
+        if parent and relationship == 'NEXT' and start_line > parent['end']:
+            if self.sp_code_parts:
+                await self._analyze_and_merge()
+            await self._finalize_parent()
+
+        # 노드 타입별 처리
+        if token >= TOKEN_THRESHOLD and has_children and node_type not in DML_TYPES:
+            # 큰 노드 처리 전에 쌓인 작은 노드들 먼저 변환
+            if self.sp_code_parts:
+                await self._analyze_and_merge()
+            
+            logging.info(f"  ┌─ 큰 노드 진입 [{start_line}~{end_line}] (토큰: {token})")
+            await self._handle_large_node(node, start_line, end_line, token)
+        else:
+            self._handle_small_node(node, start_line, end_line, token)
+
+        # 임계값 체크
+        if int(self.total_tokens) >= TOKEN_THRESHOLD:
+            logging.info(f"  ⚠️  토큰 임계값 도달 ({int(self.total_tokens)}) → LLM 분석 실행")
+            await self._analyze_and_merge()
+
+    # ----- 대용량 노드 처리 -----
+
+    async def _handle_large_node(self, node: dict, start_line: int, end_line: int, token: int) -> None:
+        """대용량 노드(자식 있음, 토큰≥1000) 처리"""
+        summarized = (node.get('summarized_code') or '').strip()
+        if not summarized:
+            return
+
+        # LLM으로 스켈레톤 생성 (Rule 파일 사용)
+        result = self.rule_loader.execute(
+            role_name='dbms_summarized',
+            inputs={
+                'summarized_code': summarized,
+                'locale': self.locale
+            },
+            api_key=self.api_key
+        )
+        skeleton = result['code']
+
+        # 부모 설정 또는 삽입
+        if not self.current_parent:
+            self.current_parent = {'start': start_line, 'end': end_line, 'code': skeleton}
+            logging.info(f"  │  부모 설정 완료 → 자식 노드 처리 시작")
+        else:
+            self.current_parent['code'] = self.current_parent['code'].replace(
+                CODE_PLACEHOLDER, f"\n{textwrap.indent(skeleton, '    ')}", 1
+            )
+            logging.info(f"  │  중첩 부모에 삽입 완료")
+
+    # ----- 소형 노드 처리 -----
+
+    def _handle_small_node(self, node: dict, start_line: int, end_line: int, token: int) -> None:
+        """소형 노드 또는 리프 노드 처리"""
+        node_code = (node.get('node_code') or '').strip()
+        if not node_code:
+            return
+
+        # SP 코드 누적
+        self.sp_code_parts.append(node_code)
+        self.total_tokens = int(self.total_tokens) + int(token)
+
+        # 범위 업데이트
+        if self.sp_start is None or start_line < self.sp_start:
+            self.sp_start = start_line
+        if self.sp_end is None or end_line > self.sp_end:
+            self.sp_end = end_line
+
+    # ----- 부모 관리 -----
+
+    async def _finalize_parent(self) -> None:
+        """현재 부모 마무리"""
+        if not self.current_parent:
+            return
+        
+        logging.info(f"  └─ 큰 노드 완료 [{self.current_parent['start']}~{self.current_parent['end']}]")
+
+        # 버퍼 삽입
+        if self.code_buffer:
+            self.current_parent['code'] = self.current_parent['code'].replace(
+                CODE_PLACEHOLDER, f"\n{textwrap.indent(self.code_buffer.strip(), '    ')}", 1
+            )
+
+        # 병합 (TRY 대기 중이면 보류)
+        if not self.pending_try_mode:
+            self.merged_code += f"\n{self.current_parent['code']}"
+            logging.info(f"     ✓ 부모 노드 병합 완료")
+        else:
+            logging.info(f"     ✓ TRY 부모 완료 (code_buffer 보관, EXCEPTION 대기)")
+
+        # 초기화
+        self.current_parent = None
+        self.code_buffer = ""
+
+    # ----- EXCEPTION 노드 전용 처리 -----
+
+    async def _handle_exception_node(self, node: dict, start_line: int, end_line: int) -> None:
+        """EXCEPTION 노드 전용 처리: 전체 코드를 try-exception으로 감싸는 예외처리 구조 생성"""
+        logging.info(f"  ⚡ EXCEPTION 노드 감지 → 예외처리 구조 생성 시작")
+        
+        # 1. 쌓인 코드 먼저 분석
+        if self.sp_code_parts:
+            await self._analyze_and_merge()
+        
+        # 2. EXCEPTION 블록을 타겟 DBMS exception 구조로 변환 (Role 파일 사용)
+        node_code = (node.get('node_code') or '').strip()
+        if not node_code:
+            logging.warning(f"     ⚠️  EXCEPTION 노드 코드가 비어있음")
+            return
+            
+        result = self.rule_loader.execute(
+            role_name='dbms_exception',
+            inputs={
+                'node_code': node_code,
+                'locale': self.locale
+            },
+            api_key=self.api_key
+        )
+        exception_code = result.get('code', '').strip()
+        
+        if 'CodePlaceHolder' not in exception_code:
+            logging.warning(f"     ⚠️  try-exception 템플릿에 CodePlaceHolder가 없음")
+            return
+        
+        # 3. 전체 코드를 예외처리로 감싸기
+        if self.pending_try_mode:
+            # Case 1: TRY 노드 존재 → TRY 블록 코드만 감싸기
+            try_block_code = self.code_buffer.strip()
+            wrapped_code = exception_code.replace('CodePlaceHolder', try_block_code)
+            self.merged_code += f"\n{wrapped_code}"
+            logging.info(f"     ✓ TRY 블록 코드를 예외처리로 감쌈 (code_buffer 사용)")
+        else:
+            # Case 2: TRY 노드 미존재 → 전체 메서드 코드를 감싸기
+            entire_code = self.merged_code.strip()
+            wrapped_code = exception_code.replace('CodePlaceHolder', entire_code)
+            self.merged_code = wrapped_code
+            logging.info(f"     ✓ 전체 메서드 코드를 예외처리로 감쌈 (merged_code 사용)")
+        
+        # 4. 상태 초기화
+        self.code_buffer = ""
+        self.pending_try_mode = False
+        logging.info(f"     ✓ 예외처리 완료 및 상태 초기화")
+
+    # ----- 분석 및 병합 -----
+
+    async def _analyze_and_merge(self) -> None:
+        """LLM 분석 및 타겟 DBMS 코드 병합"""
+        if not self.sp_code_parts or self.sp_start is None:
+            return
+
+        # 문자열 조인
+        sp_code = '\n'.join(self.sp_code_parts)
+        target = "부모버퍼" if self.current_parent else "최종코드"
+        logging.info(f"  🤖 LLM 분석 시작: [{self.sp_start}~{self.sp_end}] {len(self.sp_code_parts)}개 파트 (토큰: {self.total_tokens})")
+
+        # LLM 분석 (Role 파일 사용)
+        result = self.rule_loader.execute(
+            role_name='dbms_conversion',
+            inputs={
+                'code': sp_code,
+                'locale': self.locale,
+                'parent_code': self.current_parent['code'] if self.current_parent else ""
+            },
+            api_key=self.api_key
+        )
+
+        # 생성된 코드 병합
+        generated_code = (result.get('code') or '').strip()
+        if generated_code:
+            if self.current_parent:
+                # 큰 노드 → code_buffer에 추가
+                self.code_buffer += f"\n{generated_code}"
+                logging.info(f"     ✓ {target}에 추가")
+            else:
+                # 작은 노드 처리
+                if self.pending_try_mode:
+                    # TRY 노드 → code_buffer에 보관 (merge 안 함)
+                    self.code_buffer += f"\n{generated_code}"
+                    logging.info(f"     ✓ TRY 코드 보관 → EXCEPTION 대기")
+                else:
+                    # 일반 노드 → 바로 merge
+                    self.merged_code += f"\n{generated_code}"
+                    logging.info(f"     ✓ {target}에 추가")
+
+        # 상태 초기화
+        self.total_tokens = int(0)
+        self.sp_code_parts.clear()
+        self.sp_start = None
+        self.sp_end = None
+
+    # ----- 마무리 -----
+
+    async def _finalize_remaining(self) -> None:
+        """남은 데이터 정리"""
+        if self.current_parent:
+            if self.sp_code_parts:
+                await self._analyze_and_merge()
+            await self._finalize_parent()
+        elif self.sp_code_parts:
+            await self._analyze_and_merge()
+
+    async def _save_target_file(self, base_name: str) -> str:
+        """타겟 DBMS 파일 자동 저장"""
+        try:
+            # 저장 경로 설정
+            base_path = build_rule_based_path(self.project_name, self.user_id, self.target_dbms, 'dbms')
+            
+            # 파일 저장
+            await save_file(
+                content=self.merged_code.strip(),
+                filename=f"{base_name}.sql",
+                base_path=base_path
+            )
+            
+            logging.info(f"✅ [{base_name}] {self.target_dbms.capitalize()} 파일 자동 저장 완료")
+            logging.info(f"📁 저장 경로: {base_path}/{base_name}.sql")
+            
+            return self.merged_code.strip()
+            
+        except Exception as e:
+            logging.error(f"❌ {self.target_dbms.capitalize()} 파일 저장 실패: {str(e)}")
+            raise ConvertingError(f"{self.target_dbms.capitalize()} 파일 저장 중 오류: {str(e)}")
+
+
+# ----- 진입점 함수 -----
+async def start_dbms_conversion(
+    folder_name: str,
+    file_name: str,
+    procedure_name: str,
+    project_name: str,
+    user_id: str,
+    api_key: str,
+    locale: str,
+    target_dbms: str = "oracle"
+) -> str:
+    """
+    DBMS 변환 시작
+    
+    Args:
+        folder_name: 폴더명
+        file_name: 파일명
+        procedure_name: 프로시저 이름
+        project_name: 프로젝트 이름
+        user_id: 사용자 ID
+        api_key: LLM API 키
+        locale: 로케일
+        target_dbms: 타겟 DBMS (oracle 등)
+    
+    Returns:
+        str: 변환된 코드
+    
+    Raises:
+        ConvertingError: 변환 중 오류 발생 시
+    """
+    connection = Neo4jConnection()
+    
+    logging.info("\n" + "="*80)
+    logging.info(f"⚙️  DBMS 변환: POSTGRES → {target_dbms.upper()}")
+    logging.info("="*80)
+    logging.info(f"📁 파일: {folder_name}/{file_name}")
+
+    try:
+        # Neo4j 쿼리
+        query_results = await connection.execute_queries([
+            f"""
+            MATCH (p:PROCEDURE {{
+              folder_name: '{folder_name}',
+              file_name: '{file_name}',
+              procedure_name: '{procedure_name}',
+              user_id: '{user_id}'
+            }})
+            
+            CALL {{
+              WITH p
+              MATCH (p)-[:PARENT_OF]->(c)
+              WHERE NOT c:DECLARE AND NOT c:Table AND NOT c:SPEC
+                AND c.token < 1000
+              WITH c, labels(c) AS cLabels, coalesce(toInteger(c.startLine), 0) AS sortKey
+              RETURN c AS n, cLabels AS nodeLabels, NULL AS r, NULL AS m, sortKey
+              
+              UNION ALL
+              
+              WITH p
+              MATCH (p)-[:PARENT_OF]->(c)
+              WHERE NOT c:DECLARE AND NOT c:Table AND NOT c:SPEC
+                AND coalesce(toInteger(c.token), 0) >= 1000
+              WITH c
+              MATCH path = (c)-[:PARENT_OF*0..]->(n)
+              WHERE NOT n:DECLARE AND NOT n:Table AND NOT n:SPEC
+              WITH n, path, nodes(path) AS pathNodes
+              WHERE ALL(i IN range(0, size(pathNodes)-2) 
+                        WHERE coalesce(toInteger(pathNodes[i].token), 0) >= 1000)
+              OPTIONAL MATCH (n)-[r]->(m {{
+                folder_name: '{folder_name}', file_name: '{file_name}', user_id: '{user_id}'
+              }})
+              WHERE r IS NULL
+                 OR ( NOT (m:DECLARE OR m:Table OR m:SPEC)
+                      AND none(x IN ['CALL','WRITES','FROM'] WHERE type(r) CONTAINS x) )
+              WITH n, labels(n) AS nLabels, r, m, coalesce(toInteger(n.startLine), 0) AS sortKey
+              RETURN DISTINCT n, nLabels AS nodeLabels, r, m, sortKey
+            }}
+            
+            RETURN n, nodeLabels, r, m
+            ORDER BY sortKey, coalesce(toInteger(n.token), 0), id(n)
+            """
+        ])
+        dbms_nodes = query_results[0] if query_results else []
+
+        # 변환 수행
+        generator = DbmsConversionGenerator(
+            dbms_nodes,
+            folder_name,
+            file_name,
+            procedure_name,
+            user_id,
+            api_key,
+            locale,
+            project_name,
+            target_dbms
+        )
+
+        await generator.generate()
+        
+        # 파일 저장
+        base_name = file_name.rsplit(".", 1)[0]
+        converted_code = await generator._save_target_file(base_name)
+
+        logging.info("\n" + "-"*80)
+        logging.info(f"✅ DBMS 변환 완료: {base_name}")
+        logging.info("-"*80 + "\n")
+        
+        return converted_code
+
+    except ConvertingError:
+        raise
+    except Exception as e:
+        err_msg = f"DBMS 변환 중 오류: {str(e)}"
+        logging.error(err_msg)
+        raise ConvertingError(err_msg)
+    finally:
+        await connection.close()
+

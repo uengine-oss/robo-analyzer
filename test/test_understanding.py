@@ -103,17 +103,16 @@ class TestRealUnderstanding:
                     decoded = chunk.decode('utf-8').replace('send_stream', '')
                     if decoded.strip():
                         event_data = json.loads(decoded)
-                        
-                        if event_data.get('type') == 'ALARM':
-                            msg = event_data.get('MESSAGE', '')
-                            alarm_messages.append(msg)
-                            print(f"🔔 {msg}")
-                        
-                        elif event_data.get('type') == 'ERROR':
-                            error_msg = event_data.get('MESSAGE', '')
-                            errors.append(error_msg)
-                            print(f"❌ ERROR: {error_msg}")
-                except:
+                        evt_type = event_data.get('type')
+                        if evt_type == 'message':
+                            content = event_data.get('content')
+                            alarm_messages.append(str(content))
+                            print(f"🔔 {content}")
+                        elif evt_type == 'error':
+                            content = event_data.get('content')
+                            errors.append(str(content))
+                            print(f"❌ ERROR: {content}")
+                except Exception:
                     pass
             
             print(f"\n✅ Understanding 완료! (총 {len(events)}개 이벤트)")

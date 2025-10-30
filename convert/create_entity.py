@@ -57,7 +57,7 @@ class EntityGenerator:
         connection = Neo4jConnection()
         
         try:
-            # Neo4j에서 테이블 및 컬럼 정보 조회
+            # Neo4j에서 테이블 및 컬럼 정보 조회 (프로젝트 전체)
             table_rows = (await connection.execute_queries([f"""
                 MATCH (t:Table {{user_id: '{self.user_id}', project_name: '{self.project_name}'}})
                 OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column {{user_id: '{self.user_id}', project_name: '{self.project_name}'}})

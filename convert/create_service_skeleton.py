@@ -39,7 +39,7 @@ class ServiceSkeletonGenerator:
     # ----- 공개 메서드 -----
 
     async def generate(self, entity_name_list: list, folder_name: str, file_name: str, 
-                      global_variables: list) -> tuple:
+                      global_variables: list, repositories: list | None = None) -> tuple:
         """
         Service Skeleton 생성의 메인 진입점
         Neo4j에서 프로시저/함수 정보를 조회하고, LLM 변환을 수행하여
@@ -88,7 +88,7 @@ class ServiceSkeletonGenerator:
                 self.global_vars = {"variables": []}
             
             # 서비스 Skeleton 생성
-            service_skeleton = await self._generate_skeleton(entity_name_list)
+            service_skeleton = await self._generate_skeleton(entity_name_list, repositories or [])
 
             # 프로시저별 메서드/커맨드 생성
             method_info_list = []
@@ -196,7 +196,7 @@ class ServiceSkeletonGenerator:
         
         return groups, external_packages
 
-    async def _generate_skeleton(self, entity_list: list) -> str:
+    async def _generate_skeleton(self, entity_list: list, repositories: list) -> str:
         """
         Service Skeleton (기본 틀) 생성
         
@@ -216,7 +216,8 @@ class ServiceSkeletonGenerator:
                 'external_packages': json.dumps(self.external_packages, ensure_ascii=False, indent=2),
                 'exist_command_class': self.exist_command_class,
                 'dir_name': self.dir_name,
-                'locale': self.locale
+                'locale': self.locale,
+                'repositories': json.dumps(repositories, ensure_ascii=False, indent=2),
             },
             api_key=self.api_key
         )

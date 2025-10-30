@@ -197,7 +197,3 @@ class RuleLoader:
         """캐시 초기화"""
         self._load_role_file.cache_clear()
         self._cache.clear()
-
-
-# 하위 호환성을 위한 별칭
-PromptLoader = RuleLoader

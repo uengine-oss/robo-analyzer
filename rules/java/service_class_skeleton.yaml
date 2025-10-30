@@ -16,6 +16,7 @@ input_schema:
     - exist_command_class  # Command 클래스 존재 여부
     - dir_name            # 디렉토리명
     - locale              # 언어 설정
+    - repositories        # 생성된 Repository 정보 리스트(JSON)
 
 # 프롬프트
 prompt: |
@@ -39,6 +40,9 @@ prompt: |
   [외부 패키지]
   {{external_packages}}
 
+  [생성된 Repository 목록]
+  {{repositories}}
+
   [SECTION 1] Service Skeleton 구성 요소
   ===============================================
   생성해야 할 기본 구조:
@@ -48,8 +52,9 @@ prompt: |
 
   2. Import 문
      - Entity 관련: com.example.{{project_name}}.entity.*
-     - Repository 관련: com.example.{{project_name}}.repository.*
-     - Command 관련: com.example.{{project_name}}.command.{{dir_name}}.*
+     - Repository 관련: 아래 repositories 목록의 repositoryName 기준으로 정확한 클래스 import를 생성
+       (예: OrderRepository → com.example.{{project_name}}.repository.OrderRepository)
+     - Command 관련: exist_command_class가 true이면 com.example.{{project_name}}.command.{{dir_name}}.*
      - Spring Framework: @Service, @Autowired, @Transactional
      - Spring Web: @PostMapping, @RequestBody, @RestController
      - JPA: EntityNotFoundException
@@ -67,8 +72,9 @@ prompt: |
 
   5. 필드 선언
      - Global Variables (전역 변수들)
-     - Repository Fields (@Autowired)
-     - External Service Fields (@Autowired)
+     - Repository Fields (생성자 주입 권장: private final RepositoryType repository;)
+       - repositories 목록에 있는 각 repository에 대해 필드를 생성
+     - External Service Fields (필요시)
 
   6. 메서드 플레이스홀더
      - CodePlaceHolder로 메서드 추가 위치 표시

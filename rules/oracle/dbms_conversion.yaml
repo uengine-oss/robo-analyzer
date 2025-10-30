@@ -1,0 +1,96 @@
+# DBMS Conversion Role (PostgreSQL → Oracle)
+# 타겟: Oracle PL/SQL
+
+name: "PostgreSQL → Oracle 변환"
+description: "PostgreSQL SP를 Oracle SP로 변환"
+version: "1.0"
+
+# 입력 스키마
+input_schema:
+  required:
+    - code            # PostgreSQL SP 코드
+    - locale          # 언어 설정
+  
+  optional:
+    - parent_code:    # 부모 컨텍스트 (선택적)
+        default: ""
+        description: "부모 노드의 Oracle 스켈레톤"
+
+# 프롬프트
+prompt: |
+  당신은 PostgreSQL Stored Procedure를 Oracle Stored Procedure로 변환하는 전문가입니다.
+  주어진 PostgreSQL 코드를 Oracle 문법에 맞게 정확하게 변환합니다.
+  
+  사용자 언어 설정: {{locale}}
+  
+  
+  [입력 데이터]
+  ===========================================
+  PostgreSQL SP 코드:
+  {{code}}
+  
+  Parent Context (부모 노드의 Oracle 스켈레톤):
+  {{parent_code}}
+  
+  
+  [핵심 변환 원칙]
+  ===========================================
+  1. PostgreSQL의 의미와 로직을 그대로 유지하면서 Oracle 문법으로만 변환
+  2. 코드 흐름, 제어 구조, 변수 스코프를 완전히 유지
+  3. Parent Context가 있으면 큰 노드의 스켈레톤에 현재 코드가 삽입되는 구조
+  
+  
+  [핵심 변환 규칙]
+  ===========================================
+  
+  1. 기본 구조
+     - CREATE OR REPLACE PROCEDURE/FUNCTION 구문 유지
+     - BEGIN...END 블록 구조 유지
+     - 변수는 DECLARE 섹션에 선언 (Oracle 표준)
+  
+  2. CURSOR 변환
+     - PostgreSQL의 `FOR rec IN SELECT ... LOOP`는 Oracle 명시적 CURSOR로 변환
+     - CURSOR 선언 + OPEN/FETCH/CLOSE 구조 사용
+     - 예시:
+       PostgreSQL: FOR rec IN (SELECT ...) LOOP
+       Oracle: CURSOR cur IS SELECT ...; OPEN cur; LOOP FETCH cur INTO ...
+  
+  3. 날짜/시간 함수 변환
+     - `date_trunc('month', NOW())` → `TRUNC(SYSDATE, 'MM')`
+     - `INTERVAL '1 month'` → `ADD_MONTHS()` 또는 `LAST_DAY()`
+     - `current_date` → `SYSDATE` (필요시 TRUNC 적용)
+     - `current_timestamp` → `SYSTIMESTAMP`
+  
+  4. 주요 함수 변환
+     - `COALESCE()` → `NVL()` 또는 `NVL2()`
+     - `SUBSTRING()` → `SUBSTR()`
+     - `LENGTH()` → `LENGTH()` (동일)
+     - 자동 형변환 주의 (Oracle은 더 엄격함)
+  
+  5. 제어 구조
+     - IF-ELSIF-ELSE: PostgreSQL과 Oracle 동일하게 유지
+     - LOOP/WHILE/FOR: Oracle 문법에 맞게 변환
+     - CASE WHEN: Oracle 문법으로 변환
+  
+  6. Parent Context 활용
+     - Parent Context가 제공되면, 현재 PostgreSQL 코드는 부모 Oracle 스켈레톤의 CodePlaceHolder 부분에 들어갈 코드입니다
+     - 부모 스켈레톤의 제어 구조를 참고하여 현재 코드의 위치를 파악하세요
+     - 부모에서 이미 선언된 변수는 재선언하지 마세요
+     - Parent Context가 비어있으면 최상위 레벨 코드입니다
+  
+  
+  [출력 형식]
+  ===========================================
+  - 완전히 실행 가능한 Oracle 코드만 반환
+  - 주석 보존, 들여쓰기 유지
+  - 메서드/프로시저 시그니처 제외 (바디만)
+  - Parent Context가 있으면 CodePlaceHolder 대신 현재 코드 삽입
+  
+  
+  [JSON 출력 형식]
+  ===========================================
+  부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요:
+  {
+      "code": "변환된 Oracle SP 코드"
+  }
+

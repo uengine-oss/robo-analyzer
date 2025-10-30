@@ -8,32 +8,22 @@ class StrategyFactory:
     
     @staticmethod
     def create_strategy(conversion_type: str, **kwargs) -> ConversionStrategy:
-        """
-        변환 타입에 따라 적절한 전략을 생성합니다.
-        
-        Args:
-            conversion_type: 변환 타입 ("framework" 또는 "dbms")
-            **kwargs: 전략 생성에 필요한 추가 매개변수
-            
-        Returns:
-            ConversionStrategy: 생성된 전략 인스턴스
-            
-        Raises:
-            ValueError: 지원하지 않는 변환 타입인 경우
-        """
-        conversion_type = conversion_type.lower()
-        
-        if conversion_type == "framework":
-            target_framework = kwargs.get('target_framework', 'springboot')
-            return FrameworkConversionStrategy(target_framework)
-            
-        elif conversion_type == "dbms":
-            source_dbms = kwargs.get('source_dbms', 'postgres')
-            target_dbms = kwargs.get('target_dbms', 'oracle')
-            return DbmsConversionStrategy(source_dbms, target_dbms)
-            
-        else:
-            raise ValueError(f"Unsupported conversion type: {conversion_type}")
+        """변환 타입에 따라 전략을 생성 (매핑 기반, 확장 용이)."""
+        conversion_type = (conversion_type or '').lower()
+
+        creators = {
+            "framework": lambda: FrameworkConversionStrategy(
+                kwargs.get('target_framework', 'springboot')
+            ),
+            "dbms": lambda: DbmsConversionStrategy(
+                kwargs.get('target_dbms', 'oracle')
+            ),
+        }
+
+        try:
+            return creators[conversion_type]()
+        except KeyError as e:
+            raise ValueError(f"Unsupported conversion type: {conversion_type}") from e
     
     @staticmethod
     def get_supported_conversion_types() -> dict:

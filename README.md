@@ -510,20 +510,19 @@ curl -N -X POST "http://localhost:5502/cypherQuery/" \
 응답은 스트리밍 방식으로 전달되며, 각 청크는 `send_stream`으로 구분됩니다.
 
 ```json
-{"type":"ALARM","MESSAGE":"Preparing Analysis Data"}send_stream
-{"type":"ALARM","MESSAGE":"START DDL PROCESSING","file":"TABLES.sql"}send_stream
-{"type":"DATA","graph":{"Nodes":[...],"Relationships":[...]},"line_number":45,"analysis_progress":30,"current_file":"PKG_ORDER-ORDER_PKG.sql"}send_stream
-{"type":"DATA","graph":{"Nodes":[...],"Relationships":[...]},"line_number":120,"analysis_progress":80,"current_file":"PKG_ORDER-ORDER_PKG.sql"}send_stream
-{"type":"ALARM","MESSAGE":"ALL_ANALYSIS_COMPLETED"}send_stream
+{"type":"message","content":"Preparing Analysis Data"}send_stream
+{"type":"message","content":"START DDL PROCESSING: TABLES.sql"}send_stream
+{"type":"message","content":{"graph":{"Nodes":[...],"Relationships":[...]},"line_number":45,"analysis_progress":30,"current_file":"PKG_ORDER-ORDER_PKG.sql"}}send_stream
+{"type":"message","content":{"graph":{"Nodes":[...],"Relationships":[...]},"line_number":120,"analysis_progress":80,"current_file":"PKG_ORDER-ORDER_PKG.sql"}}send_stream
+{"type":"message","content":"ALL_ANALYSIS_COMPLETED"}send_stream
 ```
 
 **응답 필드 설명:**
 
 | 필드 | 타입 | 설명 |
 |-----|------|------|
-| `type` | String | `ALARM` (알림) 또는 `DATA` (데이터) |
-| `MESSAGE` | String | 알림 메시지 (ALARM 타입만) |
-| `graph` | Object | Neo4j 그래프 객체 (DATA 타입만) |
+| `type` | String | `message` 또는 `error` |
+| `content` | Any | 메시지 본문(문자열/숫자/객체). 데이터/단계/알림 모두 포함 |
 | `line_number` | Integer | 현재 분석 중인 라인 번호 |
 | `analysis_progress` | Integer | 진행률 (0~100) |
 | `current_file` | String | 현재 분석 중인 파일 |
@@ -617,28 +616,28 @@ curl -N -X POST "http://localhost:5502/springBoot/" \
 **응답 형식 (Streaming):**
 
 ```json
-{"data_type":"data","file_type":"project_name","project_name":"OrderSystem"}send_stream
-{"data_type":"message","step":1,"content":"ORDER_PKG - Generating Entity Class"}send_stream
-{"data_type":"data","file_type":"entity_class","file_name":"Order.java","code":"package com.ordersystem.entity;\n\nimport jakarta.persistence.*;\n\n@Entity\n@Table(name = \"ORDERS\")\npublic class Order {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    ...\n}"}send_stream
-{"data_type":"Done","step":1,"file_count":1,"current_count":1}send_stream
-{"data_type":"message","step":2,"content":"ORDER_PKG - Generating Repository Interface"}send_stream
-{"data_type":"data","file_type":"repository_class","file_name":"OrderRepository.java","code":"..."}send_stream
-{"data_type":"Done","step":2,"file_count":1,"current_count":1}send_stream
+{"type":"message","content":{"file_type":"project_name","project_name":"OrderSystem"}}send_stream
+{"type":"message","content":1}send_stream
+{"type":"message","content":{"file_type":"entity_class","file_name":"Order.java","code":"package com.ordersystem.entity;\n\nimport jakarta.persistence.*;\n\n@Entity\n@Table(name = \"ORDERS\")\npublic class Order {\n    @Id\n    @GeneratedValue(strategy = GenerationType.IDENTITY)\n    private Long id;\n    ...\n}"}}send_stream
+{"type":"message","content":{"Done":true,"step":1,"file_count":1,"current_count":1}}send_stream
+{"type":"message","content":2}send_stream
+{"type":"message","content":{"file_type":"repository_class","file_name":"OrderRepository.java","code":"..."}}send_stream
+{"type":"message","content":{"Done":true,"step":2,"file_count":1,"current_count":1}}send_stream
 ...
-{"data_type":"Done"}send_stream
+{"type":"message","content":{"Done":true}}send_stream
 ```
 
 **응답 필드 설명:**
 
 | 필드 | 타입 | 설명 |
 |-----|------|------|
-| `data_type` | String | `message` (진행 메시지), `data` (코드), `Done` (완료) |
-| `step` | Integer | 현재 단계 (1~7) |
-| `content` | String | 진행 메시지 내용 |
-| `file_type` | String | 파일 유형 (`entity_class`, `repository_class`, `service_class`, `controller_class`, `command_class`, `pom`, `properties`, `main`, `project_name`) |
-| `file_name` | String | 생성된 파일 이름 |
-| `code` | String | 생성된 소스 코드 |
-| `project_name` | String | 생성된 프로젝트 이름 |
+| `type` | String | `message` 또는 `error` |
+| `content` | Any | 본문(문자/숫자/객체). 단계 번호(숫자) 또는 결과 객체 포함 |
+| `file_type` | String | content가 객체일 때 파일 유형 (`entity_class`, `repository_class`, `service_class`, `controller_class`, `command_class`, `pom`, `properties`, `main`, `project_name`) |
+| `file_name` | String | content가 객체일 때 생성 파일 이름 |
+| `code` | String | content가 객체일 때 생성된 소스 코드 |
+| `project_name` | String | content가 객체일 때 프로젝트 이름 |
+| `Done` | Boolean | 완료 신호일 때 true (옵션) |
 
 **변환 단계:**
 
@@ -943,7 +942,6 @@ API 엔드포인트를 정의하고 요청을 처리합니다.
 
 **주요 엔드포인트:**
 - `understand_data()`: `/cypherQuery/` - PL/SQL 코드 분석
-- `convert_spring_project()`: `/springBoot/` - Spring Boot 프로젝트 생성
 - `download_spring_project()`: `/downloadJava/` - ZIP 파일 다운로드
 - `delete_all_data()`: `/deleteAll/` - 데이터 삭제
 
@@ -1079,7 +1077,6 @@ LLM API 클라이언트를 생성합니다.
   - 환경변수 또는 파라미터로 API 키, 모델, base URL 설정
   - 기본 모델: `gpt-4.1`
   - 기본 base URL: `https://api.openai.com/v1`
-- `resolve_defaults()`: 환경변수 기본값 해결
 - `get_openai_client()`: OpenAI 클라이언트 생성
 
 #### 🛠️ `util/utility_tool.py`

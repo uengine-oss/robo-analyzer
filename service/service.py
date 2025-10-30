@@ -8,27 +8,19 @@ import os
 from typing import Any, AsyncGenerator
 from fastapi import HTTPException
 
-from convert.create_controller import ControllerGenerator, start_controller_skeleton_processing
-from convert.create_config_files import ConfigFilesGenerator
-from convert.create_repository import RepositoryGenerator
-from convert.create_entity import EntityGenerator
-from convert.create_service_preprocessing import start_service_preprocessing
-from convert.create_service_skeleton import ServiceSkeletonGenerator
-from convert.create_main import MainClassGenerator
 from prompt.understand_ddl import understand_ddl
 from prompt.understand_variables_prompt import resolve_table_variable_type
 from prompt.understand_column_prompt import understand_column_roles
 from understand.neo4j_connection import Neo4jConnection
 from understand.analysis import Analyzer
-from util.exception import ConvertingError, FileProcessingError
-from util.utility_tool import add_line_numbers, parse_table_identifier
+from util.exception import FileProcessingError
+from util.utility_tool import add_line_numbers, parse_table_identifier, emit_message, emit_data, emit_error, escape_for_cypher, parse_json_maybe
 from util.llm_client import get_llm
 
 
 # ----- 상수 -----
 BASE_DIR = os.getenv('DOCKER_COMPOSE_CONTEXT') or os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 TEST_SESSIONS = ("EN_TestSession", "KO_TestSession")
-STREAM_DELIMITER = b"send_stream"
 
 
 # ----- 서비스 오케스트레이터 클래스 -----
@@ -76,10 +68,10 @@ class ServiceOrchestrator:
         try:
             llm = get_llm(api_key=self.api_key)
             if not llm.invoke("ping"):
-                raise HTTPException(status_code=401, detail="유효하지 않은 API 키입니다.")
+                raise HTTPException(status_code=401, detail="API 키 검증 실패: ping 실패")
         except Exception as e:
             logging.error(f"API 키 검증 실패: {str(e)}")
-            raise HTTPException(status_code=401, detail="유효하지 않은 API 키입니다.")
+            raise HTTPException(status_code=401, detail=f"API 키 검증 실패: {e.__class__.__name__}: {str(e)}")
 
     # ----- Understanding 프로세스 -----
 
@@ -98,13 +90,13 @@ class ServiceOrchestrator:
         events_to_analyzer = asyncio.Queue()
 
         try:
-            yield self._stream_alarm("Preparing Analysis Data")
+            yield emit_message("Preparing Analysis Data")
 
             # 이미 분석된 경우
             if await connection.node_exists(self.user_id, file_names):
-                yield self._stream_alarm("ALREADY ANALYZED")
+                yield emit_message("ALREADY ANALYZED")
                 graph_data = await connection.execute_query_and_return_graph(self.user_id, file_names)
-                yield self._stream_data(graph=graph_data, analysis_progress=100)
+                yield emit_data(graph=graph_data, analysis_progress=100)
                 return
 
             # DDL 파일 처리
@@ -112,31 +104,22 @@ class ServiceOrchestrator:
             if ddl_files:
                 ddl_dir = self.dirs['ddl']
                 for ddl_file_name in ddl_files:
-                    yield self._stream_alarm("START DDL PROCESSING", file=ddl_file_name)
+                    yield emit_message(f"START DDL PROCESSING: {ddl_file_name}")
                     logging.info(f"DDL 파일 처리 시작: {ddl_file_name}")
-                    
-                    try:
-                        ddl_file_path = os.path.join(ddl_dir, ddl_file_name)
-                        base_object_name = os.path.splitext(ddl_file_name)[0]
-                        await self._process_ddl(ddl_file_path, connection, base_object_name)
-                    except Exception as e:
-                        logging.error(f"DDL 파일 처리 실패: {ddl_file_name} - {e}")
-                        continue
+                    ddl_file_path = os.path.join(ddl_dir, ddl_file_name)
+                    base_object_name = os.path.splitext(ddl_file_name)[0]
+                    await self._process_ddl(ddl_file_path, connection, base_object_name)
 
             # PL/SQL 파일 분석
             for folder_name, file_name in file_names:
                 await self._ensure_folder_node(connection, folder_name)
                 async for chunk in self._analyze_file(
-                    folder_name, file_name, file_names, connection, 
+                    folder_name, file_name, file_names, connection,
                     events_from_analyzer, events_to_analyzer
                 ):
                     yield chunk
 
-            yield self._stream_alarm("ALL_ANALYSIS_COMPLETED")
-
-        except Exception as e:
-            logging.exception(f"Understanding 처리 중 오류: {str(e)}")
-            yield self._stream_error(str(e))
+            yield emit_message("ALL_ANALYSIS_COMPLETED")
         finally:
             await connection.close()
 
@@ -178,7 +161,7 @@ class ServiceOrchestrator:
                 logging.info(f"Understanding Completed for {current_file}\n")
                 await self._postprocess_file(connection, folder_name, file_name, file_pairs)
                 graph_result = await connection.execute_query_and_return_graph(self.user_id, file_pairs)
-                yield self._stream_data(graph=graph_result, line_number=last_line, analysis_progress=100, current_file=current_file)
+                yield emit_data(graph=graph_result, line_number=last_line, analysis_progress=100, current_file=current_file)
                 break
 
             if result_type == 'error':
@@ -189,7 +172,7 @@ class ServiceOrchestrator:
             next_analysis_line = analysis_result['line_number']
             await connection.execute_queries(analysis_result.get('query_data', []))
             graph_result = await connection.execute_query_and_return_graph(self.user_id, file_pairs)
-            yield self._stream_data(graph=graph_result, line_number=next_analysis_line, analysis_progress=int((next_analysis_line / last_line) * 100), current_file=current_file)
+            yield emit_data(graph=graph_result, line_number=next_analysis_line, analysis_progress=int((next_analysis_line / last_line) * 100), current_file=current_file)
             await events_to_analyzer.put({'type': 'process_completed'})
 
         await analysis_task
@@ -197,7 +180,7 @@ class ServiceOrchestrator:
     async def _postprocess_file(self, connection: Neo4jConnection, folder_name: str, 
                                 file_name: str, file_pairs: list) -> None:
         """파일 분석 후처리: 변수 타입 해석 및 컬럼 역할 산출"""
-        folder_esc, file_esc = self._escape(folder_name), self._escape(file_name)
+        folder_esc, file_esc = escape_for_cypher(folder_name), escape_for_cypher(file_name)
         
         # 변수 타입 해석
         var_rows = (await connection.execute_queries([f"""
@@ -222,16 +205,16 @@ class ServiceOrchestrator:
             type_results = await asyncio.gather(*[
                 resolve_table_variable_type(
                     row['varName'], row.get('declaredType'), row['schema'], row['table'],
-                    self._parse_json(row.get('columns')),
+                    parse_json_maybe(row.get('columns')),
                     self.api_key, self.locale
                 )
                 for row in var_rows
             ])
             
-            user_id_esc = self._escape(self.user_id)
+            user_id_esc = escape_for_cypher(self.user_id)
             update_queries = [
-                f"MATCH (v:Variable {{name: '{self._escape(row['varName'])}', folder_name: '{folder_esc}', file_name: '{file_esc}', user_id: '{user_id_esc}'}}) "
-                f"SET v.type = '{self._escape((result or {}).get('resolvedType') or row.get('declaredType'))}', v.resolved = true"
+                f"MATCH (v:Variable {{name: '{escape_for_cypher(row['varName'])}', folder_name: '{folder_esc}', file_name: '{file_esc}', user_id: '{user_id_esc}'}}) "
+                f"SET v.type = '{escape_for_cypher((result or {}).get('resolvedType') or row.get('declaredType'))}', v.resolved = true"
                 for row, result in zip(var_rows, type_results)
             ]
 
@@ -251,15 +234,15 @@ class ServiceOrchestrator:
         if table_rows:
             roles_results = await asyncio.gather(*[
                 understand_column_roles(
-                    self._parse_json(row.get('columns')),
-                    self._parse_json(row.get('dmlSummaries')),
+                    parse_json_maybe(row.get('columns')),
+                    parse_json_maybe(row.get('dmlSummaries')),
                     self.api_key, self.locale
                 )
                 for row in table_rows
             ], return_exceptions=True)
             
             column_update_queries = []
-            user_id_esc = self._escape(self.user_id)
+            user_id_esc = escape_for_cypher(self.user_id)
             for row, roles_result in zip(table_rows, roles_results):
                 if isinstance(roles_result, Exception):
                     continue
@@ -270,15 +253,15 @@ class ServiceOrchestrator:
                 
                 # 테이블 설명 업데이트
                 if table_desc := roles_dict.get('tableDescription'):
-                    column_update_queries.append(f"{match_table} SET t.description = '{self._escape(table_desc)}'")
+                    column_update_queries.append(f"{match_table} SET t.description = '{escape_for_cypher(table_desc)}'")
                 
                 # 컬럼 역할 업데이트
                 for role_item in (roles_dict.get('roles') or []):
                     if col_name := role_item.get('name'):
                         column_update_queries.append(
                             f"{match_table} "
-                            f"MATCH (t)-[:HAS_COLUMN]->(c:Column {{user_id: '{user_id_esc}', name: '{self._escape(col_name)}'}}) "
-                            f"SET c.description = '{self._escape(role_item.get('role', ''))}'"
+                            f"MATCH (t)-[:HAS_COLUMN]->(c:Column {{user_id: '{user_id_esc}', name: '{escape_for_cypher(col_name)}'}}) "
+                            f"SET c.description = '{escape_for_cypher(role_item.get('role', ''))}'"
                         )
 
             if column_update_queries:
@@ -314,7 +297,7 @@ class ServiceOrchestrator:
                 # Table 노드 MERGE
                 t_merge_key = {**common_props, 'schema': effective_schema, 'name': parsed_table}
                 t_merge_str = ', '.join(f"`{k}`: '{v}'" for k, v in t_merge_key.items())
-                t_set_props = {**common_props, 'description': self._escape(table_comment), 'table_type': table_type}
+                t_set_props = {**common_props, 'description': escape_for_cypher(table_comment), 'table_type': table_type}
                 t_set_str = ', '.join(f"t.`{k}` = '{v}'" for k, v in t_set_props.items())
                 cypher_queries.append(f"MERGE (t:Table {{{t_merge_str}}}) SET {t_set_str}")
 
@@ -331,8 +314,8 @@ class ServiceOrchestrator:
                     c_merge_key = {'user_id': self.user_id, 'name': col_name, 'fqn': fqn, 'project_name': self.project_name}
                     c_merge_str = ', '.join(f"`{k}`: '{v}'" for k, v in c_merge_key.items())
                     c_set_props = {
-                        'dtype': self._escape(col_type),
-                        'description': self._escape(col_comment),
+                        'dtype': escape_for_cypher(col_type),
+                        'description': escape_for_cypher(col_comment),
                         'nullable': 'true' if col_nullable else 'false',
                         'project_name': self.project_name
                     }
@@ -376,7 +359,7 @@ class ServiceOrchestrator:
 
     async def _ensure_folder_node(self, connection: Neo4jConnection, folder_name: str) -> None:
         """폴더 노드 생성"""
-        user_id_esc, folder_esc, project_esc = self._escape(self.user_id), self._escape(folder_name), self._escape(self.project_name)
+        user_id_esc, folder_esc, project_esc = escape_for_cypher(self.user_id), escape_for_cypher(folder_name), escape_for_cypher(self.project_name)
         await connection.execute_queries([
             f"MERGE (f:Folder {{user_id: '{user_id_esc}', name: '{folder_esc}', project_name: '{project_esc}', has_children: true}}) RETURN f"
         ])
@@ -401,109 +384,6 @@ class ServiceOrchestrator:
         except Exception:
             return []
 
-    # ----- Converting 프로세스 -----
-
-    async def convert_to_springboot(self, file_names: list) -> AsyncGenerator[bytes, None]:
-        """
-        Spring Boot 프로젝트 생성
-        
-        Args:
-            file_names: [(folder_name, file_name), ...] 리스트
-        
-        Yields:
-            bytes: 스트리밍 응답 데이터
-        """
-        try:
-            yield self._emit("data", file_type="project_name", project_name=self.project_name)
-            file_count = len(file_names)
-            
-            # Generator 공통 파라미터
-            gen_params = (self.project_name, self.user_id, self.api_key, self.locale, self.target_lang)
-
-            for current_index, (folder_name, file_name) in enumerate(file_names, start=1):
-                base_name = os.path.splitext(file_name)[0]
-                
-                # Step 1: Entity
-                yield self._emit("message", step=1, content=f"{base_name} - Generating Entity Class")
-                entity_result_list = await EntityGenerator(*gen_params).generate()
-                for entity in entity_result_list:
-                    entity_name, entity_code = entity['entityName'], entity['entityCode']
-                    yield self._emit("data", file_type="entity_class", file_name=f"{entity_name}.java", code=entity_code)
-                yield self._emit("Done", step=1, file_count=file_count, current_count=current_index)
-
-                # Step 2: Repository
-                yield self._emit("message", step=2, content=f"{base_name} - Generating Repository Interface")
-                used_query_methods, global_variables, sequence_methods, repository_list = await RepositoryGenerator(*gen_params).generate()
-                for repo in repository_list:
-                    repo_name, repo_code = repo['repositoryName'], repo['code']
-                    yield self._emit("data", file_type="repository_class", file_name=f"{repo_name}.java", code=repo_code)
-                yield self._emit("Done", step=2, file_count=file_count, current_count=current_index)
-
-                # Step 3: Service Skeleton - service class 틀 생성
-                yield self._emit("message", step=3, content="Business Logic Processing")
-                logging.info(f"Start converting {base_name}\n")
-
-                yield self._emit("message", step=3, content=f"{base_name} - Service Skeleton")
-                service_creation_info, service_class_name, exist_command_class, command_class_list = (
-                    await ServiceSkeletonGenerator(*gen_params).generate(entity_result_list, folder_name, file_name, global_variables)
-                )
-
-                # Step 3: Service Skeleton - command class 생성
-                yield self._emit("message", step=3, content=f"{base_name} - Command Class")
-                for command in command_class_list:
-                    cmd_name, cmd_code = command['commandName'], command['commandCode']
-                    yield self._emit("data", file_type="command_class", file_name=f"{cmd_name}.java", code=cmd_code)
-                yield self._emit("Done", step=3, file_count=file_count, current_count=current_index)
-
-                # Step 4: Service 바디 & Controller 생성
-                yield self._emit("message", step=4, content=f"{base_name} - Service Controller Processing")
-                
-                # Service 생성
-                for svc in service_creation_info:
-                    svc_skeleton, cmd_var, proc_name = (
-                        svc['service_method_skeleton'], svc['command_class_variable'], svc['procedure_name']
-                    )
-                    
-                    # Service 바디 생성
-                    service_code = await start_service_preprocessing(
-                        svc_skeleton, cmd_var, proc_name,
-                        used_query_methods, folder_name, file_name, sequence_methods,
-                        self.project_name,
-                        self.user_id, self.api_key, self.locale,
-                        self.target_lang
-                    )
-                    
-                    # Service 파일 스트리밍 이벤트 전송
-                    yield self._emit("data", file_type="service_class", file_name=f"{service_class_name}.java", code=service_code)
-                
-                # Controller 생성 
-                controller_name, controller_code = await ControllerGenerator(*gen_params).generate(
-                    base_name, service_class_name, exist_command_class, service_creation_info
-                )
-                yield self._emit("data", file_type="controller_class", file_name=f"{controller_name}.java", code=controller_code)
-                
-                yield self._emit("message", step=4, content=f"{base_name} - Service & Controller 생성 완료")
-                yield self._emit("Done", step=4)
-
-            # Step 5: Config Files + Main Class
-            yield self._emit("message", step=5, content="Generating Configuration Files")
-            
-            # Config Files 생성
-            pom_xml_code, properties_code = await ConfigFilesGenerator(self.project_name, self.user_id).generate()
-            yield self._emit("data", file_type="pom", file_name="pom.xml", code=pom_xml_code)
-            yield self._emit("data", file_type="properties", file_name="application.properties", code=properties_code)
-
-            # Main Class 생성
-            main_code = await MainClassGenerator(self.project_name, self.user_id).generate()
-            yield self._emit("message", step=5, content="Generating Main Application")
-            yield self._emit("data", file_type="main", file_name=f"{self.project_name_cap}Application.java", code=main_code)
-            yield self._emit("Done", step=5)
-
-        except ConvertingError:
-            raise
-        except Exception as e:
-            logging.error(f"스프링 부트 프로젝트 변환 중 오류: {str(e)}")
-            raise ConvertingError(f"스프링 부트 프로젝트 변환 중 오류: {str(e)}")
 
     # ----- 파일 작업 -----
 
@@ -550,46 +430,3 @@ class ServiceOrchestrator:
             raise FileProcessingError(f"데이터 삭제 중 오류: {str(e)}")
         finally:
             await connection.close()
-
-    # ----- 유틸리티 헬퍼 -----
-
-    @staticmethod
-    def _escape(text: str) -> str:
-        """Cypher 쿼리용 문자열 이스케이프"""
-        return str(text).replace("'", "\\'")
-
-    @staticmethod
-    def _parse_json(data):
-        """JSON 문자열을 파싱하거나 리스트 그대로 반환"""
-        if isinstance(data, str):
-            return json.loads(data)
-        return data or []
-
-    # ----- 스트리밍 헬퍼 -----
-
-    @staticmethod
-    def _stream_bytes(payload: dict) -> bytes:
-        """스트림 전송용 바이트 생성"""
-        return json.dumps(payload, default=str).encode('utf-8') + STREAM_DELIMITER
-
-    @staticmethod
-    def _stream_alarm(message: str, **extra) -> bytes:
-        """ALARM 타입 스트림 메시지"""
-        return json.dumps({"type": "ALARM", "MESSAGE": message, **extra}, default=str).encode('utf-8') + STREAM_DELIMITER
-
-    @staticmethod
-    def _stream_data(**fields) -> bytes:
-        """DATA 타입 스트림 메시지"""
-        payload = {"type": "DATA"}
-        payload.update({k: v for k, v in fields.items() if v is not None})
-        return json.dumps(payload, default=str).encode('utf-8') + STREAM_DELIMITER
-
-    @staticmethod
-    def _stream_error(error_msg: str) -> bytes:
-        """ERROR 타입 스트림 메시지"""
-        return json.dumps({"error": error_msg}, default=str).encode('utf-8') + STREAM_DELIMITER
-
-    @staticmethod
-    def _emit(data_type: str, **kwargs) -> bytes:
-        """Converting용 emit"""
-        return json.dumps({"data_type": data_type, **kwargs}).encode('utf-8') + STREAM_DELIMITER

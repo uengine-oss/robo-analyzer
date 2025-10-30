@@ -9,6 +9,7 @@ import os
 import logging
 import json
 import aiofiles
+import uuid
 import tiktoken
 from collections import defaultdict
 from typing import Optional, Dict, List, Tuple, Any, Union
@@ -78,6 +79,88 @@ def build_rule_based_path(project_name: str, user_id: str, target_lang: str, rol
     base_path = os.path.join(base_dir, 'target', target_lang, user_id, project_name)
     
     return os.path.join(base_path, relative_path)
+
+
+#==============================================================================
+# 스트리밍/이벤트 유틸리티
+#==============================================================================
+
+# 서비스/전략 공통 스트림 구분자
+STREAM_DELIMITER = b"send_stream"
+
+def emit_bytes(payload: dict) -> bytes:
+    """스트림 전송용 바이트 생성 (구분자 포함)"""
+    return json.dumps(payload, default=str).encode('utf-8') + STREAM_DELIMITER
+
+def emit_message(content) -> bytes:
+    """message 이벤트 전송."""
+    return emit_bytes({"type": "message", "content": content})
+
+def emit_error(content) -> bytes:
+    """에러 이벤트 전용 헬퍼.
+    - {"type":"error", "content": <payload>} 형식으로 전송
+    - content에는 에러 문자열 또는 에러 객체 요약을 전달
+    """
+    return emit_bytes({"type": "error", "content": content})
+
+def emit_data(**fields) -> bytes:
+    """data 이벤트 전송. fields는 최상위 필드로 포함됨."""
+    payload = {"type": "data"}
+    payload.update({k: v for k, v in fields.items() if v is not None})
+    return emit_bytes(payload)
+
+def emit_status(step: int, done: bool = False) -> bytes:
+    """status 이벤트 전송. 단계 번호와 완료 여부를 전달."""
+    return emit_bytes({"type": "status", "step": int(step), "done": bool(done)})
+
+
+def build_error_body(exc: Exception, trace_id: str | None = None, message: str | None = None) -> dict:
+    """비스트리밍 500 응답용 표준 에러 바디 생성.
+
+    - errorType: 예외 클래스명
+    - message: 사람이 읽을 수 있는 메시지
+    - traceId: 로그 매칭용 식별자
+    """
+    return {
+        "errorType": exc.__class__.__name__,
+        "message": message or str(exc),
+        "traceId": trace_id or f"req-{uuid.uuid4()}"
+    }
+
+
+async def stream_with_error_boundary(async_gen):
+    """스트리밍 처리 경계. 내부 예외 발생 시 단일 에러 이벤트 전송 후 즉시 종료.
+
+    모든 스트리밍 엔드포인트는 이 래퍼로 감싸 에러를 일관적으로 전파한다.
+    """
+    try:
+        async for chunk in async_gen:
+            yield chunk
+    except Exception as e:
+        # 실제 원인(예외 타입 + 메시지)만 전송하고 스트림 종료
+        yield emit_error(f"{e.__class__.__name__}: {str(e)}")
+
+
+#==============================================================================
+# 문자열/JSON/경로 보조 유틸리티
+#==============================================================================
+
+def escape_for_cypher(text: str) -> str:
+    """Cypher 쿼리용 문자열 이스케이프"""
+    return str(text).replace("'", "\\'")
+
+def parse_json_maybe(data):
+    """JSON 문자열을 파싱하거나 리스트/딕셔너리는 그대로 반환"""
+    if isinstance(data, str):
+        return json.loads(data)
+    return data or []
+
+def safe_join(*parts: str) -> str:
+    """안전한 경로 결합 (간단한 traversal 방지)"""
+    p = os.path.normpath(os.path.join(*parts))
+    if any(seg == '..' for seg in p.split(os.sep)):
+        raise UtilProcessingError("Invalid path traversal")
+    return p
 
 
 #==============================================================================

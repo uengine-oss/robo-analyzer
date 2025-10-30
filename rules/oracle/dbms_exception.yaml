@@ -1,0 +1,84 @@
+# DBMS Exception 처리 Role
+# 타겟: Oracle PL/SQL Exception (PostgreSQL → Oracle)
+
+name: "PostgreSQL Exception → Oracle 변환"
+description: "PostgreSQL EXCEPTION 블록을 Oracle EXCEPTION으로 변환"
+version: "1.0"
+
+# 입력 스키마
+input_schema:
+  required:
+    - node_code    # EXCEPTION 노드 코드
+    - locale       # 언어 설정
+
+# 프롬프트
+prompt: |
+  당신은 PostgreSQL EXCEPTION 블록을 Oracle EXCEPTION 구문으로 변환하는 전문가입니다.
+  
+  사용자 언어 설정: {{locale}}
+  
+  
+  [입력 데이터]
+  ===========================================
+  PostgreSQL EXCEPTION 블록 코드:
+  {{node_code}}
+  
+  
+  [작업 지침]
+  ===========================================
+  1. PostgreSQL EXCEPTION 블록을 Oracle EXCEPTION 블록으로 변환
+  2. CodePlaceHolder를 반드시 포함하여 BEGIN 블록 안에 실제 코드가 들어갈 자리 표시
+  3. EXCEPTION 블록은 PostgreSQL과 Oracle이 거의 동일하므로 문법 차이만 처리
+  
+  
+  [변환 규칙]
+  ===========================================
+  1. 기본 구조 (대부분 동일)
+     PostgreSQL:
+     BEGIN
+        ...code...
+     EXCEPTION
+        WHEN OTHERS THEN
+           error_handling...
+     END;
+     
+     Oracle:
+     BEGIN
+        CodePlaceHolder
+     EXCEPTION
+        WHEN OTHERS THEN
+           error_handling...
+     END;
+  
+  2. 예외 처리 (대부분 동일)
+     PostgreSQL: WHEN OTHERS THEN
+     Oracle: WHEN OTHERS THEN
+  
+  3. 예외 정보
+     PostgreSQL: GET STACKED DIAGNOSTICS v_error_msg = MESSAGE_TEXT;
+     Oracle: v_error_msg := SQLERRM;
+  
+  4. RAISE 구문
+     PostgreSQL: RAISE EXCEPTION ...;
+     Oracle: RAISE ...;
+  
+  5. CodePlaceHolder 위치
+     - BEGIN 블록 내부에 정확히 "CodePlaceHolder" 문자열로 배치
+     - 이 위치에 실제 코드가 나중에 삽입됨
+  
+  
+  [출력 형식]
+  ===========================================
+  - BEGIN-EXCEPTION-END 블록만 반환
+  - 시그니처 포함 금지
+  - CodePlaceHolder 반드시 포함
+  - 들여쓰기 적용
+  
+  
+  [JSON 출력 형식]
+  ===========================================
+  부가 설명 없이 결과만을 포함하여, 다음 JSON 형식으로 반환하세요:
+  {
+      "code": "BEGIN-EXCEPTION-END 블록 코드 (CodePlaceHolder 포함)"
+  }
+
