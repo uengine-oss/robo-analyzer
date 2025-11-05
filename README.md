@@ -34,7 +34,7 @@ Legacy Modernizer는 **레거시 코드를 정밀하게 이해하고 그래프�
 
 ### 1.2 핵심 철학
 
-```
+```text
 ┌─────────────────────────────────────────────────────────────┐
 │  "코드는 단순한 텍스트가 아니라 관계의 집합이다"             │
 │                                                               │
@@ -65,7 +65,7 @@ Legacy Modernizer는 다음 두 단계로 구성됩니다.
 
 ### 2.1 전체 시스템 구조
 
-```
+```text
 ┌──────────────────────────────────────────────────────────────────┐
 │                         Frontend (React)                          │
 │   - 파일 업로드                                                   │
@@ -104,7 +104,7 @@ Legacy Modernizer는 다음 두 단계로 구성됩니다.
 
 ### 2.2 Understanding 모듈 구조
 
-```
+```text
 understand/
 ├── analysis.py              # Analyzer 핵심 파이프라인
 └── neo4j_connection.py      # Neo4j 연결 및 쿼리 실행
@@ -134,7 +134,7 @@ util/
 
 Understanding 파이프라인은 **반드시 정해진 폴더 구조**를 따라야 합니다.
 
-```
+```text
 data/
 └── {user_id}/
     └── {project_name}/
@@ -162,7 +162,7 @@ ANTLR JSON은 **Understanding 파이프라인의 핵심 입력 데이터**입니
 
 #### **기본 구조**
 
-```
+```json
 {
   "type": "FILE",
   "startLine": 0,
@@ -484,7 +484,7 @@ analysis_task = asyncio.create_task(analyzer.run())
 
 ANTLR JSON을 **후위순회(post-order traversal)**하여 `StatementNode` 객체 리스트를 생성합니다.
 
-```
+```text
 [Batch 1] 리프 노드 (SELECT, INSERT, UPDATE) - 800 tokens
 [Batch 2] 부모 노드 (IF) - 200 tokens (단독)
 [Batch 3] 리프 노드 (LOOP 내부) - 900 tokens
@@ -497,7 +497,7 @@ ANTLR JSON을 **후위순회(post-order traversal)**하여 `StatementNode` 객�
 
 토큰 한도(기본 1000 토큰)를 넘지 않도록 노드를 묶어서 LLM에 전달하는 전략입니다.
 
-```
+```text
 [Batch 1] 리프 노드 (SELECT, INSERT, UPDATE) - 800 tokens
 [Batch 2] 부모 노드 (IF) - 200 tokens (단독)
 [Batch 3] 리프 노드 (LOOP 내부) - 900 tokens
@@ -508,7 +508,7 @@ ANTLR JSON을 **후위순회(post-order traversal)**하여 `StatementNode` 객�
 
 #### **병렬 호출 전략**
 
-```
+```text
 [Batch 1] 리프 노드 (SELECT, INSERT, UPDATE) - 800 tokens
 [Batch 2] 부모 노드 (IF) - 200 tokens (단독)
 [Batch 3] 리프 노드 (LOOP 내부) - 900 tokens
@@ -532,7 +532,7 @@ ANTLR JSON을 **후위순회(post-order traversal)**하여 `StatementNode` 객�
 
 LLM 결과를 **순서대로** Neo4j에 반영합니다. (배치 ID 순서 보장)
 
-```
+```text
 [Batch 1] 리프 노드 (SELECT, INSERT, UPDATE) - 800 tokens
 [Batch 2] 부모 노드 (IF) - 200 tokens (단독)
 [Batch 3] 리프 노드 (LOOP 내부) - 900 tokens
@@ -541,7 +541,7 @@ LLM 결과를 **순서대로** Neo4j에 반영합니다. (배치 ID 순서 보�
 
 #### **Neo4j 쿼리 생성 예시**
 
-```
+```text
 [Batch 1] 리프 노드 (SELECT, INSERT, UPDATE) - 800 tokens
 [Batch 2] 부모 노드 (IF) - 200 tokens (단독)
 [Batch 3] 리프 노드 (LOOP 내부) - 900 tokens
@@ -577,7 +577,7 @@ async def _postprocess_file(self, connection, folder_name, file_name, file_pairs
 
 ### 4.11 Step 10: SSE 스트리밍
 
-```
+```text
 [Batch 1] 리프 노드 (SELECT, INSERT, UPDATE) - 800 tokens
 [Batch 2] 부모 노드 (IF) - 200 tokens (단독)
 [Batch 3] 리프 노드 (LOOP 내부) - 900 tokens
@@ -593,7 +593,7 @@ async def _postprocess_file(self, connection, folder_name, file_name, file_pairs
 
 #### **해결 방법: 배치 플래닝**
 
-```
+```text
 [Batch 1] 리프 노드 (SELECT, INSERT, UPDATE) - 800 tokens
 [Batch 2] 부모 노드 (IF) - 200 tokens (단독)
 [Batch 3] 리프 노드 (LOOP 내부) - 900 tokens
@@ -610,8 +610,7 @@ async def _postprocess_file(self, connection, folder_name, file_name, file_pairs
 
 ### 5.1 전체 Understanding 플로우
 
-```
-mermaid
+```mermaid
 sequenceDiagram
     participant Client as Frontend
     participant Router as service/router.py
@@ -668,8 +667,7 @@ sequenceDiagram
 
 ### 5.2 클래스별 상호작용
 
-```
-mermaid
+```mermaid
 classDiagram
     class ServiceOrchestrator {
         +understand_project(file_names)
@@ -736,7 +734,7 @@ classDiagram
 
 **역할**: FastAPI 앱 초기화 및 서버 실행
 
-```
+```python
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
@@ -765,8 +763,7 @@ if __name__ == "__main__":
 ```
 
 **실행 방법**:
-```
-bash
+```bash
 python main.py
 # 또는
 uvicorn main:app --reload --port 5502
@@ -853,7 +850,7 @@ class StatementNode:
 
 `StatementCollector`는 ANTLR JSON을 후위순회하며 `StatementNode` 객체를 만들어 냅니다. 프로시저 단위로 노드를 묶고, 부모-자식 관계를 연결하여 이후 배치 및 적용 단계에서 의존성을 추적할 수 있게 합니다.
 
-```
+```python
 class StatementCollector:
     def collect(self):
         # 후위순회: 자식 → 부모 순서 보장
@@ -881,7 +878,7 @@ class StatementCollector:
 
 `BatchPlanner`는 LLM 토큰 한도를 넘지 않도록 StatementNode 목록을 잘게 묶습니다. 부모 노드는 의존성 때문에 단독으로 보내고, 리프 노드는 토큰 합이 허용 범위 내에서 묶어 전송하는 전략을 사용합니다.
 
-```
+```python
 class BatchPlanner:
     def plan(self, nodes, folder_file):
         for node in nodes:
@@ -901,7 +898,7 @@ class BatchPlanner:
 
 `LLMInvoker`는 하나의 배치를 받아 일반 요약과 DML 테이블 분석을 병렬로 수행합니다. CPU 바운드 LLM 호출을 `asyncio.to_thread`로 감싸 비동기 코드와 조화시키는 것이 특징입니다.
 
-```
+```python
 class LLMInvoker:
     async def invoke(self, batch):
         general_task = asyncio.to_thread(understand_code, ...)
@@ -913,7 +910,7 @@ class LLMInvoker:
 
 `ApplyManager`는 LLM에서 돌아온 결과를 배치 순서에 맞춰 Neo4j에 반영합니다. 순서 보장을 위해 내부 큐를 사용하고, 노드/테이블 쿼리를 생성한 뒤 전송 큐를 통해 Analyzer와 동기화합니다.
 
-```
+```python
 class ApplyManager:
     async def submit(self, batch, general, table):
         # 순서 보장
@@ -941,7 +938,7 @@ class ApplyManager:
 | `execute_query_and_return_graph()` | 그래프 조회 | Dict (nodes, relationships) |
 | `node_exists()` | 노드 존재 여부 확인 | bool |
 
-```
+```python
 class Neo4jConnection:
     DATABASE_NAME = "neo4j"
     
@@ -963,7 +960,7 @@ class Neo4jConnection:
 **역할**: 코드 동작 요약, 변수 사용, 프로시저 호출 식별
 
 **입력**:
-```
+```json
 {
   "code": "9: SELECT * FROM orders WHERE order_id = p_order_id\\n10: INTO v_order_date, v_total_amount;",
   "ranges": [{"startLine": 9, "endLine": 10}],
@@ -973,7 +970,7 @@ class Neo4jConnection:
 ```
 
 **출력**:
-```
+```json
 {
   "analysis": [
     {
@@ -992,7 +989,7 @@ class Neo4jConnection:
 **역할**: DML 구문에서 테이블, 컬럼, FK 관계, DB 링크 추출
 
 **출력**:
-```
+```json
 {
   "tables": [
     {
@@ -1018,7 +1015,7 @@ class Neo4jConnection:
 **역할**: DECLARE/SPEC 구간의 변수 선언 정보 추출
 
 **출력**:
-```
+```json
 {
   "variables": [
     {"name": "p_order_id", "type": "INTEGER", "value": null, "parameter_type": "IN"},
@@ -1034,7 +1031,7 @@ class Neo4jConnection:
 **역할**: 하위 노드 요약들을 모아 프로시저 전체 동작 요약
 
 **입력**:
-```
+```json
 {
   "summaries": {
     "SELECT_9_10": "주문 정보를 조회합니다.",
@@ -1046,7 +1043,7 @@ class Neo4jConnection:
 ```
 
 **출력**:
-```
+```json
 {
   "summary": "이 프로시저는 주문 ID를 받아 주문 정보를 조회하고, 주문 금액에 따라 할인을 적용한 후, 주문 히스토리에 기록합니다. 최종적으로 처리 결과를 커밋합니다."
 }
@@ -1057,7 +1054,7 @@ class Neo4jConnection:
 **역할**: DML 사용 패턴을 기반으로 컬럼의 역할 라벨 추론
 
 **입력**:
-```
+```json
 {
   "columns_json": [
     {"name": "ORDER_ID", "dtype": "INTEGER", "nullable": false},
@@ -1069,7 +1066,7 @@ class Neo4jConnection:
 ```
 
 **출력**:
-```
+```json
 {
   "tableDescription": "주문 마스터 테이블로, 주문 기본 정보를 저장하고 조회/기록하는 데 사용됩니다.",
   "roles": [
@@ -1111,7 +1108,7 @@ parse_table_identifier("ORDERS")
 
 **역할**: LLM API 클라이언트 생성 (OpenAI 호환)
 
-```
+```python
 def get_llm(model=None, temperature=0.1, max_tokens=None, api_key=None, base_url=None):
     base_url = base_url or os.getenv("LLM_API_BASE", "https://api.openai.com/v1")
     api_key = api_key or os.getenv("LLM_API_KEY")
@@ -1139,8 +1136,8 @@ def get_llm(model=None, temperature=0.1, max_tokens=None, api_key=None, base_url
 
 ### 7.2 프로젝트 설정
 
-```
-bash
+```bash
+
 # 1. 저장소 클론
 git clone <repository-url>
 cd backend
@@ -1159,8 +1156,8 @@ pipenv install
 
 ### 7.3 환경 변수 설정 (.env)
 
-```
-bash
+```bash
+
 # Neo4j 연결 정보
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
@@ -1206,8 +1203,8 @@ python_functions = test_*
 
 ### 8.2 Understanding 테스트 실행
 
-```
-bash
+```bash
+
 # 이해 파이프라인 테스트 (기본값: 리팩터)
 pytest test/test_understanding.py -v
 
@@ -1311,32 +1308,32 @@ VSCode에서 pytest를 기본 테스트 러너로 사용하려면 `.vscode/setti
 
 #### **모든 노드 조회**
 
-```
-cypher
+```cypher
+
 MATCH (n)
 RETURN n
 ```
 
 #### **특정 사용자의 노드만 조회**
 
-```
-cypher
+```cypher
+
 MATCH (n {user_id: 'KO_TestSession'})
 RETURN n
 ```
 
 #### **프로시저 노드 조회**
 
-```
-cypher
+```cypher
+
 MATCH (p:PROCEDURE)
 RETURN p.procedure_name AS name, p.summary AS summary
 ```
 
 #### **테이블 및 컬럼 조회**
 
-```
-cypher
+```cypher
+
 MATCH (t:Table)-[:HAS_COLUMN]->(c:Column)
 WHERE t.user_id = 'user123'
 RETURN t.name AS table_name, collect(c.name) AS columns
@@ -1344,8 +1341,8 @@ RETURN t.name AS table_name, collect(c.name) AS columns
 
 #### **프로시저 호출 관계**
 
-```
-cypher
+```cypher
+
 MATCH (caller)-[:CALL]->(callee:PROCEDURE)
 WHERE caller.user_id = 'user123'
 RETURN caller.procedure_name AS caller, callee.procedure_name AS callee
@@ -1353,8 +1350,8 @@ RETURN caller.procedure_name AS caller, callee.procedure_name AS callee
 
 #### **DML과 테이블 관계**
 
-```
-cypher
+```cypher
+
 MATCH (dml)-[r:FROM|WRITES]->(t:Table)
 WHERE dml.user_id = 'user123'
 RETURN type(r) AS relation, labels(dml)[0] AS dml_type, t.name AS table_name
@@ -1362,8 +1359,8 @@ RETURN type(r) AS relation, labels(dml)[0] AS dml_type, t.name AS table_name
 
 #### **모든 노드 및 관계 삭제 (주의!)**
 
-```
-cypher
+```cypher
+
 MATCH (n {user_id: 'user123'})
 DETACH DELETE n
 ```
@@ -1386,8 +1383,8 @@ DETACH DELETE n
 
 또는 쿼리에 직접 LIMIT 추가:
 
-```
-cypher
+```cypher
+
 MATCH (n {user_id: 'user123'})
 RETURN n
 LIMIT 1000
@@ -1517,8 +1514,8 @@ set_llm_cache(SQLiteCache(database_path=db_path))
 **캐시 파일 위치**: `prompt/langchain.db`
 
 **캐시 삭제 방법**:
-```
-bash
+```bash
+
 rm prompt/langchain.db
 ```
 
@@ -1660,18 +1657,3 @@ class StatementNode:
 ## 마무리
 
 이 문서는 Legacy Modernizer의 **Understanding 파이프라인**을 완벽히 이해하고, 수정 및 확장할 수 있도록 작성되었습니다.
-
-### 핵심 포인트
-
-1. **ANTLR JSON → StatementNode → Neo4j 그래프** 변환 과정 이해
-2. **후위순회 + 배치 플래닝 + 병렬 LLM 호출** 전략
-3. **프롬프트별 역할 분담** (코드 분석, DML 분석, 변수 분석, 요약 등)
-4. **순서 보장 적용** (ApplyManager의 배치 ID 기반 순차 처리)
-5. **후처리** (변수 타입 해석, 컬럼 역할 분석)
-
----
-
-**문서 버전**: 2.0.0
-**최종 수정일**: 2025-01-10
-**작성자**: Legacy Modernizer Development Team
----
