@@ -65,7 +65,7 @@ Legacy Modernizer는 다음 두 단계로 구성됩니다.
 
 ### 2.1 전체 시스템 구조
 
-\`\`\`
+```
 ┌──────────────────────────────────────────────────────────────────┐
 │                         Frontend (React)                          │
 │   - 파일 업로드                                                   │
@@ -100,7 +100,7 @@ Legacy Modernizer는 다음 두 단계로 구성됩니다.
 │   - 노드: PROCEDURE, SELECT, INSERT, Table, Column, Variable     │
 │   - 관계: PARENT_OF, NEXT, FROM, WRITES, CALL, HAS_COLUMN        │
 └───────────────────────────────────────────────────────────────────┘
-\`\`\`
+```
 
 ### 2.2 Understanding 모듈 구조
 
@@ -134,7 +134,7 @@ util/
 
 Understanding 파이프라인은 **반드시 정해진 폴더 구조**를 따라야 합니다.
 
-\`\`\`
+```
 data/
 └── {user_id}/
     └── {project_name}/
@@ -146,7 +146,7 @@ data/
         │       └── {file_name}.json
         └── ddl/                    # DDL 파일 (선택)
             └── {table}.sql
-\`\`\`
+```
 
 #### **폴더별 역할**
 
@@ -162,7 +162,7 @@ ANTLR JSON은 **Understanding 파이프라인의 핵심 입력 데이터**입니
 
 #### **기본 구조**
 
-\`\`\`json
+```
 {
   "type": "FILE",
   "startLine": 0,
@@ -207,7 +207,7 @@ ANTLR JSON은 **Understanding 파이프라인의 핵심 입력 데이터**입니
     }
   ]
 }
-\`\`\`
+```
 
 #### **필드 설명**
 
@@ -320,7 +320,7 @@ MERGE (select:SELECT {startLine: 9, ...})-[:FROM]->(table:Table {name: 'ORDERS'}
 
 Understanding 파이프라인은 다음 순서로 실행됩니다:
 
-\`\`\`
+```
 [1] API 요청 수신 (router.py)
      │
 [2] DDL 파일 처리 (service.py) 
@@ -340,7 +340,7 @@ Understanding 파이프라인은 다음 순서로 실행됩니다:
 [9] 후처리 (변수 타입 해석, 컬럼 역할 분석)
      │
 [10] SSE 스트리밍으로 프론트엔드에 전송
-\`\`\`
+```
 
 ### 4.2 Step 1: API 요청 수신
 
@@ -484,49 +484,12 @@ analysis_task = asyncio.create_task(analyzer.run())
 
 ANTLR JSON을 **후위순회(post-order traversal)**하여 `StatementNode` 객체 리스트를 생성합니다.
 
-\`\`\`python
-# understand/analysis.py
-
-class StatementCollector:
-    def collect(self):
-        # 후위순회: 자식 → 부모 순서 보장
-        self._visit(self.antlr_data, current_proc=None, ...)
-        return self.nodes, self.procedures
-    
-    def _visit(self, node, current_proc, current_type, current_schema):
-        # 1. 자식 먼저 방문 (후위순회)
-        for child in node['children']:
-            child_node = self._visit(child, ...)
-            child_nodes.append(child_node)
-        
-        # 2. 현재 노드의 코드 추출
-        code = get_original_node_code(file_content, start_line, end_line)
-        
-        # 3. StatementNode 생성
-        statement_node = StatementNode(
-            node_id=self._node_id,
-            start_line=start_line,
-            end_line=end_line,
-            node_type=node_type,
-            code=code,
-            token=calculate_code_token(code),
-            has_children=bool(child_nodes),
-            procedure_key=procedure_key,
-            ...
-        )
-        
-        # 4. 부모-자식 관계 설정
-        for child_node in child_nodes:
-            child_node.parent = statement_node
-        statement_node.children = child_nodes
-        
-        return statement_node
-\`\`\`
-
-#### **중요: 후위순회를 사용하는 이유**
-
-- **자식 노드의 요약이 먼저 필요**: 부모 노드는 자식 요약을 기반으로 compact code 생성
-- **의존성 해결**: 부모 LLM 호출 전에 자식 LLM 호출이 완료되어야 함
+```
+[Batch 1] 리프 노드 (SELECT, INSERT, UPDATE) - 800 tokens
+[Batch 2] 부모 노드 (IF) - 200 tokens (단독)
+[Batch 3] 리프 노드 (LOOP 내부) - 900 tokens
+[Batch 4] 부모 노드 (PROCEDURE) - 300 tokens (단독)
+```
 
 ### 4.7 Step 6: 배치 플래닝 (BatchPlanner)
 
@@ -534,85 +497,23 @@ class StatementCollector:
 
 토큰 한도(기본 1000 토큰)를 넘지 않도록 노드를 묶어서 LLM에 전달하는 전략입니다.
 
-\`\`\`python
-# understand/analysis.py
-
-class BatchPlanner:
-    def plan(self, nodes, folder_file):
-        batches = []
-        current_nodes = []
-        current_tokens = 0
-        
-        for node in nodes:
-            if not node.analyzable:
-                continue
-            
-            # 부모 노드는 단독 배치
-            if node.has_children:
-                if current_nodes:
-                    batches.append(self._create_batch(batch_id, current_nodes))
-                    batch_id += 1
-                    current_nodes = []
-                    current_tokens = 0
-                
-                # 부모 노드 단독 배치
-                batches.append(self._create_batch(batch_id, [node]))
-                batch_id += 1
-                continue
-            
-            # 토큰 한도 초과 시 배치 확정
-            if current_tokens + node.token > self.token_limit:
-                batches.append(self._create_batch(batch_id, current_nodes))
-                batch_id += 1
-                current_nodes = []
-                current_tokens = 0
-            
-            current_nodes.append(node)
-            current_tokens += node.token
-        
-        return batches
-\`\`\`
-
-#### **배치 예시**
-
-\`\`\`
+```
 [Batch 1] 리프 노드 (SELECT, INSERT, UPDATE) - 800 tokens
 [Batch 2] 부모 노드 (IF) - 200 tokens (단독)
 [Batch 3] 리프 노드 (LOOP 내부) - 900 tokens
 [Batch 4] 부모 노드 (PROCEDURE) - 300 tokens (단독)
-\`\`\`
+```
 
 ### 4.8 Step 7: LLM 병렬 호출 (LLMInvoker)
 
 #### **병렬 호출 전략**
 
-\`\`\`python
-# understand/analysis.py
-
-class LLMInvoker:
-    async def invoke(self, batch):
-        # 일반 분석 태스크
-        general_task = asyncio.to_thread(
-            understand_code,
-            batch.build_general_payload(),
-            batch.ranges,
-            len(batch.ranges),
-            self.api_key,
-            self.locale,
-        )
-        
-        # DML 테이블 분석 태스크 (병렬)
-        table_task = asyncio.to_thread(
-            understand_dml_tables,
-            batch.build_dml_payload(),
-            batch.dml_ranges,
-            self.api_key,
-            self.locale,
-        )
-        
-        # 병렬 실행
-        return await asyncio.gather(general_task, table_task)
-\`\`\`
+```
+[Batch 1] 리프 노드 (SELECT, INSERT, UPDATE) - 800 tokens
+[Batch 2] 부모 노드 (IF) - 200 tokens (단독)
+[Batch 3] 리프 노드 (LOOP 내부) - 900 tokens
+[Batch 4] 부모 노드 (PROCEDURE) - 300 tokens (단독)
+```
 
 #### **LLM 프롬프트별 역할**
 
@@ -631,55 +532,21 @@ class LLMInvoker:
 
 LLM 결과를 **순서대로** Neo4j에 반영합니다. (배치 ID 순서 보장)
 
-\`\`\`python
-# understand/analysis.py
-
-class ApplyManager:
-    async def submit(self, batch, general, table):
-        async with self._lock:
-            # 순서 보장을 위한 대기
-            self._pending[batch.batch_id] = BatchResult(batch, general, table)
-            await self._flush_ready()
-    
-    async def _flush_ready(self):
-        # 배치 ID 순서대로 적용
-        while self._next_batch_id in self._pending:
-            result = self._pending.pop(self._next_batch_id)
-            await self._apply_batch(result)
-            self._next_batch_id += 1
-\`\`\`
+```
+[Batch 1] 리프 노드 (SELECT, INSERT, UPDATE) - 800 tokens
+[Batch 2] 부모 노드 (IF) - 200 tokens (단독)
+[Batch 3] 리프 노드 (LOOP 내부) - 900 tokens
+[Batch 4] 부모 노드 (PROCEDURE) - 300 tokens (단독)
+```
 
 #### **Neo4j 쿼리 생성 예시**
 
-\`\`\`python
-def _build_node_queries(self, node, analysis):
-    summary = analysis.get('summary')
-    
-    # 노드 속성 업데이트
-    query = f"""
-    MERGE (n:{node.node_type} {{startLine: {node.start_line}, ...}})
-    SET n.summary = '{escape_summary(summary)}',
-        n.node_code = '{escape_for_cypher(node.code)}',
-        n.token = {node.token}
-    """
-    
-    # 변수 사용 표시
-    for var in analysis.get('variables', []):
-        query += f"""
-        MATCH (v:Variable {{name: '{var}', ...}})
-        SET v.\`{node.start_line}_{node.end_line}\` = 'Used'
-        """
-    
-    # 프로시저 호출 관계
-    for call in analysis.get('calls', []):
-        query += f"""
-        MATCH (c:{node.node_type} {{startLine: {node.start_line}, ...}})
-        MATCH (p:PROCEDURE {{procedure_name: '{call}', ...}})
-        MERGE (c)-[:CALL]->(p)
-        """
-    
-    return [query]
-\`\`\`
+```
+[Batch 1] 리프 노드 (SELECT, INSERT, UPDATE) - 800 tokens
+[Batch 2] 부모 노드 (IF) - 200 tokens (단독)
+[Batch 3] 리프 노드 (LOOP 내부) - 900 tokens
+[Batch 4] 부모 노드 (PROCEDURE) - 300 tokens (단독)
+```
 
 ### 4.10 Step 9: 후처리
 
@@ -710,26 +577,12 @@ async def _postprocess_file(self, connection, folder_name, file_name, file_pairs
 
 ### 4.11 Step 10: SSE 스트리밍
 
-\`\`\`python
-# service/service.py
-
-async def _analyze_file(self, ...):
-    while True:
-        analysis_result = await events_from_analyzer.get()
-        
-        if analysis_result['type'] == 'end_analysis':
-            # 후처리 실행
-            await self._postprocess_file(...)
-            # 최종 그래프 전송
-            graph_result = await connection.execute_query_and_return_graph(...)
-            yield emit_data(graph=graph_result, analysis_progress=100)
-            break
-        
-        # 중간 진행 상황 전송
-        await connection.execute_queries(analysis_result['query_data'])
-        graph_result = await connection.execute_query_and_return_graph(...)
-        yield emit_data(graph=graph_result, line_number=..., analysis_progress=...)
-\`\`\`
+```
+[Batch 1] 리프 노드 (SELECT, INSERT, UPDATE) - 800 tokens
+[Batch 2] 부모 노드 (IF) - 200 tokens (단독)
+[Batch 3] 리프 노드 (LOOP 내부) - 900 tokens
+[Batch 4] 부모 노드 (PROCEDURE) - 300 tokens (단독)
+```
 
 ### 4.12 컨텍스트 최대 토큰 감지 및 배치 분할
 
@@ -740,13 +593,12 @@ async def _analyze_file(self, ...):
 
 #### **해결 방법: 배치 플래닝**
 
-\`\`\`python
-# understand/analysis.py
-
-class BatchPlanner:
-    def __init__(self, token_limit: int = MAX_BATCH_TOKEN):
-        self.token_limit = token_limit  # 기본 1000 토큰
-\`\`\`
+```
+[Batch 1] 리프 노드 (SELECT, INSERT, UPDATE) - 800 tokens
+[Batch 2] 부모 노드 (IF) - 200 tokens (단독)
+[Batch 3] 리프 노드 (LOOP 내부) - 900 tokens
+[Batch 4] 부모 노드 (PROCEDURE) - 300 tokens (단독)
+```
 
 - **토큰 계산**: tiktoken 라이브러리로 정확한 토큰 수 계산
 - **배치 분할**: 누적 토큰이 한도를 초과하기 직전에 배치 확정
@@ -758,7 +610,8 @@ class BatchPlanner:
 
 ### 5.1 전체 Understanding 플로우
 
-\`\`\`mermaid
+```
+mermaid
 sequenceDiagram
     participant Client as Frontend
     participant Router as service/router.py
@@ -811,11 +664,12 @@ sequenceDiagram
     
     Neo4j-->>Service: 최종 그래프
     Service-->>Client: SSE 이벤트 (완료)
-\`\`\`
+```
 
 ### 5.2 클래스별 상호작용
 
-\`\`\`mermaid
+```
+mermaid
 classDiagram
     class ServiceOrchestrator {
         +understand_project(file_names)
@@ -872,7 +726,7 @@ classDiagram
     Analyzer --> ApplyManager: 결과 반영
     ApplyManager --> Neo4jConnection: 쿼리 실행
     ServiceOrchestrator --> Neo4jConnection: DDL/후처리
-\`\`\`
+```
 
 ---
 
@@ -882,7 +736,7 @@ classDiagram
 
 **역할**: FastAPI 앱 초기화 및 서버 실행
 
-\`\`\`python
+```
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
@@ -908,14 +762,15 @@ async def health_check():
 
 if __name__ == "__main__":
     uvicorn.run(app, host="0.0.0.0", port=5502)
-\`\`\`
+```
 
 **실행 방법**:
-\`\`\`bash
+```
+bash
 python main.py
 # 또는
 uvicorn main:app --reload --port 5502
-\`\`\`
+```
 
 ---
 
@@ -927,10 +782,10 @@ uvicorn main:app --reload --port 5502
 
 | 엔드포인트 | 메서드 | 역할 |
 |-----------|--------|------|
-| \`/cypherQuery/\` | POST | Understanding 파이프라인 실행 |
-| \`/convert/\` | POST | Converting 파이프라인 실행 |
-| \`/downloadJava/\` | POST | 생성된 프로젝트 다운로드 |
-| \`/deleteAll/\` | DELETE | 사용자 데이터 전체 삭제 |
+| `/cypherQuery/` | POST | Understanding 파이프라인 실행 |
+| `/convert/` | POST | Converting 파이프라인 실행 |
+| `/downloadJava/` | POST | 생성된 프로젝트 다운로드 |
+| `/deleteAll/` | DELETE | 사용자 데이터 전체 삭제 |
 
 ---
 
@@ -942,13 +797,13 @@ uvicorn main:app --reload --port 5502
 
 | 메서드 | 역할 | 비동기 | 핵심 로직 |
 |--------|------|--------|-----------|
-| \`validate_api_key()\` | API 키 유효성 검증 | ✅ | LLM ping 호출 |
-| \`understand_project()\` | 전체 프로젝트 분석 | ✅ | DDL → PL/SQL → 후처리 |
-| \`_process_ddl()\` | DDL 파일 처리 | ✅ | LLM 파싱 → Neo4j |
-| \`_analyze_file()\` | 단일 파일 분석 | ✅ | Analyzer 실행 |
-| \`_postprocess_file()\` | 후처리 (변수/컬럼) | ✅ | 타입 해석, 역할 분석 |
-| \`_load_assets()\` | ANTLR JSON/PL/SQL 로드 | ✅ | aiofiles 병렬 읽기 |
-| \`_ensure_folder_node()\` | SYSTEM 노드 생성 | ✅ | Neo4j MERGE |
+| `validate_api_key()` | API 키 유효성 검증 | ✅ | LLM ping 호출 |
+| `understand_project()` | 전체 프로젝트 분석 | ✅ | DDL → PL/SQL → 후처리 |
+| `_process_ddl()` | DDL 파일 처리 | ✅ | LLM 파싱 → Neo4j |
+| `_analyze_file()` | 단일 파일 분석 | ✅ | Analyzer 실행 |
+| `_postprocess_file()` | 후처리 (변수/컬럼) | ✅ | 타입 해석, 역할 분석 |
+| `_load_assets()` | ANTLR JSON/PL/SQL 로드 | ✅ | aiofiles 병렬 읽기 |
+| `_ensure_folder_node()` | SYSTEM 노드 생성 | ✅ | Neo4j MERGE |
 
 ---
 
@@ -962,7 +817,7 @@ uvicorn main:app --reload --port 5502
 
 `StatementNode`는 AST에서 수집한 한 구간의 메타데이터를 담는 핵심 모델입니다. 라인 범위, 노드 타입, 원본 코드, 자식 정보 등을 보유하여 이후 배치 생성과 LLM 호출, Neo4j 반영까지 모든 단계에서 공통으로 사용됩니다.
 
-```python
+```
 @dataclass(slots=True)
 class StatementNode:
     node_id: int
@@ -998,7 +853,7 @@ class StatementNode:
 
 `StatementCollector`는 ANTLR JSON을 후위순회하며 `StatementNode` 객체를 만들어 냅니다. 프로시저 단위로 노드를 묶고, 부모-자식 관계를 연결하여 이후 배치 및 적용 단계에서 의존성을 추적할 수 있게 합니다.
 
-```python
+```
 class StatementCollector:
     def collect(self):
         # 후위순회: 자식 → 부모 순서 보장
@@ -1007,8 +862,9 @@ class StatementCollector:
     
     def _visit(self, node, current_proc, current_type, current_schema):
         # 1. 자식 먼저 방문 (후위순회)
-        for child in children:
+        for child in node['children']:
             child_node = self._visit(child, ...)
+            child_nodes.append(child_node)
         
         # 2. StatementNode 생성
         statement_node = StatementNode(...)
@@ -1025,7 +881,7 @@ class StatementCollector:
 
 `BatchPlanner`는 LLM 토큰 한도를 넘지 않도록 StatementNode 목록을 잘게 묶습니다. 부모 노드는 의존성 때문에 단독으로 보내고, 리프 노드는 토큰 합이 허용 범위 내에서 묶어 전송하는 전략을 사용합니다.
 
-```python
+```
 class BatchPlanner:
     def plan(self, nodes, folder_file):
         for node in nodes:
@@ -1045,7 +901,7 @@ class BatchPlanner:
 
 `LLMInvoker`는 하나의 배치를 받아 일반 요약과 DML 테이블 분석을 병렬로 수행합니다. CPU 바운드 LLM 호출을 `asyncio.to_thread`로 감싸 비동기 코드와 조화시키는 것이 특징입니다.
 
-```python
+```
 class LLMInvoker:
     async def invoke(self, batch):
         general_task = asyncio.to_thread(understand_code, ...)
@@ -1057,7 +913,7 @@ class LLMInvoker:
 
 `ApplyManager`는 LLM에서 돌아온 결과를 배치 순서에 맞춰 Neo4j에 반영합니다. 순서 보장을 위해 내부 큐를 사용하고, 노드/테이블 쿼리를 생성한 뒤 전송 큐를 통해 Analyzer와 동기화합니다.
 
-```python
+```
 class ApplyManager:
     async def submit(self, batch, general, table):
         # 순서 보장
@@ -1081,11 +937,11 @@ class ApplyManager:
 
 | 메서드 | 역할 | 반환 타입 |
 |--------|------|-----------|
-| \`execute_queries(queries)\` | Cypher 쿼리 실행 | List[Dict] |
-| \`execute_query_and_return_graph()\` | 그래프 조회 | Dict (nodes, relationships) |
-| \`node_exists()\` | 노드 존재 여부 확인 | bool |
+| `execute_queries(queries)` | Cypher 쿼리 실행 | List[Dict] |
+| `execute_query_and_return_graph()` | 그래프 조회 | Dict (nodes, relationships) |
+| `node_exists()` | 노드 존재 여부 확인 | bool |
 
-\`\`\`python
+```
 class Neo4jConnection:
     DATABASE_NAME = "neo4j"
     
@@ -1096,7 +952,7 @@ class Neo4jConnection:
                 query_result = await session.run(query)
                 results.append(await query_result.data())
         return results
-\`\`\`
+```
 
 ---
 
@@ -1107,17 +963,17 @@ class Neo4jConnection:
 **역할**: 코드 동작 요약, 변수 사용, 프로시저 호출 식별
 
 **입력**:
-\`\`\`python
+```
 {
   "code": "9: SELECT * FROM orders WHERE order_id = p_order_id\\n10: INTO v_order_date, v_total_amount;",
   "ranges": [{"startLine": 9, "endLine": 10}],
   "count": 1,
   "locale": "ko"
 }
-\`\`\`
+```
 
 **출력**:
-\`\`\`json
+```
 {
   "analysis": [
     {
@@ -1129,14 +985,14 @@ class Neo4jConnection:
     }
   ]
 }
-\`\`\`
+```
 
 #### **understand_dml_table_prompt.py (DML 테이블 분석)**
 
 **역할**: DML 구문에서 테이블, 컬럼, FK 관계, DB 링크 추출
 
 **출력**:
-\`\`\`json
+```
 {
   "tables": [
     {
@@ -1155,14 +1011,14 @@ class Neo4jConnection:
     }
   ]
 }
-\`\`\`
+```
 
 #### **understand_variables_prompt.py (변수 선언 분석)**
 
 **역할**: DECLARE/SPEC 구간의 변수 선언 정보 추출
 
 **출력**:
-\`\`\`json
+```
 {
   "variables": [
     {"name": "p_order_id", "type": "INTEGER", "value": null, "parameter_type": "IN"},
@@ -1171,14 +1027,14 @@ class Neo4jConnection:
   ],
   "summary": "주문 ID를 입력받아 주문 정보를 조회하기 위한 변수들을 선언합니다."
 }
-\`\`\`
+```
 
 #### **understand_summarized_prompt.py (프로시저 전체 요약)**
 
 **역할**: 하위 노드 요약들을 모아 프로시저 전체 동작 요약
 
 **입력**:
-\`\`\`python
+```
 {
   "summaries": {
     "SELECT_9_10": "주문 정보를 조회합니다.",
@@ -1187,21 +1043,21 @@ class Neo4jConnection:
   },
   "locale": "ko"
 }
-\`\`\`
+```
 
 **출력**:
-\`\`\`json
+```
 {
   "summary": "이 프로시저는 주문 ID를 받아 주문 정보를 조회하고, 주문 금액에 따라 할인을 적용한 후, 주문 히스토리에 기록합니다. 최종적으로 처리 결과를 커밋합니다."
 }
-\`\`\`
+```
 
 #### **understand_column_prompt.py (컬럼 역할 분석)**
 
 **역할**: DML 사용 패턴을 기반으로 컬럼의 역할 라벨 추론
 
 **입력**:
-\`\`\`python
+```
 {
   "columns_json": [
     {"name": "ORDER_ID", "dtype": "INTEGER", "nullable": false},
@@ -1210,10 +1066,10 @@ class Neo4jConnection:
   "dml_summaries_json": ["주문 정보를 조회합니다.", "주문 히스토리에 기록합니다."],
   "locale": "ko"
 }
-\`\`\`
+```
 
 **출력**:
-\`\`\`json
+```
 {
   "tableDescription": "주문 마스터 테이블로, 주문 기본 정보를 저장하고 조회/기록하는 데 사용됩니다.",
   "roles": [
@@ -1221,7 +1077,7 @@ class Neo4jConnection:
     {"name": "ORDER_DATE", "role": "주문 일시"}
   ]
 }
-\`\`\`
+```
 
 ---
 
@@ -1231,23 +1087,23 @@ class Neo4jConnection:
 
 | 함수 | 역할 | 입력 | 출력 |
 |------|------|------|------|
-| \`calculate_code_token(code)\` | 토큰 수 계산 | str/dict/list | int |
-| \`add_line_numbers(plsql)\` | 라인 번호 추가 | List[str] | str, List[str] |
-| \`escape_for_cypher(text)\` | Cypher 이스케이프 | str | str |
-| \`parse_table_identifier(name)\` | 테이블명 파싱 | str | (schema, table, dblink) |
-| \`emit_message(content)\` | 메시지 이벤트 | str | bytes |
-| \`emit_data(**fields)\` | 데이터 이벤트 | dict | bytes |
-| \`emit_error(content)\` | 에러 이벤트 | str | bytes |
+| `calculate_code_token(code)` | 토큰 수 계산 | str/dict/list | int |
+| `add_line_numbers(plsql)` | 라인 번호 추가 | List[str] | str, List[str] |
+| `escape_for_cypher(text)` | Cypher 이스케이프 | str | str |
+| `parse_table_identifier(name)` | 테이블명 파싱 | str | (schema, table, dblink) |
+| `emit_message(content)` | 메시지 이벤트 | str | bytes |
+| `emit_data(**fields)` | 데이터 이벤트 | dict | bytes |
+| `emit_error(content)` | 에러 이벤트 | str | bytes |
 
 #### **parse_table_identifier 예시**
 
-\`\`\`python
+```
 parse_table_identifier("SALES.ORDERS@DBLINK1")
 # → ("SALES", "ORDERS", "DBLINK1")
 
 parse_table_identifier("ORDERS")
 # → ("", "ORDERS", None)
-\`\`\`
+```
 
 ---
 
@@ -1255,7 +1111,7 @@ parse_table_identifier("ORDERS")
 
 **역할**: LLM API 클라이언트 생성 (OpenAI 호환)
 
-\`\`\`python
+```
 def get_llm(model=None, temperature=0.1, max_tokens=None, api_key=None, base_url=None):
     base_url = base_url or os.getenv("LLM_API_BASE", "https://api.openai.com/v1")
     api_key = api_key or os.getenv("LLM_API_KEY")
@@ -1268,7 +1124,7 @@ def get_llm(model=None, temperature=0.1, max_tokens=None, api_key=None, base_url
         max_tokens=max_tokens,
         temperature=temperature
     )
-\`\`\`
+```
 
 ---
 
@@ -1283,7 +1139,8 @@ def get_llm(model=None, temperature=0.1, max_tokens=None, api_key=None, base_url
 
 ### 7.2 프로젝트 설정
 
-\`\`\`bash
+```
+bash
 # 1. 저장소 클론
 git clone <repository-url>
 cd backend
@@ -1298,10 +1155,12 @@ pipenv shell
 uv pip install -r requirements.txt
 # 또는 (pipenv 사용 시)
 pipenv install
+```
 
 ### 7.3 환경 변수 설정 (.env)
 
-\`\`\`bash
+```
+bash
 # Neo4j 연결 정보
 NEO4J_URI=bolt://localhost:7687
 NEO4J_USER=neo4j
@@ -1319,7 +1178,7 @@ COMPANY_NAME=posco
 
 # Docker (선택)
 DOCKER_COMPOSE_CONTEXT=/app
-\`\`\`
+```
 
 ### 7.4 Neo4j 초기 설정
 
@@ -1335,7 +1194,7 @@ Neo4j Desktop 설치는 아래 문서를 참고하세요.
 
 #### **pytest.ini**
 
-\`\`\`ini
+```
 [pytest]
 asyncio_mode = auto
 pythonpath = .
@@ -1343,11 +1202,12 @@ testpaths = test
 python_files = test_*.py
 python_classes = Test*
 python_functions = test_*
-\`\`\`
+```
 
 ### 8.2 Understanding 테스트 실행
 
-\`\`\`bash
+```
+bash
 # 이해 파이프라인 테스트 (기본값: 리팩터)
 pytest test/test_understanding.py -v
 
@@ -1356,7 +1216,7 @@ UNDERSTANDING_VARIANT=refactor pytest test/test_understanding.py -v
 
 # 비교 모드 (레거시와 리팩터를 순차 실행)
 UNDERSTANDING_VARIANT=compare pytest test/test_understanding.py -v
-\`\`\`
+```
 
 - `UNDERSTANDING_VARIANT`를 지정하지 않으면 리팩터 Analyzer만 실행됩니다.
 - `UNDERSTANDING_VARIANT=legacy`로 설정하면 레거시 Analyzer만 실행합니다. (기존 파이프라인)
@@ -1375,7 +1235,8 @@ UNDERSTANDING_VARIANT=compare pytest test/test_understanding.py -v
    - 테스트 실행 전 해당 DB의 데이터를 비우는 스크립트를 함께 준비하면 안전합니다.
 
 3. **환경 변수**
-   ```bash
+   ```
+   bash
    export LLM_API_KEY=sk-...
    ```
 
@@ -1383,7 +1244,7 @@ UNDERSTANDING_VARIANT=compare pytest test/test_understanding.py -v
 
 VSCode에서 pytest를 기본 테스트 러너로 사용하려면 `.vscode/settings.json`을 다음과 같이 맞춥니다.
 
-```json
+```
 // .vscode/settings.json
 {
     "python.testing.pytestArgs": [
@@ -1398,7 +1259,7 @@ VSCode에서 pytest를 기본 테스트 러너로 사용하려면 `.vscode/setti
 
 `launch.json` 파일을 아래처럼 맞추면, 현재 저장소에서 실제 사용하는 디버깅 구성과 동일합니다.
 
-```json
+```
 // .vscode/launch.json
 {
     "version": "0.2.0",
@@ -1450,55 +1311,62 @@ VSCode에서 pytest를 기본 테스트 러너로 사용하려면 `.vscode/setti
 
 #### **모든 노드 조회**
 
-\`\`\`cypher
+```
+cypher
 MATCH (n)
 RETURN n
-\`\`\`
+```
 
 #### **특정 사용자의 노드만 조회**
 
-\`\`\`cypher
+```
+cypher
 MATCH (n {user_id: 'KO_TestSession'})
 RETURN n
-\`\`\`
+```
 
 #### **프로시저 노드 조회**
 
-\`\`\`cypher
+```
+cypher
 MATCH (p:PROCEDURE)
 RETURN p.procedure_name AS name, p.summary AS summary
-\`\`\`
+```
 
 #### **테이블 및 컬럼 조회**
 
-\`\`\`cypher
+```
+cypher
 MATCH (t:Table)-[:HAS_COLUMN]->(c:Column)
 WHERE t.user_id = 'user123'
 RETURN t.name AS table_name, collect(c.name) AS columns
-\`\`\`
+```
 
 #### **프로시저 호출 관계**
 
-\`\`\`cypher
+```
+cypher
 MATCH (caller)-[:CALL]->(callee:PROCEDURE)
 WHERE caller.user_id = 'user123'
 RETURN caller.procedure_name AS caller, callee.procedure_name AS callee
-\`\`\`
+```
 
 #### **DML과 테이블 관계**
 
-\`\`\`cypher
+```
+cypher
 MATCH (dml)-[r:FROM|WRITES]->(t:Table)
 WHERE dml.user_id = 'user123'
 RETURN type(r) AS relation, labels(dml)[0] AS dml_type, t.name AS table_name
-\`\`\`
+```
 
 #### **모든 노드 및 관계 삭제 (주의!)**
 
-\`\`\`cypher
+```
+cypher
 MATCH (n {user_id: 'user123'})
 DETACH DELETE n
-\`\`\`
+```
 
 ### 9.3 Neo4j Browser 즐겨찾기 설정
 
@@ -1518,11 +1386,12 @@ DETACH DELETE n
 
 또는 쿼리에 직접 LIMIT 추가:
 
-\`\`\`cypher
+```
+cypher
 MATCH (n {user_id: 'user123'})
 RETURN n
 LIMIT 1000
-\`\`\`
+```
 
 ### 9.5 그래프 시각화 팁
 
@@ -1548,17 +1417,17 @@ LIMIT 1000
 
 #### **프롬프트 수정**
 
-- \`prompt/*.py\` 파일의 프롬프트 템플릿 수정
+- `prompt/*.py` 파일의 프롬프트 템플릿 수정
 - LLM 결과 형식 변경 시 파싱 로직도 수정
 
 #### **배치 전략 수정**
 
-- \`understand/analysis.py\` → \`BatchPlanner\` 클래스
+- `understand/analysis.py` → `BatchPlanner` 클래스
 - 토큰 한도, 분할 기준 등 조정
 
 #### **Neo4j 스키마 변경**
 
-- \`understand/analysis.py\` → \`ApplyManager._build_*_queries\` 메서드
+- `understand/analysis.py` → `ApplyManager._build_*_queries` 메서드
 - 노드 속성, 관계 타입 변경
 
 ### 11.3 Converting 단계 (간략 소개)
@@ -1567,9 +1436,9 @@ Converting 단계는 Understanding에서 생성한 Neo4j 그래프를 기반으�
 
 #### **주요 파일**
 
-- \`conversion/strategies/\`: 전략 패턴 (Framework, DBMS)
-- \`convert/*.py\`: 코드 생성 모듈 (Entity, Service, Repository 등)
-- \`rules/{java|python}/*.yaml\`: 코드 생성 템플릿
+- `conversion/strategies/`: 전략 패턴 (Framework, DBMS)
+- `convert/*.py`: 코드 생성 모듈 (Entity, Service, Repository 등)
+- `rules/{java|python}/*.yaml`: 코드 생성 템플릿
 
 #### **Converting 문서**
 
@@ -1607,8 +1476,7 @@ Converting에 대한 상세한 문서는 별도로 제공됩니다.
 Understanding 파이프라인은 여러 단계에서 병렬 처리를 활용합니다:
 
 1. **DDL 파일 병렬 처리**
-   \`\`\`python
-   # service/service.py
+   ```
    DDL_MAX_CONCURRENCY = 5
    
    ddl_semaphore = asyncio.Semaphore(DDL_MAX_CONCURRENCY)
@@ -1617,57 +1485,55 @@ Understanding 파이프라인은 여러 단계에서 병렬 처리를 활용합�
    for ddl_file in ddl_files:
        async with ddl_semaphore:
            await self._process_ddl(ddl_file, ...)
-   \`\`\`
+   ```
 
 2. **배치 LLM 호출 병렬 처리**
-   \`\`\`python
-   # understand/analysis.py
+   ```
    MAX_CONCURRENCY = 5
    
    semaphore = asyncio.Semaphore(min(self.max_workers, len(batches)))
    await asyncio.gather(*(worker(batch) for batch in batches))
-   \`\`\`
+   ```
 
 3. **변수 분석 병렬 처리**
-   \`\`\`python
-   # understand/analysis.py
+   ```
    VARIABLE_CONCURRENCY = 5
    
    await asyncio.gather(*(worker(node) for node in targets))
-   \`\`\`
+   ```
 
 #### A.2 캐싱 전략
 
 LLM 호출 결과를 캐싱하여 동일한 요청에 대한 중복 호출을 방지합니다:
 
-\`\`\`python
-# prompt/*.py
+```
 from langchain_core.globals import set_llm_cache
 from langchain_community.cache import SQLiteCache
 
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
-\`\`\`
+```
 
-**캐시 파일 위치**: \`prompt/langchain.db\`
+**캐시 파일 위치**: `prompt/langchain.db`
 
 **캐시 삭제 방법**:
-\`\`\`bash
+```
+bash
 rm prompt/langchain.db
-\`\`\`
+```
 
 #### A.3 메모리 최적화
 
-\`\`\`python
+```
 # understand/analysis.py
 
 # slots를 사용한 메모리 최적화
 @dataclass(slots=True)
 class StatementNode:
     ...
-\`\`\`
+```
 
-\`slots=True\`를 사용하면 약 40-50%의 메모리를 절약할 수 있습니다.
+`slots=True`를 사용하면 약 40-50%의 메모리를 절약할 수 있습니다.
 
 ---
 
@@ -1677,99 +1543,99 @@ class StatementNode:
 
 - **역할**: 파일 최상위 루트 노드
 - **속성**:
-  - \`name\`: 파일명
-  - \`folder_name\`: 폴더명
-  - \`summary\`: "파일 노드" 또는 "File Start Node"
+  - `name`: 파일명
+  - `folder_name`: 폴더명
+  - `summary`: "파일 노드" 또는 "File Start Node"
 - **관계**:
-  - \`-[:CONTAINS]->(PROCEDURE)\`
-  - \`-[:CONTAINS]->(PACKAGE_VARIABLE)\`
+  - `-[:CONTAINS]->(PROCEDURE)`
+  - `-[:CONTAINS]->(PACKAGE_VARIABLE)`
 
 #### B.2 PROCEDURE 노드
 
 - **역할**: 저장 프로시저 또는 함수
 - **속성**:
-  - \`procedure_name\`: 프로시저 이름
-  - \`schema_name\`: 스키마 이름
-  - \`summary\`: LLM이 생성한 전체 동작 요약
+  - `procedure_name`: 프로시저 이름
+  - `schema_name`: 스키마 이름
+  - `summary`: LLM이 생성한 전체 동작 요약
 - **관계**:
-  - \`-[:PARENT_OF]->(SPEC|DECLARE|...)\`
-  - \`<-[:CALL]-(다른 프로시저)\`
+  - `-[:PARENT_OF]->(SPEC|DECLARE|...)`
+  - `<-[:CALL]-(다른 프로시저)`
 
 #### B.3 SPEC 노드
 
 - **역할**: 프로시저 파라미터 선언부
 - **속성**:
-  - \`summary\`: 파라미터 역할 요약
+  - `summary`: 파라미터 역할 요약
 - **관계**:
-  - \`-[:SCOPE]->(Variable)\`
+  - `-[:SCOPE]->(Variable)`
 
 #### B.4 DECLARE 노드
 
 - **역할**: 로컬 변수 선언부
 - **속성**:
-  - \`summary\`: 변수 선언 요약
+  - `summary`: 변수 선언 요약
 - **관계**:
-  - \`-[:SCOPE]->(Variable)\`
+  - `-[:SCOPE]->(Variable)`
 
 #### B.5 SELECT/INSERT/UPDATE/DELETE 노드
 
 - **역할**: DML 구문
 - **속성**:
-  - \`summary\`: DML 동작 요약
-  - \`node_code\`: 실제 SQL 코드
+  - `summary`: DML 동작 요약
+  - `node_code`: 실제 SQL 코드
 - **관계**:
-  - \`-[:FROM]->(Table)\`: SELECT, FETCH
-  - \`-[:WRITES]->(Table)\`: INSERT, UPDATE, DELETE
-  - \`-[:HAS_COLUMN]->(Column)\`: (테이블을 통해)
+  - `-[:FROM]->(Table)`: SELECT, FETCH
+  - `-[:WRITES]->(Table)`: INSERT, UPDATE, DELETE
+  - `-[:HAS_COLUMN]->(Column)`: (테이블을 통해)
 
 #### B.6 IF/LOOP/CASE 노드
 
 - **역할**: 제어 구조
 - **속성**:
-  - \`summary\`: 조건/반복 로직 요약
+  - `summary`: 조건/반복 로직 요약
 - **관계**:
-  - \`-[:PARENT_OF]->(자식 노드들)\`
+  - `-[:PARENT_OF]->(자식 노드들)`
 
 #### B.7 Variable 노드
 
 - **역할**: 변수 정보
 - **속성**:
-  - \`name\`: 변수명
-  - \`type\`: 데이터 타입
-  - \`parameter_type\`: IN/OUT/IN_OUT/LOCAL
-  - \`role\`: 변수 역할
-  - \`scope\`: Global/Local
-  - \`{startLine}_{endLine}\`: 'Used' (사용 여부)
+  - `name`: 변수명
+  - `type`: 데이터 타입
+  - `parameter_type`: IN/OUT/IN_OUT/LOCAL
+  - `role`: 변수 역할
+  - `scope`: Global/Local
+  - `{startLine}_{endLine}`: 'Used' (사용 여부)
 - **관계**:
-  - \`<-[:SCOPE]-(DECLARE|SPEC|PACKAGE_VARIABLE)\`
+  - `<-[:SCOPE]-(DECLARE|SPEC|PACKAGE_VARIABLE)`
 
 #### B.8 Table 노드
 
 - **역할**: 데이터베이스 테이블
 - **속성**:
-  - \`name\`: 테이블명
-  - \`schema\`: 스키마명
-  - \`description\`: 테이블 설명
-  - \`table_type\`: BASE TABLE/VIEW
-  - \`db\`: DBMS 종류
+  - `name`: 테이블명
+  - `schema`: 스키마명
+  - `description`: 테이블 설명
+  - `table_type`: BASE TABLE/VIEW
+  - `db`: DBMS 종류
 - **관계**:
-  - \`-[:HAS_COLUMN]->(Column)\`
-  - \`<-[:FROM]-(SELECT)\`
-  - \`<-[:WRITES]-(INSERT|UPDATE|DELETE)\`
-  - \`-[:FK_TO_TABLE]->(다른 테이블)\`
+  - `-[:HAS_COLUMN]->(Column)`
+  - `<-[:FROM]-(SELECT)`
+  - `<-[:WRITES]-(INSERT|UPDATE|DELETE)`
+  - `-[:FK_TO_TABLE]->(다른 테이블)`
 
 #### B.9 Column 노드
 
 - **역할**: 테이블 컬럼
 - **속성**:
-  - \`name\`: 컬럼명
-  - \`dtype\`: 데이터 타입
-  - \`nullable\`: Nullable 여부
-  - \`description\`: 컬럼 역할 설명
-  - \`fqn\`: Fully Qualified Name
+  - `name`: 컬럼명
+  - `dtype`: 데이터 타입
+  - `nullable`: Nullable 여부
+  - `description`: 컬럼 역할 설명
+  - `fqn`: Fully Qualified Name
 - **관계**:
-  - \`<-[:HAS_COLUMN]-(Table)\`
-  - \`-[:FK_TO]->(다른 Column)\`
+  - `<-[:HAS_COLUMN]-(Table)`
+  - `-[:FK_TO]->(다른 Column)`
 
 ---
 
