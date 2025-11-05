@@ -241,53 +241,6 @@ class ServiceOrchestrator:
             if update_queries:
                 await connection.execute_queries(update_queries)
 
-        # 컬럼 역할 산출
-        table_rows = (await connection.execute_queries([f"""
-            MATCH (folder:SYSTEM {{user_id: '{self.user_id}', name: '{folder_esc}'}})-[:CONTAINS]->(t:Table)
-            WHERE coalesce(t.folder_name, '') = '{folder_esc}' OR coalesce(t.folder_name, '') = ''
-            OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column {{user_id: '{self.user_id}'}})
-            OPTIONAL MATCH (dml)-[:FROM|WRITES]->(t)
-            WITH t, collect(DISTINCT dml.summary) AS dmlSummaries,
-                 collect(DISTINCT {{name: c.name, dtype: coalesce(c.dtype, ''), nullable: toBoolean(c.nullable), comment: coalesce(c.description, '')}}) AS columns
-            RETURN coalesce(t.schema,'') AS schema, t.name AS table, columns, dmlSummaries
-        """]))[0] if connection else []
-
-        if table_rows:
-            roles_results = await asyncio.gather(*[
-                understand_column_roles(
-                    parse_json_maybe(row.get('columns')),
-                    parse_json_maybe(row.get('dmlSummaries')),
-                    self.api_key, self.locale
-                )
-                for row in table_rows
-            ], return_exceptions=True)
-            
-            column_update_queries = []
-            user_id_esc = escape_for_cypher(self.user_id)
-            for row, roles_result in zip(table_rows, roles_results):
-                if isinstance(roles_result, Exception):
-                    continue
-                
-                schema, table = row.get('schema', ''), row['table']
-                match_table = f"MATCH (t:Table {{user_id: '{user_id_esc}', name: '{table}'}}) WHERE coalesce(t.schema,'') = '{schema}'"
-                roles_dict = roles_result or {}
-                
-                # 테이블 설명 업데이트
-                if table_desc := roles_dict.get('tableDescription'):
-                    column_update_queries.append(f"{match_table} SET t.description = '{escape_for_cypher(table_desc)}'")
-                
-                # 컬럼 역할 업데이트
-                for role_item in (roles_dict.get('roles') or []):
-                    if col_name := role_item.get('name'):
-                        column_update_queries.append(
-                            f"{match_table} "
-                            f"MATCH (t)-[:HAS_COLUMN]->(c:Column {{user_id: '{user_id_esc}', name: '{escape_for_cypher(col_name)}'}}) "
-                            f"SET c.description = '{escape_for_cypher(role_item.get('role', ''))}'"
-                        )
-
-            if column_update_queries:
-                await connection.execute_queries(column_update_queries)
-
     async def _process_ddl(self, ddl_file_path: str, connection: Neo4jConnection, file_name: str) -> None:
         """DDL 파일 처리하여 Table/Column 노드 생성"""
         async with aiofiles.open(ddl_file_path, 'r', encoding='utf-8') as ddl_file:
