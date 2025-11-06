@@ -7,6 +7,7 @@ from util.llm_client import get_llm
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnablePassthrough
+from util.llm_audit import invoke_with_audit
 from util.exception import LLMCallError
 import openai
 
@@ -75,7 +76,14 @@ def understand_summary(summaries, api_key, locale):
             | llm
             | JsonOutputParser()
         )
-        result = chain.invoke({"summaries": summaries_str, "locale": locale})
+        payload = {"summaries": summaries_str, "locale": locale}
+        result = invoke_with_audit(
+            chain,
+            payload,
+            prompt_name="prompt/understand_summarized_prompt.py",
+            input_payload={"summaries": summaries, "locale": locale},
+            metadata={"type": "procedure_summary"},
+        )
         return result
     except Exception as e:
         err_msg = f"Understanding 과정에서 요약 관련 LLM 호출하는 도중 오류가 발생했습니다: {str(e)}"

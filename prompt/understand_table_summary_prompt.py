@@ -10,6 +10,7 @@ from langchain_core.runnables import RunnablePassthrough
 
 from util.exception import LLMCallError
 from util.llm_client import get_llm
+from util.llm_audit import invoke_with_audit
 
 
 _db_path = os.path.join(os.path.dirname(__file__), "langchain.db")
@@ -69,13 +70,23 @@ def summarize_table_metadata(
             | JsonOutputParser()
         )
 
-        result = chain.invoke(
-            {
+        payload = {
+            "table_name": table_name,
+            "table_sentences": table_text,
+            "column_sentences": columns_json,
+            "locale": locale,
+        }
+        result = invoke_with_audit(
+            chain,
+            payload,
+            prompt_name="prompt/understand_table_summary_prompt.py",
+            input_payload={
                 "table_name": table_name,
-                "table_sentences": table_text,
-                "column_sentences": columns_json,
+                "table_sentences": table_sentences,
+                "column_sentences": column_sentences,
                 "locale": locale,
-            }
+            },
+            metadata={"type": "table_summary"},
         )
         if not isinstance(result, dict):
             return {"tableDescription": "", "columns": []}

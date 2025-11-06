@@ -8,6 +8,7 @@ from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from util.llm_client import get_llm
 from util.exception  import LLMCallError
+from util.llm_audit import invoke_with_audit
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
 set_llm_cache(SQLiteCache(database_path=db_path))
 
@@ -193,7 +194,36 @@ def understand_code(sp_code, context_ranges, context_range_count, api_key, local
             | llm
         )
 
-        result = chain.invoke({"code": sp_code, "ranges": ranges_json, "count": context_range_count, "locale": locale})
+        payload = {
+            "code": sp_code,
+            "ranges": ranges_json,
+            "count": context_range_count,
+            "locale": locale,
+        }
+
+        starts = [item.get("startLine") for item in context_ranges or [] if isinstance(item, dict)]
+        ends = [item.get("endLine") for item in context_ranges or [] if isinstance(item, dict)]
+        min_start = min((value for value in starts if isinstance(value, int)), default=None)
+        max_end = max((value for value in ends if isinstance(value, int)), default=None)
+
+        result = invoke_with_audit(
+            chain,
+            payload,
+            prompt_name="prompt/understand_prompt.py",
+            input_payload={
+                "code": sp_code,
+                "ranges": context_ranges,
+                "count": context_range_count,
+                "locale": locale,
+            },
+            metadata={
+                "ranges": context_ranges,
+                "startLine": min_start,
+                "endLine": max_end,
+            },
+            sort_key=min_start,
+        )
+
         content = getattr(result, "content", str(result))
         sanitized = _sanitize_llm_json_output(content)
         parsed = json.loads(sanitized)

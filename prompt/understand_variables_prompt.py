@@ -7,6 +7,7 @@ from util.llm_client import get_llm
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnablePassthrough
+from util.llm_audit import invoke_with_audit, ainvoke_with_audit
 from util.exception import LLMCallError
 import openai
 
@@ -112,7 +113,14 @@ def understand_variables(declaration_code, api_key, locale):
             | llm
             | JsonOutputParser()
         )
-        result = chain.invoke({"declaration_code": declaration_code, "locale": locale})
+        payload = {"declaration_code": declaration_code, "locale": locale}
+        result = invoke_with_audit(
+            chain,
+            payload,
+            prompt_name="prompt/understand_variables_prompt.py",
+            input_payload=payload,
+            metadata={"type": "variable_extraction"},
+        )
         return result
     except Exception as e:
         err_msg = f"Understanding 과정에서 변수 관련 LLM 호출하는 도중 오류가 발생했습니다: {str(e)}"
@@ -162,14 +170,28 @@ async def resolve_table_variable_type(var_name: str, declared_type: str, table_s
             | JsonOutputParser()
         )
         columns_json = json.dumps(columns or [], ensure_ascii=False)
-        result = await chain.ainvoke({
+        payload = {
             "var_name": var_name,
             "declared_type": declared_type,
             "table_schema": table_schema or "",
             "table_name": table_name or "",
             "columns_json": columns_json,
             "locale": locale,
-        })
+        }
+        result = await ainvoke_with_audit(
+            chain,
+            payload,
+            prompt_name="prompt/understand_variables_prompt.py::resolve",
+            input_payload={
+                "var_name": var_name,
+                "declared_type": declared_type,
+                "table_schema": table_schema,
+                "table_name": table_name,
+                "columns": columns,
+                "locale": locale,
+            },
+            metadata={"type": "variable_type_resolution"},
+        )
         return result
     except Exception as e:
         err_msg = f"변수 타입 LLM 후처리 호출 중 오류: {str(e)}"

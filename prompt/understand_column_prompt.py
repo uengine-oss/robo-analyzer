@@ -5,6 +5,7 @@ from langchain_community.cache import SQLiteCache
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from util.llm_client import get_llm
+from util.llm_audit import ainvoke_with_audit
 from util.exception import LLMCallError
 
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
@@ -58,11 +59,22 @@ async def understand_column_roles(columns: list, dml_summaries: list, api_key: s
         )
         columns_json = json.dumps(columns or [], ensure_ascii=False)
         dml_json = json.dumps([s for s in (dml_summaries or []) if s], ensure_ascii=False)
-        result = await chain.ainvoke({
+        payload = {
             "columns_json": columns_json,
             "dml_summaries_json": dml_json,
             "locale": locale,
-        })
+        }
+        result = await ainvoke_with_audit(
+            chain,
+            payload,
+            prompt_name="prompt/understand_column_prompt.py",
+            input_payload={
+                "columns": columns,
+                "dml_summaries": dml_summaries,
+                "locale": locale,
+            },
+            metadata={"type": "column_role_analysis"},
+        )
         content = getattr(result, "content", str(result))
         return json.loads(content)
     except Exception as e:

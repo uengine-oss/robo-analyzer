@@ -7,6 +7,7 @@ from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.runnables import RunnablePassthrough
 from util.llm_client import get_llm
+from util.llm_audit import invoke_with_audit
 from util.exception import LLMCallError
 
 
@@ -262,11 +263,23 @@ def understand_dml_tables(code: str, ranges: list[dict], api_key: str, locale: s
             | JsonOutputParser()
         )
 
-        result = chain.invoke({
+        payload = {
             "code": code,
             "ranges": ranges_json,
             "locale": locale,
-        })
+        }
+
+        starts = [item.get("startLine") for item in ranges or [] if isinstance(item, dict)]
+        min_start = min((value for value in starts if isinstance(value, int)), default=None)
+
+        result = invoke_with_audit(
+            chain,
+            payload,
+            prompt_name="prompt/understand_dml_table_prompt.py",
+            input_payload={"code": code, "ranges": ranges, "locale": locale},
+            metadata={"ranges": ranges},
+            sort_key=min_start,
+        )
         if not isinstance(result, dict):
             return {"tables": []}
         result.setdefault("tables", [])

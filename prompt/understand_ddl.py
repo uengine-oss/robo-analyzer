@@ -4,6 +4,7 @@ import os
 from langchain_core.globals import set_llm_cache
 from langchain_community.cache import SQLiteCache
 from util.llm_client import get_llm
+from util.llm_audit import invoke_with_audit
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnablePassthrough
@@ -91,7 +92,14 @@ def understand_ddl(ddl_content, api_key, locale):
             | llm
             | JsonOutputParser()
         )
-        result = chain.invoke({"ddl_content": ddl_content, "locale": locale})
+        payload = {"ddl_content": ddl_content, "locale": locale}
+        result = invoke_with_audit(
+            chain,
+            payload,
+            prompt_name="prompt/understand_ddl.py",
+            input_payload=payload,
+            metadata={"type": "ddl_analysis"},
+        )
         return result
     except Exception as e:
         err_msg = f"Understanding 과정에서 DDL 관련 LLM 호출하는 도중 오류가 발생했습니다: {str(e)}"

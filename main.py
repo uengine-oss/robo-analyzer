@@ -3,8 +3,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 from service.router import router  # service.router.py 파일에서 정의한 라우터 가져오기
+from util.llm_audit import reset_audit_log
 
 # API 엔드포인트를 정의하고 요청을 처리하기 위해 FastAPI 애플리케이션을 생성
+reset_audit_log()
 app = FastAPI()
 
 # CORS 미들웨어 추가: 다른 도메인에서의 요청을 허용하기 위한 설정

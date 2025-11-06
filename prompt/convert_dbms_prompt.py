@@ -7,6 +7,7 @@ from util.llm_client import get_llm
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnablePassthrough
+from util.llm_audit import invoke_with_audit
 from util.exception import LLMCallError
 
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
@@ -98,13 +99,21 @@ def convert_postgres_to_oracle(source_code: str, antlr_data: str, api_key: str, 
             | llm
             | JsonOutputParser()
         )
-        
-        result = chain.invoke({
+
+        payload = {
             "source_code": source_code,
             "antlr_data": antlr_data,
             "locale": locale
-        })
-        
+        }
+
+        result = invoke_with_audit(
+            chain,
+            payload,
+            prompt_name="prompt/convert_dbms_prompt.py",
+            input_payload=payload,
+            metadata={"type": "dbms_conversion"},
+        )
+
         return result
         
     except Exception as e:

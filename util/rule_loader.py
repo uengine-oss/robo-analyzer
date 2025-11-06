@@ -6,6 +6,7 @@ Rule 로더 모듈
 - LLM 호출 및 템플릿 렌더링 통합
 """
 
+import json
 import os
 import yaml
 import logging
@@ -16,7 +17,15 @@ from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from util.llm_client import get_llm
+from util.llm_audit import invoke_with_audit
 from util.exception import LLMCallError
+
+
+def _safe_copy(value: Any) -> Any:
+    try:
+        return json.loads(json.dumps(value, ensure_ascii=False))
+    except (TypeError, ValueError):
+        return value
 
 
 class RuleLoader:
@@ -172,10 +181,12 @@ class RuleLoader:
         try:
             _ = self._load_role_file(role_name)
             prompt_text = self.render_prompt(role_name, inputs)
-            
+
+            role_path = os.path.join(self.role_dir, f"{role_name}.yaml")
+
             # LLM 호출 (파라미터는 llm_client에서 일괄 관리)
             llm = get_llm(api_key=api_key)
-            
+
             # Langchain 체인 구성
             langchain_prompt = PromptTemplate.from_template("{prompt}")
             chain = (
@@ -184,8 +195,24 @@ class RuleLoader:
                 | llm
                 | JsonOutputParser()
             )
-            
-            result = chain.invoke({"prompt": prompt_text})
+
+            payload = {"prompt": prompt_text}
+            metadata = {
+                "role": role_name,
+                "targetLang": self.target_lang,
+                "rulePath": role_path,
+            }
+
+            result = invoke_with_audit(
+                chain,
+                payload,
+                prompt_name=f"rules/{self.target_lang}/{role_name}",
+                input_payload={
+                    "inputs": _safe_copy(inputs),
+                    "renderedPrompt": prompt_text,
+                },
+                metadata=metadata,
+            )
             return result
             
         except Exception as e:
