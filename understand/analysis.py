@@ -134,6 +134,34 @@ class StatementNode:
 
         return '\n'.join(result_lines)
 
+    def get_placeholder_code(self) -> str:
+        """자식 구간을 placeholder로 유지한 코드를 반환합니다."""
+        if not self.children:
+            return self.code
+
+        result_lines: List[str] = []
+        line_index = 0
+        total_lines = len(self.lines)
+        sorted_children = sorted(self.children, key=lambda child: child.start_line)
+
+        for child in sorted_children:
+            while line_index < total_lines and self.lines[line_index][0] < child.start_line:
+                line_no, text = self.lines[line_index]
+                result_lines.append(f"{line_no}: {text}")
+                line_index += 1
+
+            result_lines.append(f"{child.start_line}: ... code ...")
+
+            while line_index < total_lines and self.lines[line_index][0] <= child.end_line:
+                line_index += 1
+
+        while line_index < total_lines:
+            line_no, text = self.lines[line_index]
+            result_lines.append(f"{line_no}: {text}")
+            line_index += 1
+
+        return '\n'.join(result_lines)
+
 
 @dataclass(slots=True)
 class ProcedureInfo:
@@ -596,21 +624,27 @@ class ApplyManager:
         escaped_summary = escape_summary(summary)
         escaped_code = escape_for_cypher(node.code)
         node_name = build_statement_name(node.node_type, node.start_line)
+        escaped_node_name = escape_for_cypher(node_name)
 
         # 자식이 있는 부모 노드는 LLM이 반환한 요약 문자열을 그대로 사용합니다.
         # 이미 `escape_summary`를 통해 JSON-safe 문자열이 만들어져 있으므로 추가 이스케이프 없이 사용합니다.
         escaped_summary_text = escaped_summary
 
-        base_set = (
-            f"n.endLine = {node.end_line}, "
-            f"n.name = '{escape_for_cypher(node_name)}', "
-            f"n.summarized_code = '{escape_for_cypher(node.code)}', "
-            f"n.summary = {escaped_summary_text}, "
-            f"n.node_code = '{escaped_code}', "
-            f"n.token = {node.token}, "
-            f"n.procedure_name = '{escape_for_cypher(node.procedure_name or '')}', "
-            f"n.has_children = {'true' if node.has_children else 'false'}"
-        )
+        base_fields: List[str] = [
+            f"n.endLine = {node.end_line}",
+            f"n.name = '{escaped_node_name}'",
+            f"n.summary = {escaped_summary_text}",
+            f"n.node_code = '{escaped_code}'",
+            f"n.token = {node.token}",
+            f"n.procedure_name = '{escape_for_cypher(node.procedure_name or '')}'",
+            f"n.has_children = {'true' if node.has_children else 'false'}",
+        ]
+
+        if node.has_children:
+            escaped_placeholder = escape_for_cypher(node.get_placeholder_code())
+            base_fields.append(f"n.summarized_code = '{escaped_placeholder}'")
+
+        base_set = ", ".join(base_fields)
 
         queries.append(
             f"MERGE (n:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
@@ -1035,7 +1069,6 @@ class Analyzer:
             return queries
 
         escaped_code = escape_for_cypher(node.code)
-        escaped_summary = escape_for_cypher(node.get_compact_code())
 
         if label == "FILE":
             file_summary = 'File Start Node' if self.locale == 'en' else '파일 노드'
@@ -1048,9 +1081,13 @@ class Analyzer:
                 f"MERGE (folder)-[:CONTAINS]->(n)"
             )
         else:
+            placeholder_fragment = ""
+            if node.has_children:
+                escaped_placeholder = escape_for_cypher(node.get_placeholder_code())
+                placeholder_fragment = f", n.summarized_code = '{escaped_placeholder}'"
             queries.append(
                 f"MERGE (n:{label} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
-                f"SET n.endLine = {node.end_line}, n.name = '{escaped_name}', n.summarized_code = '{escaped_summary}',\n"
+                f"SET n.endLine = {node.end_line}, n.name = '{escaped_name}'{placeholder_fragment},\n"
                 f"    n.node_code = '{escaped_code}', n.token = {node.token}, n.procedure_name = '{procedure_name}', n.has_children = {has_children}\n"
                 f"WITH n\n"
                 f"MERGE (folder:SYSTEM {{{self.folder_props}}})\n"
