@@ -27,7 +27,7 @@ from util.utility_tool import calculate_code_token, escape_for_cypher, parse_tab
 PROCEDURE_TYPES = ("PROCEDURE", "FUNCTION", "CREATE_PROCEDURE_BODY", "TRIGGER")
 NON_ANALYSIS_TYPES = frozenset(["CREATE_PROCEDURE_BODY", "FILE", "PROCEDURE", "FUNCTION", "DECLARE", "TRIGGER", "FOLDER", "SPEC"])
 NON_NEXT_RECURSIVE_TYPES = frozenset(["FUNCTION", "PROCEDURE", "PACKAGE_VARIABLE", "TRIGGER"])
-DML_STATEMENT_TYPES = frozenset(["SELECT", "INSERT", "UPDATE", "DELETE", "MERGE", "EXECUTE_IMMEDIATE", "FETCH"])
+DML_STATEMENT_TYPES = frozenset(["SELECT", "INSERT", "UPDATE", "DELETE", "MERGE", "EXECUTE_IMMEDIATE", "FETCH", "CREATE_TEMP_TABLE"])
 TABLE_RELATIONSHIP_MAP = {
     "r": "FROM",
     "w": "WRITES",
@@ -727,6 +727,7 @@ class ApplyManager:
                 table_merge = self._build_table_merge(name_part, schema_part)
                 node_merge = f"MERGE (n:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})"
                 folder_merge = f"MERGE (folder:SYSTEM {{{self.folder_props}}})"
+                is_temp_flag = 'true' if node.node_type == 'CREATE_TEMP_TABLE' else 'false'
 
                 bucket_key = self._record_table_summary(schema_part, name_part, entry.get('tableDescription'))
 
@@ -740,7 +741,7 @@ class ApplyManager:
                     f"WITH n, t\n"
                     f"{folder_merge}\n"
                     f"MERGE (folder)-[:CONTAINS]->(t)\n"
-                    f"SET t.db = coalesce(t.db, '{self.dbms}')"
+                    f"SET t.db = coalesce(t.db, '{self.dbms}'), t.is_temp = {is_temp_flag}"
                 )
 
                 if db_link_value:
