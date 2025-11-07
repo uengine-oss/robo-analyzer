@@ -1,0 +1,2311 @@
+[
+  {
+    "timestamp": "2025-11-06T01:45:47.463923Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "23: 23:     SELECT COUNT(*) INTO vPatientExists\n24: 24:     FROM TPJ_PATIENT\n25: 25:     WHERE PATIENT_KEY = pPatientKey;",
+      "ranges": [
+        {
+          "startLine": 23,
+          "endLine": 25,
+          "type": "SELECT"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "tables": [
+        {
+          "startLine": 23,
+          "endLine": 25,
+          "dmlType": "SELECT",
+          "table": "TPJ_PATIENT",
+          "tableDescription": "환자 마스터 테이블에서 특정 환자 키의 존재 여부를 조회하여 검증합니다.",
+          "columns": [
+            {
+              "name": "PATIENT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 키로 조회 조건 설정"
+            }
+          ],
+          "fkRelations": [],
+          "dbLinks": []
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2924,
+      "completion": 131,
+      "total": 3055
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 23,
+          "endLine": 25,
+          "type": "SELECT"
+        }
+      ]
+    },
+    "sortKey": 23
+  },
+  {
+    "timestamp": "2025-11-06T07:14:20.928363Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "23: 23:     SELECT COUNT(*) INTO vPatientExists\n24: 24:     FROM TPJ_PATIENT\n25: 25:     WHERE PATIENT_KEY = pPatientKey;",
+      "ranges": [
+        {
+          "startLine": 23,
+          "endLine": 25,
+          "type": "SELECT"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "tables": [
+        {
+          "startLine": 23,
+          "endLine": 25,
+          "dmlType": "SELECT",
+          "table": "TPJ_PATIENT",
+          "tableDescription": "환자 마스터 테이블에서 특정 환자 키의 존재 여부를 조회하여 검증합니다.",
+          "columns": [
+            {
+              "name": "PATIENT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 키로 조회 조건 설정"
+            }
+          ],
+          "fkRelations": [],
+          "dbLinks": []
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2924,
+      "completion": 131,
+      "total": 3055
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 23,
+          "endLine": 25,
+          "type": "SELECT"
+        }
+      ]
+    },
+    "sortKey": 23
+  },
+  {
+    "timestamp": "2025-11-06T07:16:54.024229Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "23: 23:     SELECT COUNT(*) INTO vPatientExists\n24: 24:     FROM TPJ_PATIENT\n25: 25:     WHERE PATIENT_KEY = pPatientKey;",
+      "ranges": [
+        {
+          "startLine": 23,
+          "endLine": 25,
+          "type": "SELECT"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "tables": [
+        {
+          "startLine": 23,
+          "endLine": 25,
+          "dmlType": "SELECT",
+          "table": "TPJ_PATIENT",
+          "tableDescription": "환자 마스터 테이블에서 특정 환자 키의 존재 여부를 조회하여 검증합니다.",
+          "columns": [
+            {
+              "name": "PATIENT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 키로 조회 조건 설정"
+            }
+          ],
+          "fkRelations": [],
+          "dbLinks": []
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2924,
+      "completion": 131,
+      "total": 3055
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 23,
+          "endLine": 25,
+          "type": "SELECT"
+        }
+      ]
+    },
+    "sortKey": 23
+  },
+  {
+    "timestamp": "2025-11-06T07:22:44.275833Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "23: 23:     SELECT COUNT(*) INTO vPatientExists\n24: 24:     FROM TPJ_PATIENT\n25: 25:     WHERE PATIENT_KEY = pPatientKey;",
+      "ranges": [
+        {
+          "startLine": 23,
+          "endLine": 25,
+          "type": "SELECT"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "tables": [
+        {
+          "startLine": 23,
+          "endLine": 25,
+          "dmlType": "SELECT",
+          "table": "TPJ_PATIENT",
+          "tableDescription": "환자 마스터 테이블에서 특정 환자 키의 존재 여부를 조회하여 검증합니다.",
+          "columns": [
+            {
+              "name": "PATIENT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 키로 조회 조건 설정"
+            }
+          ],
+          "fkRelations": [],
+          "dbLinks": []
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2924,
+      "completion": 131,
+      "total": 3055
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 23,
+          "endLine": 25,
+          "type": "SELECT"
+        }
+      ]
+    },
+    "sortKey": 23
+  },
+  {
+    "timestamp": "2025-11-06T07:42:44.298070Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "23: 23:     SELECT COUNT(*) INTO vPatientExists\n24: 24:     FROM TPJ_PATIENT\n25: 25:     WHERE PATIENT_KEY = pPatientKey;",
+      "ranges": [
+        {
+          "startLine": 23,
+          "endLine": 25,
+          "type": "SELECT"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "tables": [
+        {
+          "startLine": 23,
+          "endLine": 25,
+          "dmlType": "SELECT",
+          "table": "TPJ_PATIENT",
+          "tableDescription": "환자 마스터 테이블에서 특정 환자 키의 존재 여부를 조회하여 검증합니다.",
+          "columns": [
+            {
+              "name": "PATIENT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 키로 조회 조건 설정"
+            }
+          ],
+          "fkRelations": [],
+          "dbLinks": []
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2924,
+      "completion": 131,
+      "total": 3055
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 23,
+          "endLine": 25,
+          "type": "SELECT"
+        }
+      ]
+    },
+    "sortKey": 23
+  },
+  {
+    "timestamp": "2025-11-06T07:43:37.183205Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "23: 23:     SELECT COUNT(*) INTO vPatientExists\n24: 24:     FROM TPJ_PATIENT\n25: 25:     WHERE PATIENT_KEY = pPatientKey;",
+      "ranges": [
+        {
+          "startLine": 23,
+          "endLine": 25,
+          "type": "SELECT"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "tables": [
+        {
+          "startLine": 23,
+          "endLine": 25,
+          "dmlType": "SELECT",
+          "table": "TPJ_PATIENT",
+          "tableDescription": "환자 마스터 테이블에서 특정 환자 키의 존재 여부를 조회하여 검증합니다.",
+          "columns": [
+            {
+              "name": "PATIENT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 키로 조회 조건 설정"
+            }
+          ],
+          "fkRelations": [],
+          "dbLinks": []
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2924,
+      "completion": 131,
+      "total": 3055
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 23,
+          "endLine": 25,
+          "type": "SELECT"
+        }
+      ]
+    },
+    "sortKey": 23
+  },
+  {
+    "timestamp": "2025-11-07T05:34:27.464082Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "23: 23:     SELECT COUNT(*) INTO vPatientExists\n24: 24:     FROM TPJ_PATIENT\n25: 25:     WHERE PATIENT_KEY = pPatientKey;",
+      "ranges": [
+        {
+          "startLine": 23,
+          "endLine": 25,
+          "type": "SELECT"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "ranges": [
+        {
+          "startLine": 23,
+          "endLine": 25,
+          "tables": [
+            {
+              "table": "TPJ_PATIENT",
+              "accessMode": "r",
+              "tableDescription": "환자 마스터 테이블에서 특정 환자 키로 환자 존재 여부를 조회합니다.",
+              "columns": [
+                {
+                  "name": "PATIENT_KEY",
+                  "dtype": "",
+                  "nullable": true,
+                  "description": "환자 조회 조건으로 사용"
+                }
+              ],
+              "fkRelations": [],
+              "dbLinks": []
+            }
+          ]
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2893,
+      "completion": 139,
+      "total": 3032
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 23,
+          "endLine": 25,
+          "type": "SELECT"
+        }
+      ]
+    },
+    "sortKey": 23
+  },
+  {
+    "timestamp": "2025-11-06T01:45:47.465922Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "36: 36:         INSERT INTO TPJ_PATIENT (PATIENT_KEY, PATIENT_NAME, BIRTH_DATE, GENDER, PHONE)\n37: 37:         VALUES (pPatientKey, pPatientName, pBirthDate, pGender, pPhone);",
+      "ranges": [
+        {
+          "startLine": 36,
+          "endLine": 37,
+          "type": "INSERT"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "tables": [
+        {
+          "startLine": 36,
+          "endLine": 37,
+          "dmlType": "INSERT",
+          "table": "TPJ_PATIENT",
+          "tableDescription": "환자 테이블에 신규 환자 정보를 삽입합니다.",
+          "columns": [
+            {
+              "name": "PATIENT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 키 값을 저장"
+            },
+            {
+              "name": "PATIENT_NAME",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 이름을 저장"
+            },
+            {
+              "name": "BIRTH_DATE",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 생년월일을 저장"
+            },
+            {
+              "name": "GENDER",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 성별을 저장"
+            },
+            {
+              "name": "PHONE",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 전화번호를 저장"
+            }
+          ],
+          "fkRelations": [],
+          "dbLinks": []
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2939,
+      "completion": 264,
+      "total": 3203
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 36,
+          "endLine": 37,
+          "type": "INSERT"
+        }
+      ]
+    },
+    "sortKey": 36
+  },
+  {
+    "timestamp": "2025-11-06T07:14:20.931380Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "36: 36:         INSERT INTO TPJ_PATIENT (PATIENT_KEY, PATIENT_NAME, BIRTH_DATE, GENDER, PHONE)\n37: 37:         VALUES (pPatientKey, pPatientName, pBirthDate, pGender, pPhone);",
+      "ranges": [
+        {
+          "startLine": 36,
+          "endLine": 37,
+          "type": "INSERT"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "tables": [
+        {
+          "startLine": 36,
+          "endLine": 37,
+          "dmlType": "INSERT",
+          "table": "TPJ_PATIENT",
+          "tableDescription": "환자 테이블에 신규 환자 정보를 삽입합니다.",
+          "columns": [
+            {
+              "name": "PATIENT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 키 값을 저장"
+            },
+            {
+              "name": "PATIENT_NAME",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 이름을 저장"
+            },
+            {
+              "name": "BIRTH_DATE",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 생년월일을 저장"
+            },
+            {
+              "name": "GENDER",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 성별을 저장"
+            },
+            {
+              "name": "PHONE",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 전화번호를 저장"
+            }
+          ],
+          "fkRelations": [],
+          "dbLinks": []
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2939,
+      "completion": 264,
+      "total": 3203
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 36,
+          "endLine": 37,
+          "type": "INSERT"
+        }
+      ]
+    },
+    "sortKey": 36
+  },
+  {
+    "timestamp": "2025-11-06T07:16:54.024229Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "36: 36:         INSERT INTO TPJ_PATIENT (PATIENT_KEY, PATIENT_NAME, BIRTH_DATE, GENDER, PHONE)\n37: 37:         VALUES (pPatientKey, pPatientName, pBirthDate, pGender, pPhone);",
+      "ranges": [
+        {
+          "startLine": 36,
+          "endLine": 37,
+          "type": "INSERT"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "tables": [
+        {
+          "startLine": 36,
+          "endLine": 37,
+          "dmlType": "INSERT",
+          "table": "TPJ_PATIENT",
+          "tableDescription": "환자 테이블에 신규 환자 정보를 삽입합니다.",
+          "columns": [
+            {
+              "name": "PATIENT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 키 값을 저장"
+            },
+            {
+              "name": "PATIENT_NAME",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 이름을 저장"
+            },
+            {
+              "name": "BIRTH_DATE",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 생년월일을 저장"
+            },
+            {
+              "name": "GENDER",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 성별을 저장"
+            },
+            {
+              "name": "PHONE",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 전화번호를 저장"
+            }
+          ],
+          "fkRelations": [],
+          "dbLinks": []
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2939,
+      "completion": 264,
+      "total": 3203
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 36,
+          "endLine": 37,
+          "type": "INSERT"
+        }
+      ]
+    },
+    "sortKey": 36
+  },
+  {
+    "timestamp": "2025-11-06T07:22:44.277844Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "36: 36:         INSERT INTO TPJ_PATIENT (PATIENT_KEY, PATIENT_NAME, BIRTH_DATE, GENDER, PHONE)\n37: 37:         VALUES (pPatientKey, pPatientName, pBirthDate, pGender, pPhone);",
+      "ranges": [
+        {
+          "startLine": 36,
+          "endLine": 37,
+          "type": "INSERT"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "tables": [
+        {
+          "startLine": 36,
+          "endLine": 37,
+          "dmlType": "INSERT",
+          "table": "TPJ_PATIENT",
+          "tableDescription": "환자 테이블에 신규 환자 정보를 삽입합니다.",
+          "columns": [
+            {
+              "name": "PATIENT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 키 값을 저장"
+            },
+            {
+              "name": "PATIENT_NAME",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 이름을 저장"
+            },
+            {
+              "name": "BIRTH_DATE",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 생년월일을 저장"
+            },
+            {
+              "name": "GENDER",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 성별을 저장"
+            },
+            {
+              "name": "PHONE",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 전화번호를 저장"
+            }
+          ],
+          "fkRelations": [],
+          "dbLinks": []
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2939,
+      "completion": 264,
+      "total": 3203
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 36,
+          "endLine": 37,
+          "type": "INSERT"
+        }
+      ]
+    },
+    "sortKey": 36
+  },
+  {
+    "timestamp": "2025-11-06T07:42:44.298070Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "36: 36:         INSERT INTO TPJ_PATIENT (PATIENT_KEY, PATIENT_NAME, BIRTH_DATE, GENDER, PHONE)\n37: 37:         VALUES (pPatientKey, pPatientName, pBirthDate, pGender, pPhone);",
+      "ranges": [
+        {
+          "startLine": 36,
+          "endLine": 37,
+          "type": "INSERT"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "tables": [
+        {
+          "startLine": 36,
+          "endLine": 37,
+          "dmlType": "INSERT",
+          "table": "TPJ_PATIENT",
+          "tableDescription": "환자 테이블에 신규 환자 정보를 삽입합니다.",
+          "columns": [
+            {
+              "name": "PATIENT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 키 값을 저장"
+            },
+            {
+              "name": "PATIENT_NAME",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 이름을 저장"
+            },
+            {
+              "name": "BIRTH_DATE",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 생년월일을 저장"
+            },
+            {
+              "name": "GENDER",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 성별을 저장"
+            },
+            {
+              "name": "PHONE",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 전화번호를 저장"
+            }
+          ],
+          "fkRelations": [],
+          "dbLinks": []
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2939,
+      "completion": 264,
+      "total": 3203
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 36,
+          "endLine": 37,
+          "type": "INSERT"
+        }
+      ]
+    },
+    "sortKey": 36
+  },
+  {
+    "timestamp": "2025-11-06T07:43:37.186268Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "36: 36:         INSERT INTO TPJ_PATIENT (PATIENT_KEY, PATIENT_NAME, BIRTH_DATE, GENDER, PHONE)\n37: 37:         VALUES (pPatientKey, pPatientName, pBirthDate, pGender, pPhone);",
+      "ranges": [
+        {
+          "startLine": 36,
+          "endLine": 37,
+          "type": "INSERT"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "tables": [
+        {
+          "startLine": 36,
+          "endLine": 37,
+          "dmlType": "INSERT",
+          "table": "TPJ_PATIENT",
+          "tableDescription": "환자 테이블에 신규 환자 정보를 삽입합니다.",
+          "columns": [
+            {
+              "name": "PATIENT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 키 값을 저장"
+            },
+            {
+              "name": "PATIENT_NAME",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 이름을 저장"
+            },
+            {
+              "name": "BIRTH_DATE",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 생년월일을 저장"
+            },
+            {
+              "name": "GENDER",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 성별을 저장"
+            },
+            {
+              "name": "PHONE",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 전화번호를 저장"
+            }
+          ],
+          "fkRelations": [],
+          "dbLinks": []
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2939,
+      "completion": 264,
+      "total": 3203
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 36,
+          "endLine": 37,
+          "type": "INSERT"
+        }
+      ]
+    },
+    "sortKey": 36
+  },
+  {
+    "timestamp": "2025-11-07T05:34:30.233637Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "36: 36:         INSERT INTO TPJ_PATIENT (PATIENT_KEY, PATIENT_NAME, BIRTH_DATE, GENDER, PHONE)\n37: 37:         VALUES (pPatientKey, pPatientName, pBirthDate, pGender, pPhone);",
+      "ranges": [
+        {
+          "startLine": 36,
+          "endLine": 37,
+          "type": "INSERT"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "ranges": [
+        {
+          "startLine": 36,
+          "endLine": 37,
+          "tables": [
+            {
+              "table": "TPJ_PATIENT",
+              "accessMode": "w",
+              "tableDescription": "환자 정보 테이블에 신규 환자 데이터를 삽입합니다.",
+              "columns": [
+                {
+                  "name": "PATIENT_KEY",
+                  "dtype": "",
+                  "nullable": true,
+                  "description": "환자 키 값을 저장"
+                },
+                {
+                  "name": "PATIENT_NAME",
+                  "dtype": "",
+                  "nullable": true,
+                  "description": "환자 이름을 저장"
+                },
+                {
+                  "name": "BIRTH_DATE",
+                  "dtype": "",
+                  "nullable": true,
+                  "description": "환자 생년월일을 저장"
+                },
+                {
+                  "name": "GENDER",
+                  "dtype": "",
+                  "nullable": true,
+                  "description": "환자 성별을 저장"
+                },
+                {
+                  "name": "PHONE",
+                  "dtype": "",
+                  "nullable": true,
+                  "description": "환자 전화번호를 저장"
+                }
+              ],
+              "fkRelations": [],
+              "dbLinks": []
+            }
+          ]
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2908,
+      "completion": 275,
+      "total": 3183
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 36,
+          "endLine": 37,
+          "type": "INSERT"
+        }
+      ]
+    },
+    "sortKey": 36
+  },
+  {
+    "timestamp": "2025-11-06T01:45:47.465922Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "54: 54:         INSERT INTO TPJ_RECEPTION (RECEPT_KEY, PATIENT_KEY, DEPT_CODE, SYMPTOM, STATUS)\n55: 55:         VALUES (pReceptKey, pPatientKey, pDeptCode, pSymptom, 'W');",
+      "ranges": [
+        {
+          "startLine": 54,
+          "endLine": 55,
+          "type": "INSERT"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "tables": [
+        {
+          "startLine": 54,
+          "endLine": 55,
+          "dmlType": "INSERT",
+          "table": "TPJ_RECEPTION",
+          "tableDescription": "TPJ_RECEPTION 테이블에 접수 정보를 신규로 삽입합니다.",
+          "columns": [
+            {
+              "name": "RECEPT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "접수 키 값을 저장"
+            },
+            {
+              "name": "PATIENT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 키 값을 저장"
+            },
+            {
+              "name": "DEPT_CODE",
+              "dtype": "",
+              "nullable": true,
+              "description": "진료과 코드를 저장"
+            },
+            {
+              "name": "SYMPTOM",
+              "dtype": "",
+              "nullable": true,
+              "description": "증상 정보를 저장"
+            },
+            {
+              "name": "STATUS",
+              "dtype": "",
+              "nullable": true,
+              "description": "접수 상태를 저장"
+            }
+          ],
+          "fkRelations": [],
+          "dbLinks": []
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2943,
+      "completion": 263,
+      "total": 3206
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 54,
+          "endLine": 55,
+          "type": "INSERT"
+        }
+      ]
+    },
+    "sortKey": 54
+  },
+  {
+    "timestamp": "2025-11-06T07:14:20.929394Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "54: 54:         INSERT INTO TPJ_RECEPTION (RECEPT_KEY, PATIENT_KEY, DEPT_CODE, SYMPTOM, STATUS)\n55: 55:         VALUES (pReceptKey, pPatientKey, pDeptCode, pSymptom, 'W');",
+      "ranges": [
+        {
+          "startLine": 54,
+          "endLine": 55,
+          "type": "INSERT"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "tables": [
+        {
+          "startLine": 54,
+          "endLine": 55,
+          "dmlType": "INSERT",
+          "table": "TPJ_RECEPTION",
+          "tableDescription": "TPJ_RECEPTION 테이블에 접수 정보를 신규로 삽입합니다.",
+          "columns": [
+            {
+              "name": "RECEPT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "접수 키 값을 저장"
+            },
+            {
+              "name": "PATIENT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 키 값을 저장"
+            },
+            {
+              "name": "DEPT_CODE",
+              "dtype": "",
+              "nullable": true,
+              "description": "진료과 코드를 저장"
+            },
+            {
+              "name": "SYMPTOM",
+              "dtype": "",
+              "nullable": true,
+              "description": "증상 정보를 저장"
+            },
+            {
+              "name": "STATUS",
+              "dtype": "",
+              "nullable": true,
+              "description": "접수 상태를 저장"
+            }
+          ],
+          "fkRelations": [],
+          "dbLinks": []
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2943,
+      "completion": 263,
+      "total": 3206
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 54,
+          "endLine": 55,
+          "type": "INSERT"
+        }
+      ]
+    },
+    "sortKey": 54
+  },
+  {
+    "timestamp": "2025-11-06T07:16:54.024229Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "54: 54:         INSERT INTO TPJ_RECEPTION (RECEPT_KEY, PATIENT_KEY, DEPT_CODE, SYMPTOM, STATUS)\n55: 55:         VALUES (pReceptKey, pPatientKey, pDeptCode, pSymptom, 'W');",
+      "ranges": [
+        {
+          "startLine": 54,
+          "endLine": 55,
+          "type": "INSERT"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "tables": [
+        {
+          "startLine": 54,
+          "endLine": 55,
+          "dmlType": "INSERT",
+          "table": "TPJ_RECEPTION",
+          "tableDescription": "TPJ_RECEPTION 테이블에 접수 정보를 신규로 삽입합니다.",
+          "columns": [
+            {
+              "name": "RECEPT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "접수 키 값을 저장"
+            },
+            {
+              "name": "PATIENT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 키 값을 저장"
+            },
+            {
+              "name": "DEPT_CODE",
+              "dtype": "",
+              "nullable": true,
+              "description": "진료과 코드를 저장"
+            },
+            {
+              "name": "SYMPTOM",
+              "dtype": "",
+              "nullable": true,
+              "description": "증상 정보를 저장"
+            },
+            {
+              "name": "STATUS",
+              "dtype": "",
+              "nullable": true,
+              "description": "접수 상태를 저장"
+            }
+          ],
+          "fkRelations": [],
+          "dbLinks": []
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2943,
+      "completion": 263,
+      "total": 3206
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 54,
+          "endLine": 55,
+          "type": "INSERT"
+        }
+      ]
+    },
+    "sortKey": 54
+  },
+  {
+    "timestamp": "2025-11-06T07:22:44.279853Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "54: 54:         INSERT INTO TPJ_RECEPTION (RECEPT_KEY, PATIENT_KEY, DEPT_CODE, SYMPTOM, STATUS)\n55: 55:         VALUES (pReceptKey, pPatientKey, pDeptCode, pSymptom, 'W');",
+      "ranges": [
+        {
+          "startLine": 54,
+          "endLine": 55,
+          "type": "INSERT"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "tables": [
+        {
+          "startLine": 54,
+          "endLine": 55,
+          "dmlType": "INSERT",
+          "table": "TPJ_RECEPTION",
+          "tableDescription": "TPJ_RECEPTION 테이블에 접수 정보를 신규로 삽입합니다.",
+          "columns": [
+            {
+              "name": "RECEPT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "접수 키 값을 저장"
+            },
+            {
+              "name": "PATIENT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 키 값을 저장"
+            },
+            {
+              "name": "DEPT_CODE",
+              "dtype": "",
+              "nullable": true,
+              "description": "진료과 코드를 저장"
+            },
+            {
+              "name": "SYMPTOM",
+              "dtype": "",
+              "nullable": true,
+              "description": "증상 정보를 저장"
+            },
+            {
+              "name": "STATUS",
+              "dtype": "",
+              "nullable": true,
+              "description": "접수 상태를 저장"
+            }
+          ],
+          "fkRelations": [],
+          "dbLinks": []
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2943,
+      "completion": 263,
+      "total": 3206
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 54,
+          "endLine": 55,
+          "type": "INSERT"
+        }
+      ]
+    },
+    "sortKey": 54
+  },
+  {
+    "timestamp": "2025-11-06T07:42:44.311250Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "54: 54:         INSERT INTO TPJ_RECEPTION (RECEPT_KEY, PATIENT_KEY, DEPT_CODE, SYMPTOM, STATUS)\n55: 55:         VALUES (pReceptKey, pPatientKey, pDeptCode, pSymptom, 'W');",
+      "ranges": [
+        {
+          "startLine": 54,
+          "endLine": 55,
+          "type": "INSERT"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "tables": [
+        {
+          "startLine": 54,
+          "endLine": 55,
+          "dmlType": "INSERT",
+          "table": "TPJ_RECEPTION",
+          "tableDescription": "TPJ_RECEPTION 테이블에 접수 정보를 신규로 삽입합니다.",
+          "columns": [
+            {
+              "name": "RECEPT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "접수 키 값을 저장"
+            },
+            {
+              "name": "PATIENT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 키 값을 저장"
+            },
+            {
+              "name": "DEPT_CODE",
+              "dtype": "",
+              "nullable": true,
+              "description": "진료과 코드를 저장"
+            },
+            {
+              "name": "SYMPTOM",
+              "dtype": "",
+              "nullable": true,
+              "description": "증상 정보를 저장"
+            },
+            {
+              "name": "STATUS",
+              "dtype": "",
+              "nullable": true,
+              "description": "접수 상태를 저장"
+            }
+          ],
+          "fkRelations": [],
+          "dbLinks": []
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2943,
+      "completion": 263,
+      "total": 3206
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 54,
+          "endLine": 55,
+          "type": "INSERT"
+        }
+      ]
+    },
+    "sortKey": 54
+  },
+  {
+    "timestamp": "2025-11-06T07:43:37.186268Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "54: 54:         INSERT INTO TPJ_RECEPTION (RECEPT_KEY, PATIENT_KEY, DEPT_CODE, SYMPTOM, STATUS)\n55: 55:         VALUES (pReceptKey, pPatientKey, pDeptCode, pSymptom, 'W');",
+      "ranges": [
+        {
+          "startLine": 54,
+          "endLine": 55,
+          "type": "INSERT"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "tables": [
+        {
+          "startLine": 54,
+          "endLine": 55,
+          "dmlType": "INSERT",
+          "table": "TPJ_RECEPTION",
+          "tableDescription": "TPJ_RECEPTION 테이블에 접수 정보를 신규로 삽입합니다.",
+          "columns": [
+            {
+              "name": "RECEPT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "접수 키 값을 저장"
+            },
+            {
+              "name": "PATIENT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "환자 키 값을 저장"
+            },
+            {
+              "name": "DEPT_CODE",
+              "dtype": "",
+              "nullable": true,
+              "description": "진료과 코드를 저장"
+            },
+            {
+              "name": "SYMPTOM",
+              "dtype": "",
+              "nullable": true,
+              "description": "증상 정보를 저장"
+            },
+            {
+              "name": "STATUS",
+              "dtype": "",
+              "nullable": true,
+              "description": "접수 상태를 저장"
+            }
+          ],
+          "fkRelations": [],
+          "dbLinks": []
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2943,
+      "completion": 263,
+      "total": 3206
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 54,
+          "endLine": 55,
+          "type": "INSERT"
+        }
+      ]
+    },
+    "sortKey": 54
+  },
+  {
+    "timestamp": "2025-11-07T05:34:27.818590Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "54: 54:         INSERT INTO TPJ_RECEPTION (RECEPT_KEY, PATIENT_KEY, DEPT_CODE, SYMPTOM, STATUS)\n55: 55:         VALUES (pReceptKey, pPatientKey, pDeptCode, pSymptom, 'W');",
+      "ranges": [
+        {
+          "startLine": 54,
+          "endLine": 55,
+          "type": "INSERT"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "ranges": [
+        {
+          "startLine": 54,
+          "endLine": 55,
+          "tables": [
+            {
+              "table": "TPJ_RECEPTION",
+              "accessMode": "w",
+              "tableDescription": "TPJ_RECEPTION 테이블에 신규 접수 데이터를 삽입합니다.",
+              "columns": [
+                {
+                  "name": "RECEPT_KEY",
+                  "dtype": "",
+                  "nullable": true,
+                  "description": "접수 키 값을 저장"
+                },
+                {
+                  "name": "PATIENT_KEY",
+                  "dtype": "",
+                  "nullable": true,
+                  "description": "환자 키 값을 저장"
+                },
+                {
+                  "name": "DEPT_CODE",
+                  "dtype": "",
+                  "nullable": true,
+                  "description": "진료과 코드를 저장"
+                },
+                {
+                  "name": "SYMPTOM",
+                  "dtype": "",
+                  "nullable": true,
+                  "description": "증상 정보를 저장"
+                },
+                {
+                  "name": "STATUS",
+                  "dtype": "",
+                  "nullable": true,
+                  "description": "접수 상태를 저장"
+                }
+              ],
+              "fkRelations": [],
+              "dbLinks": []
+            }
+          ]
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2912,
+      "completion": 272,
+      "total": 3184
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 54,
+          "endLine": 55,
+          "type": "INSERT"
+        }
+      ]
+    },
+    "sortKey": 54
+  },
+  {
+    "timestamp": "2025-11-06T01:45:47.466923Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "62: 62:         UPDATE TPJ_RECEPTION\n63: 63:         SET STATUS = 'X'\n64: 64:         WHERE RECEPT_KEY = pReceptKey AND PATIENT_KEY = pPatientKey AND STATUS = 'W';",
+      "ranges": [
+        {
+          "startLine": 62,
+          "endLine": 64,
+          "type": "UPDATE"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "tables": [
+        {
+          "startLine": 62,
+          "endLine": 64,
+          "dmlType": "UPDATE",
+          "table": "TPJ_RECEPTION",
+          "tableDescription": "TPJ_RECEPTION 테이블에서 특정 접수 건의 상태를 'X'로 변경합니다.",
+          "columns": [
+            {
+              "name": "STATUS",
+              "dtype": "",
+              "nullable": true,
+              "description": "접수 상태를 'X'로 업데이트"
+            },
+            {
+              "name": "RECEPT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "업데이트 대상 접수 건을 식별하는 조건 컬럼"
+            },
+            {
+              "name": "PATIENT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "업데이트 대상 환자 건을 식별하는 조건 컬럼"
+            }
+          ],
+          "fkRelations": [],
+          "dbLinks": []
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2936,
+      "completion": 217,
+      "total": 3153
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 62,
+          "endLine": 64,
+          "type": "UPDATE"
+        }
+      ]
+    },
+    "sortKey": 62
+  },
+  {
+    "timestamp": "2025-11-06T07:14:20.932380Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "62: 62:         UPDATE TPJ_RECEPTION\n63: 63:         SET STATUS = 'X'\n64: 64:         WHERE RECEPT_KEY = pReceptKey AND PATIENT_KEY = pPatientKey AND STATUS = 'W';",
+      "ranges": [
+        {
+          "startLine": 62,
+          "endLine": 64,
+          "type": "UPDATE"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "tables": [
+        {
+          "startLine": 62,
+          "endLine": 64,
+          "dmlType": "UPDATE",
+          "table": "TPJ_RECEPTION",
+          "tableDescription": "TPJ_RECEPTION 테이블에서 특정 접수 건의 상태를 'X'로 변경합니다.",
+          "columns": [
+            {
+              "name": "STATUS",
+              "dtype": "",
+              "nullable": true,
+              "description": "접수 상태를 'X'로 업데이트"
+            },
+            {
+              "name": "RECEPT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "업데이트 대상 접수 건을 식별하는 조건 컬럼"
+            },
+            {
+              "name": "PATIENT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "업데이트 대상 환자 건을 식별하는 조건 컬럼"
+            }
+          ],
+          "fkRelations": [],
+          "dbLinks": []
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2936,
+      "completion": 217,
+      "total": 3153
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 62,
+          "endLine": 64,
+          "type": "UPDATE"
+        }
+      ]
+    },
+    "sortKey": 62
+  },
+  {
+    "timestamp": "2025-11-06T07:16:54.024229Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "62: 62:         UPDATE TPJ_RECEPTION\n63: 63:         SET STATUS = 'X'\n64: 64:         WHERE RECEPT_KEY = pReceptKey AND PATIENT_KEY = pPatientKey AND STATUS = 'W';",
+      "ranges": [
+        {
+          "startLine": 62,
+          "endLine": 64,
+          "type": "UPDATE"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "tables": [
+        {
+          "startLine": 62,
+          "endLine": 64,
+          "dmlType": "UPDATE",
+          "table": "TPJ_RECEPTION",
+          "tableDescription": "TPJ_RECEPTION 테이블에서 특정 접수 건의 상태를 'X'로 변경합니다.",
+          "columns": [
+            {
+              "name": "STATUS",
+              "dtype": "",
+              "nullable": true,
+              "description": "접수 상태를 'X'로 업데이트"
+            },
+            {
+              "name": "RECEPT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "업데이트 대상 접수 건을 식별하는 조건 컬럼"
+            },
+            {
+              "name": "PATIENT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "업데이트 대상 환자 건을 식별하는 조건 컬럼"
+            }
+          ],
+          "fkRelations": [],
+          "dbLinks": []
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2936,
+      "completion": 217,
+      "total": 3153
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 62,
+          "endLine": 64,
+          "type": "UPDATE"
+        }
+      ]
+    },
+    "sortKey": 62
+  },
+  {
+    "timestamp": "2025-11-06T07:22:44.279853Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "62: 62:         UPDATE TPJ_RECEPTION\n63: 63:         SET STATUS = 'X'\n64: 64:         WHERE RECEPT_KEY = pReceptKey AND PATIENT_KEY = pPatientKey AND STATUS = 'W';",
+      "ranges": [
+        {
+          "startLine": 62,
+          "endLine": 64,
+          "type": "UPDATE"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "tables": [
+        {
+          "startLine": 62,
+          "endLine": 64,
+          "dmlType": "UPDATE",
+          "table": "TPJ_RECEPTION",
+          "tableDescription": "TPJ_RECEPTION 테이블에서 특정 접수 건의 상태를 'X'로 변경합니다.",
+          "columns": [
+            {
+              "name": "STATUS",
+              "dtype": "",
+              "nullable": true,
+              "description": "접수 상태를 'X'로 업데이트"
+            },
+            {
+              "name": "RECEPT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "업데이트 대상 접수 건을 식별하는 조건 컬럼"
+            },
+            {
+              "name": "PATIENT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "업데이트 대상 환자 건을 식별하는 조건 컬럼"
+            }
+          ],
+          "fkRelations": [],
+          "dbLinks": []
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2936,
+      "completion": 217,
+      "total": 3153
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 62,
+          "endLine": 64,
+          "type": "UPDATE"
+        }
+      ]
+    },
+    "sortKey": 62
+  },
+  {
+    "timestamp": "2025-11-06T07:42:44.313722Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "62: 62:         UPDATE TPJ_RECEPTION\n63: 63:         SET STATUS = 'X'\n64: 64:         WHERE RECEPT_KEY = pReceptKey AND PATIENT_KEY = pPatientKey AND STATUS = 'W';",
+      "ranges": [
+        {
+          "startLine": 62,
+          "endLine": 64,
+          "type": "UPDATE"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "tables": [
+        {
+          "startLine": 62,
+          "endLine": 64,
+          "dmlType": "UPDATE",
+          "table": "TPJ_RECEPTION",
+          "tableDescription": "TPJ_RECEPTION 테이블에서 특정 접수 건의 상태를 'X'로 변경합니다.",
+          "columns": [
+            {
+              "name": "STATUS",
+              "dtype": "",
+              "nullable": true,
+              "description": "접수 상태를 'X'로 업데이트"
+            },
+            {
+              "name": "RECEPT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "업데이트 대상 접수 건을 식별하는 조건 컬럼"
+            },
+            {
+              "name": "PATIENT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "업데이트 대상 환자 건을 식별하는 조건 컬럼"
+            }
+          ],
+          "fkRelations": [],
+          "dbLinks": []
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2936,
+      "completion": 217,
+      "total": 3153
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 62,
+          "endLine": 64,
+          "type": "UPDATE"
+        }
+      ]
+    },
+    "sortKey": 62
+  },
+  {
+    "timestamp": "2025-11-06T07:43:37.186268Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "62: 62:         UPDATE TPJ_RECEPTION\n63: 63:         SET STATUS = 'X'\n64: 64:         WHERE RECEPT_KEY = pReceptKey AND PATIENT_KEY = pPatientKey AND STATUS = 'W';",
+      "ranges": [
+        {
+          "startLine": 62,
+          "endLine": 64,
+          "type": "UPDATE"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "tables": [
+        {
+          "startLine": 62,
+          "endLine": 64,
+          "dmlType": "UPDATE",
+          "table": "TPJ_RECEPTION",
+          "tableDescription": "TPJ_RECEPTION 테이블에서 특정 접수 건의 상태를 'X'로 변경합니다.",
+          "columns": [
+            {
+              "name": "STATUS",
+              "dtype": "",
+              "nullable": true,
+              "description": "접수 상태를 'X'로 업데이트"
+            },
+            {
+              "name": "RECEPT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "업데이트 대상 접수 건을 식별하는 조건 컬럼"
+            },
+            {
+              "name": "PATIENT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "업데이트 대상 환자 건을 식별하는 조건 컬럼"
+            }
+          ],
+          "fkRelations": [],
+          "dbLinks": []
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2936,
+      "completion": 217,
+      "total": 3153
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 62,
+          "endLine": 64,
+          "type": "UPDATE"
+        }
+      ]
+    },
+    "sortKey": 62
+  },
+  {
+    "timestamp": "2025-11-07T05:34:28.647042Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "62: 62:         UPDATE TPJ_RECEPTION\n63: 63:         SET STATUS = 'X'\n64: 64:         WHERE RECEPT_KEY = pReceptKey AND PATIENT_KEY = pPatientKey AND STATUS = 'W';",
+      "ranges": [
+        {
+          "startLine": 62,
+          "endLine": 64,
+          "type": "UPDATE"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "ranges": [
+        {
+          "startLine": 62,
+          "endLine": 64,
+          "tables": [
+            {
+              "table": "TPJ_RECEPTION",
+              "accessMode": "w",
+              "tableDescription": "TPJ_RECEPTION 테이블의 상태 값을 'X'로 갱신합니다.",
+              "columns": [
+                {
+                  "name": "STATUS",
+                  "dtype": "",
+                  "nullable": true,
+                  "description": "상태 값을 'X'로 업데이트"
+                },
+                {
+                  "name": "RECEPT_KEY",
+                  "dtype": "",
+                  "nullable": true,
+                  "description": "RECEPT_KEY 값이 pReceptKey와 일치하는 행을 조건으로 사용"
+                },
+                {
+                  "name": "PATIENT_KEY",
+                  "dtype": "",
+                  "nullable": true,
+                  "description": "PATIENT_KEY 값이 pPatientKey와 일치하는 행을 조건으로 사용"
+                }
+              ],
+              "fkRelations": [],
+              "dbLinks": []
+            }
+          ]
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2905,
+      "completion": 232,
+      "total": 3137
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 62,
+          "endLine": 64,
+          "type": "UPDATE"
+        }
+      ]
+    },
+    "sortKey": 62
+  },
+  {
+    "timestamp": "2025-11-06T01:45:47.680050Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "76: 76:         UPDATE TPJ_RECEPTION\n77: 77:         SET STATUS = 'C'\n78: 78:         WHERE RECEPT_KEY = pReceptKey AND PATIENT_KEY = pPatientKey AND STATUS = 'W';",
+      "ranges": [
+        {
+          "startLine": 76,
+          "endLine": 78,
+          "type": "UPDATE"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "tables": [
+        {
+          "startLine": 76,
+          "endLine": 78,
+          "dmlType": "UPDATE",
+          "table": "TPJ_RECEPTION",
+          "tableDescription": "TPJ_RECEPTION 테이블에서 특정 접수 건의 상태를 'C'로 갱신합니다.",
+          "columns": [
+            {
+              "name": "STATUS",
+              "dtype": "",
+              "nullable": true,
+              "description": "접수 상태를 'C'로 업데이트"
+            },
+            {
+              "name": "RECEPT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "업데이트 대상 접수 건을 조회 조건으로 사용"
+            },
+            {
+              "name": "PATIENT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "업데이트 대상 환자 건을 조회 조건으로 사용"
+            }
+          ],
+          "fkRelations": [],
+          "dbLinks": []
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2936,
+      "completion": 215,
+      "total": 3151
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 76,
+          "endLine": 78,
+          "type": "UPDATE"
+        }
+      ]
+    },
+    "sortKey": 76
+  },
+  {
+    "timestamp": "2025-11-06T07:14:20.941804Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "76: 76:         UPDATE TPJ_RECEPTION\n77: 77:         SET STATUS = 'C'\n78: 78:         WHERE RECEPT_KEY = pReceptKey AND PATIENT_KEY = pPatientKey AND STATUS = 'W';",
+      "ranges": [
+        {
+          "startLine": 76,
+          "endLine": 78,
+          "type": "UPDATE"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "tables": [
+        {
+          "startLine": 76,
+          "endLine": 78,
+          "dmlType": "UPDATE",
+          "table": "TPJ_RECEPTION",
+          "tableDescription": "TPJ_RECEPTION 테이블에서 특정 접수 건의 상태를 'C'로 갱신합니다.",
+          "columns": [
+            {
+              "name": "STATUS",
+              "dtype": "",
+              "nullable": true,
+              "description": "접수 상태를 'C'로 업데이트"
+            },
+            {
+              "name": "RECEPT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "업데이트 대상 접수 건을 조회 조건으로 사용"
+            },
+            {
+              "name": "PATIENT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "업데이트 대상 환자 건을 조회 조건으로 사용"
+            }
+          ],
+          "fkRelations": [],
+          "dbLinks": []
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2936,
+      "completion": 215,
+      "total": 3151
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 76,
+          "endLine": 78,
+          "type": "UPDATE"
+        }
+      ]
+    },
+    "sortKey": 76
+  },
+  {
+    "timestamp": "2025-11-06T07:16:54.329068Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "76: 76:         UPDATE TPJ_RECEPTION\n77: 77:         SET STATUS = 'C'\n78: 78:         WHERE RECEPT_KEY = pReceptKey AND PATIENT_KEY = pPatientKey AND STATUS = 'W';",
+      "ranges": [
+        {
+          "startLine": 76,
+          "endLine": 78,
+          "type": "UPDATE"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "tables": [
+        {
+          "startLine": 76,
+          "endLine": 78,
+          "dmlType": "UPDATE",
+          "table": "TPJ_RECEPTION",
+          "tableDescription": "TPJ_RECEPTION 테이블에서 특정 접수 건의 상태를 'C'로 갱신합니다.",
+          "columns": [
+            {
+              "name": "STATUS",
+              "dtype": "",
+              "nullable": true,
+              "description": "접수 상태를 'C'로 업데이트"
+            },
+            {
+              "name": "RECEPT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "업데이트 대상 접수 건을 조회 조건으로 사용"
+            },
+            {
+              "name": "PATIENT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "업데이트 대상 환자 건을 조회 조건으로 사용"
+            }
+          ],
+          "fkRelations": [],
+          "dbLinks": []
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2936,
+      "completion": 215,
+      "total": 3151
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 76,
+          "endLine": 78,
+          "type": "UPDATE"
+        }
+      ]
+    },
+    "sortKey": 76
+  },
+  {
+    "timestamp": "2025-11-06T07:22:44.440343Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "76: 76:         UPDATE TPJ_RECEPTION\n77: 77:         SET STATUS = 'C'\n78: 78:         WHERE RECEPT_KEY = pReceptKey AND PATIENT_KEY = pPatientKey AND STATUS = 'W';",
+      "ranges": [
+        {
+          "startLine": 76,
+          "endLine": 78,
+          "type": "UPDATE"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "tables": [
+        {
+          "startLine": 76,
+          "endLine": 78,
+          "dmlType": "UPDATE",
+          "table": "TPJ_RECEPTION",
+          "tableDescription": "TPJ_RECEPTION 테이블에서 특정 접수 건의 상태를 'C'로 갱신합니다.",
+          "columns": [
+            {
+              "name": "STATUS",
+              "dtype": "",
+              "nullable": true,
+              "description": "접수 상태를 'C'로 업데이트"
+            },
+            {
+              "name": "RECEPT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "업데이트 대상 접수 건을 조회 조건으로 사용"
+            },
+            {
+              "name": "PATIENT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "업데이트 대상 환자 건을 조회 조건으로 사용"
+            }
+          ],
+          "fkRelations": [],
+          "dbLinks": []
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2936,
+      "completion": 215,
+      "total": 3151
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 76,
+          "endLine": 78,
+          "type": "UPDATE"
+        }
+      ]
+    },
+    "sortKey": 76
+  },
+  {
+    "timestamp": "2025-11-06T07:42:44.319592Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "76: 76:         UPDATE TPJ_RECEPTION\n77: 77:         SET STATUS = 'C'\n78: 78:         WHERE RECEPT_KEY = pReceptKey AND PATIENT_KEY = pPatientKey AND STATUS = 'W';",
+      "ranges": [
+        {
+          "startLine": 76,
+          "endLine": 78,
+          "type": "UPDATE"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "tables": [
+        {
+          "startLine": 76,
+          "endLine": 78,
+          "dmlType": "UPDATE",
+          "table": "TPJ_RECEPTION",
+          "tableDescription": "TPJ_RECEPTION 테이블에서 특정 접수 건의 상태를 'C'로 갱신합니다.",
+          "columns": [
+            {
+              "name": "STATUS",
+              "dtype": "",
+              "nullable": true,
+              "description": "접수 상태를 'C'로 업데이트"
+            },
+            {
+              "name": "RECEPT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "업데이트 대상 접수 건을 조회 조건으로 사용"
+            },
+            {
+              "name": "PATIENT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "업데이트 대상 환자 건을 조회 조건으로 사용"
+            }
+          ],
+          "fkRelations": [],
+          "dbLinks": []
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2936,
+      "completion": 215,
+      "total": 3151
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 76,
+          "endLine": 78,
+          "type": "UPDATE"
+        }
+      ]
+    },
+    "sortKey": 76
+  },
+  {
+    "timestamp": "2025-11-06T07:43:37.264326Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "76: 76:         UPDATE TPJ_RECEPTION\n77: 77:         SET STATUS = 'C'\n78: 78:         WHERE RECEPT_KEY = pReceptKey AND PATIENT_KEY = pPatientKey AND STATUS = 'W';",
+      "ranges": [
+        {
+          "startLine": 76,
+          "endLine": 78,
+          "type": "UPDATE"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "tables": [
+        {
+          "startLine": 76,
+          "endLine": 78,
+          "dmlType": "UPDATE",
+          "table": "TPJ_RECEPTION",
+          "tableDescription": "TPJ_RECEPTION 테이블에서 특정 접수 건의 상태를 'C'로 갱신합니다.",
+          "columns": [
+            {
+              "name": "STATUS",
+              "dtype": "",
+              "nullable": true,
+              "description": "접수 상태를 'C'로 업데이트"
+            },
+            {
+              "name": "RECEPT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "업데이트 대상 접수 건을 조회 조건으로 사용"
+            },
+            {
+              "name": "PATIENT_KEY",
+              "dtype": "",
+              "nullable": true,
+              "description": "업데이트 대상 환자 건을 조회 조건으로 사용"
+            }
+          ],
+          "fkRelations": [],
+          "dbLinks": []
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2936,
+      "completion": 215,
+      "total": 3151
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 76,
+          "endLine": 78,
+          "type": "UPDATE"
+        }
+      ]
+    },
+    "sortKey": 76
+  },
+  {
+    "timestamp": "2025-11-07T05:34:27.501357Z",
+    "prompt": "prompt/understand_dml_table_prompt.py",
+    "input": {
+      "code": "76: 76:         UPDATE TPJ_RECEPTION\n77: 77:         SET STATUS = 'C'\n78: 78:         WHERE RECEPT_KEY = pReceptKey AND PATIENT_KEY = pPatientKey AND STATUS = 'W';",
+      "ranges": [
+        {
+          "startLine": 76,
+          "endLine": 78,
+          "type": "UPDATE"
+        }
+      ],
+      "locale": "ko"
+    },
+    "output": {
+      "ranges": [
+        {
+          "startLine": 76,
+          "endLine": 78,
+          "tables": [
+            {
+              "table": "TPJ_RECEPTION",
+              "accessMode": "w",
+              "tableDescription": "TPJ_RECEPTION 테이블의 상태 값을 'C'로 갱신합니다.",
+              "columns": [
+                {
+                  "name": "STATUS",
+                  "dtype": "",
+                  "nullable": true,
+                  "description": "상태 값을 'C'로 업데이트"
+                },
+                {
+                  "name": "RECEPT_KEY",
+                  "dtype": "",
+                  "nullable": true,
+                  "description": "RECEPT_KEY로 조건 설정"
+                },
+                {
+                  "name": "PATIENT_KEY",
+                  "dtype": "",
+                  "nullable": true,
+                  "description": "PATIENT_KEY로 조건 설정"
+                }
+              ],
+              "fkRelations": [],
+              "dbLinks": []
+            }
+          ]
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 2905,
+      "completion": 209,
+      "total": 3114
+    },
+    "metadata": {
+      "ranges": [
+        {
+          "startLine": 76,
+          "endLine": 78,
+          "type": "UPDATE"
+        }
+      ]
+    },
+    "sortKey": 76
+  }
+]

@@ -693,126 +693,138 @@ class ApplyManager:
         node_map: Dict[Tuple[int, int], StatementNode] = {
             (node.start_line, node.end_line): node for node in batch.nodes
         }
-        for entry in table_result.get('tables', []) or []:
-            start_line = entry.get('startLine')
-            end_line = entry.get('endLine')
+        normalized_ranges: List[Dict[str, Any]] = list(table_result.get('ranges', []))
+        for legacy_entry in table_result.get('tables', []):
+            normalized_ranges.append({
+                "startLine": legacy_entry.get('startLine'),
+                "endLine": legacy_entry.get('endLine'),
+                "tables": [legacy_entry],
+            })
+
+        for range_entry in normalized_ranges:
+            start_line = range_entry.get('startLine')
+            end_line = range_entry.get('endLine')
+            tables = range_entry.get('tables') or []
             if start_line is None or end_line is None:
                 continue
+
             node = node_map.get((start_line, end_line))
             if not node:
                 continue
-            table_name = (entry.get('table') or '').strip()
-            if not table_name:
-                continue
 
-            access_mode_raw = (entry.get('accessMode') or '').lower()
-            relationship_targets: List[str] = []
-            if 'r' in access_mode_raw:
-                relationship_targets.append(TABLE_RELATIONSHIP_MAP['r'])
-            if 'w' in access_mode_raw:
-                relationship_targets.append(TABLE_RELATIONSHIP_MAP['w'])
-            schema_part, name_part, db_link_value = parse_table_identifier(table_name)
-            table_merge = self._build_table_merge(name_part, schema_part)
-            node_merge = f"MERGE (n:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})"
-            folder_merge = f"MERGE (folder:SYSTEM {{{self.folder_props}}})"
-
-            bucket_key = self._record_table_summary(schema_part, name_part, entry.get('tableDescription'))
-
-            # 1) 테이블 노드와 폴더 연결, DML 관계까지 설정
-            base_table_query = (
-                f"{node_merge}\n"
-                f"WITH n\n"
-                f"{table_merge}\n"
-                f"ON CREATE SET t.folder_name = '{self.folder_name}'\n"
-                f"ON MATCH SET t.folder_name = CASE WHEN coalesce(t.folder_name,'') = '' THEN '{self.folder_name}' ELSE t.folder_name END\n"
-                f"WITH n, t\n"
-                f"{folder_merge}\n"
-                f"MERGE (folder)-[:CONTAINS]->(t)\n"
-                f"SET t.db = coalesce(t.db, '{self.dbms}')"
-            )
-
-            if db_link_value:
-                base_table_query += f"\nSET t.db_link = COALESCE(t.db_link, '{db_link_value}')"
-
-            for relationship in relationship_targets:
-                base_table_query += f"\nMERGE (n)-[:{relationship}]->(t)"
-
-            queries.append(base_table_query)
-
-            # 2) 컬럼 노드 및 HAS_COLUMN 관계 생성
-            for column in entry.get('columns', []) or []:
-                column_name = (column.get('name') or '').strip()
-                if not column_name:
+            for entry in tables:
+                table_name = (entry.get('table') or '').strip()
+                if not table_name:
                     continue
-                col_type = escape_for_cypher(column.get('dtype') or '')
-                raw_column_desc = (column.get('description') or column.get('comment') or '').strip()
-                self._record_column_summary(bucket_key, column_name, raw_column_desc)
-                col_description = escape_for_cypher(raw_column_desc)
-                nullable_flag = 'true' if column.get('nullable', True) else 'false'
-                fqn = '.'.join(filter(None, [schema_part, name_part, column_name]))
-                column_merge_key = (
-                    f"`user_id`: '{self.user_id}', `fqn`: '{fqn}', `project_name`: '{self.project_name}'"
-                )
-                escaped_column_name = escape_for_cypher(column_name)
-                queries.append(
+
+                access_mode_raw = (entry.get('accessMode') or '').lower()
+                relationship_targets: List[str] = []
+                if 'r' in access_mode_raw:
+                    relationship_targets.append(TABLE_RELATIONSHIP_MAP['r'])
+                if 'w' in access_mode_raw:
+                    relationship_targets.append(TABLE_RELATIONSHIP_MAP['w'])
+                schema_part, name_part, db_link_value = parse_table_identifier(table_name)
+                table_merge = self._build_table_merge(name_part, schema_part)
+                node_merge = f"MERGE (n:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})"
+                folder_merge = f"MERGE (folder:SYSTEM {{{self.folder_props}}})"
+
+                bucket_key = self._record_table_summary(schema_part, name_part, entry.get('tableDescription'))
+
+                # 1) 테이블 노드와 폴더 연결, DML 관계까지 설정
+                base_table_query = (
+                    f"{node_merge}\n"
+                    f"WITH n\n"
                     f"{table_merge}\n"
                     f"ON CREATE SET t.folder_name = '{self.folder_name}'\n"
                     f"ON MATCH SET t.folder_name = CASE WHEN coalesce(t.folder_name,'') = '' THEN '{self.folder_name}' ELSE t.folder_name END\n"
-                    f"WITH t\n"
-                    f"MERGE (c:Column {{{column_merge_key}}})\n"
-                    f"SET c.`name` = '{escaped_column_name}', c.`dtype` = '{col_type}', c.`description` = '{col_description}', c.`nullable` = '{nullable_flag}', c.`fqn` = '{fqn}'\n"
-                    f"WITH t, c\n"
-                    f"MERGE (t)-[:HAS_COLUMN]->(c)"
+                    f"WITH n, t\n"
+                    f"{folder_merge}\n"
+                    f"MERGE (folder)-[:CONTAINS]->(t)\n"
+                    f"SET t.db = coalesce(t.db, '{self.dbms}')"
                 )
 
-            # 3) DB 링크 노드 연결
-            for link_item in entry.get('dbLinks', []) or []:
-                link_name_raw = (link_item.get('name') or '').strip()
-                if not link_name_raw:
-                    continue
-                mode = (link_item.get('mode') or 'r').lower()
-                schema_link, name_link, link_name = parse_table_identifier(link_name_raw)
-                remote_merge = self._build_table_merge(name_link, schema_link).replace(f", db: '{self.dbms}'", "")
-                queries.append(
-                    f"{remote_merge}\n"
-                    f"ON CREATE SET t.folder_name = ''\n"
-                    f"SET t.db_link = '{link_name}'\n"
-                    f"WITH t\n"
-                    f"MERGE (l:DBLink {{user_id: '{self.user_id}', name: '{link_name}', project_name: '{self.project_name}'}})\n"
-                    f"MERGE (l)-[:CONTAINS]->(t)\n"
-                    f"WITH t\n"
-                    f"{node_merge}\n"
-                    f"MERGE (n)-[:DB_LINK {{mode: '{mode}'}}]->(t)"
-                )
+                if db_link_value:
+                    base_table_query += f"\nSET t.db_link = COALESCE(t.db_link, '{db_link_value}')"
 
-            # 4) 외래키(테이블/컬럼) 관계 생성
-            for relation in entry.get('fkRelations', []) or []:
-                src_table = (relation.get('sourceTable') or '').strip()
-                tgt_table = (relation.get('targetTable') or '').strip()
-                src_column = (relation.get('sourceColumn') or '').strip()
-                tgt_column = (relation.get('targetColumn') or '').strip()
-                if not (src_table and tgt_table and src_column and tgt_column):
-                    continue
-                src_schema, src_table_name, _ = parse_table_identifier(src_table)
-                tgt_schema, tgt_table_name, _ = parse_table_identifier(tgt_table)
-                src_props = (
-                    f"user_id: '{self.user_id}', schema: '{src_schema or ''}', name: '{src_table_name}', db: '{self.dbms}', project_name: '{self.project_name}'"
-                )
-                tgt_props = (
-                    f"user_id: '{self.user_id}', schema: '{tgt_schema or ''}', name: '{tgt_table_name}', db: '{self.dbms}', project_name: '{self.project_name}'"
-                )
-                queries.append(
-                    f"MATCH (st:Table {{{src_props}}})\n"
-                    f"MATCH (tt:Table {{{tgt_props}}})\n"
-                    f"MERGE (st)-[:FK_TO_TABLE]->(tt)"
-                )
-                src_fqn = '.'.join(filter(None, [src_schema, src_table_name, src_column]))
-                tgt_fqn = '.'.join(filter(None, [tgt_schema, tgt_table_name, tgt_column]))
-                queries.append(
-                    f"MATCH (sc:Column {{user_id: '{self.user_id}', name: '{src_column}', fqn: '{src_fqn}'}})\n"
-                    f"MATCH (dc:Column {{user_id: '{self.user_id}', name: '{tgt_column}', fqn: '{tgt_fqn}'}})\n"
-                    f"MERGE (sc)-[:FK_TO]->(dc)"
-                )
+                for relationship in relationship_targets:
+                    base_table_query += f"\nMERGE (n)-[:{relationship}]->(t)"
+
+                queries.append(base_table_query)
+
+                # 2) 컬럼 노드 및 HAS_COLUMN 관계 생성
+                for column in entry.get('columns', []) or []:
+                    column_name = (column.get('name') or '').strip()
+                    if not column_name:
+                        continue
+                    col_type = escape_for_cypher(column.get('dtype') or '')
+                    raw_column_desc = (column.get('description') or column.get('comment') or '').strip()
+                    self._record_column_summary(bucket_key, column_name, raw_column_desc)
+                    col_description = escape_for_cypher(raw_column_desc)
+                    nullable_flag = 'true' if column.get('nullable', True) else 'false'
+                    fqn = '.'.join(filter(None, [schema_part, name_part, column_name]))
+                    column_merge_key = (
+                        f"`user_id`: '{self.user_id}', `fqn`: '{fqn}', `project_name`: '{self.project_name}'"
+                    )
+                    escaped_column_name = escape_for_cypher(column_name)
+                    queries.append(
+                        f"{table_merge}\n"
+                        f"ON CREATE SET t.folder_name = '{self.folder_name}'\n"
+                        f"ON MATCH SET t.folder_name = CASE WHEN coalesce(t.folder_name,'') = '' THEN '{self.folder_name}' ELSE t.folder_name END\n"
+                        f"WITH t\n"
+                        f"MERGE (c:Column {{{column_merge_key}}})\n"
+                        f"SET c.`name` = '{escaped_column_name}', c.`dtype` = '{col_type}', c.`description` = '{col_description}', c.`nullable` = '{nullable_flag}', c.`fqn` = '{fqn}'\n"
+                        f"WITH t, c\n"
+                        f"MERGE (t)-[:HAS_COLUMN]->(c)"
+                    )
+
+                # 3) DB 링크 노드 연결
+                for link_item in entry.get('dbLinks', []) or []:
+                    link_name_raw = (link_item.get('name') or '').strip()
+                    if not link_name_raw:
+                        continue
+                    mode = (link_item.get('mode') or 'r').lower()
+                    schema_link, name_link, link_name = parse_table_identifier(link_name_raw)
+                    remote_merge = self._build_table_merge(name_link, schema_link).replace(f", db: '{self.dbms}'", "")
+                    queries.append(
+                        f"{remote_merge}\n"
+                        f"ON CREATE SET t.folder_name = ''\n"
+                        f"SET t.db_link = '{link_name}'\n"
+                        f"WITH t\n"
+                        f"MERGE (l:DBLink {{user_id: '{self.user_id}', name: '{link_name}', project_name: '{self.project_name}'}})\n"
+                        f"MERGE (l)-[:CONTAINS]->(t)\n"
+                        f"WITH t\n"
+                        f"{node_merge}\n"
+                        f"MERGE (n)-[:DB_LINK {{mode: '{mode}'}}]->(t)"
+                    )
+
+                # 4) 외래키(테이블/컬럼) 관계 생성
+                for relation in entry.get('fkRelations', []) or []:
+                    src_table = (relation.get('sourceTable') or '').strip()
+                    tgt_table = (relation.get('targetTable') or '').strip()
+                    src_column = (relation.get('sourceColumn') or '').strip()
+                    tgt_column = (relation.get('targetColumn') or '').strip()
+                    if not (src_table and tgt_table and src_column and tgt_column):
+                        continue
+                    src_schema, src_table_name, _ = parse_table_identifier(src_table)
+                    tgt_schema, tgt_table_name, _ = parse_table_identifier(tgt_table)
+                    src_props = (
+                        f"user_id: '{self.user_id}', schema: '{src_schema or ''}', name: '{src_table_name}', db: '{self.dbms}', project_name: '{self.project_name}'"
+                    )
+                    tgt_props = (
+                        f"user_id: '{self.user_id}', schema: '{tgt_schema or ''}', name: '{tgt_table_name}', db: '{self.dbms}', project_name: '{self.project_name}'"
+                    )
+                    queries.append(
+                        f"MATCH (st:Table {{{src_props}}})\n"
+                        f"MATCH (tt:Table {{{tgt_props}}})\n"
+                        f"MERGE (st)-[:FK_TO_TABLE]->(tt)"
+                    )
+                    src_fqn = '.'.join(filter(None, [src_schema, src_table_name, src_column]))
+                    tgt_fqn = '.'.join(filter(None, [tgt_schema, tgt_table_name, tgt_column]))
+                    queries.append(
+                        f"MATCH (sc:Column {{user_id: '{self.user_id}', name: '{src_column}', fqn: '{src_fqn}'}})\n"
+                        f"MATCH (dc:Column {{user_id: '{self.user_id}', name: '{tgt_column}', fqn: '{tgt_fqn}'}})\n"
+                        f"MERGE (sc)-[:FK_TO]->(dc)"
+                    )
 
         return queries
 

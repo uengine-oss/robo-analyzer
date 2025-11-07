@@ -1,0 +1,884 @@
+[
+  {
+    "timestamp": "2025-11-06T01:45:45.890294Z",
+    "prompt": "prompt/understand_variables_prompt.py",
+    "input": {
+      "declaration_code": "1: 1: CREATE OR REPLACE PROCEDURE TPX_HOSPITAL_RECEPTION(\n2: 2:     pActionType     IN VARCHAR2,        -- 작업 유형(REGISTER:접수/CANCEL:취소/COMPLETE:완료)\n3: 3:     pPatientKey     IN VARCHAR2,        -- 환자키\n4: 4:     pPatientName    IN VARCHAR2 DEFAULT NULL,  -- 환자명(신규 환자)\n5: 5:     pBirthDate      IN DATE DEFAULT NULL,      -- 생년월일(신규 환자)\n6: 6:     pGender         IN CHAR DEFAULT NULL,      -- 성별(신규 환자)\n7: 7:     pPhone          IN VARCHAR2 DEFAULT NULL,  -- 연락처(신규 환자)\n8: 8:     pDeptCode       IN VARCHAR2 DEFAULT NULL,  -- 진료과코드\n9: 9:     pSymptom        IN VARCHAR2 DEFAULT NULL,  -- 증상\n10: 10:     pReceptKey      IN OUT VARCHAR2,           -- 접수키\n11: 11:     pResultCode     OUT NUMBER,                -- 결과 코드(0:성공)\n12: 12:     pResultMessage  OUT VARCHAR2               -- 결과 메시지\n13: 13: ) IS",
+      "locale": "ko"
+    },
+    "output": {
+      "variables": [
+        {
+          "name": "pActionType",
+          "type": "VARCHAR2",
+          "value": "None",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pPatientKey",
+          "type": "VARCHAR2",
+          "value": "None",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pPatientName",
+          "type": "VARCHAR2",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pBirthDate",
+          "type": "DATE",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pGender",
+          "type": "CHAR",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pPhone",
+          "type": "VARCHAR2",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pDeptCode",
+          "type": "VARCHAR2",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pSymptom",
+          "type": "VARCHAR2",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pReceptKey",
+          "type": "VARCHAR2",
+          "value": "None",
+          "parameter_type": "IN_OUT"
+        },
+        {
+          "name": "pResultCode",
+          "type": "NUMBER",
+          "value": "None",
+          "parameter_type": "OUT"
+        },
+        {
+          "name": "pResultMessage",
+          "type": "VARCHAR2",
+          "value": "None",
+          "parameter_type": "OUT"
+        }
+      ],
+      "summary": "이 프로시저는 환자 접수 관련 정보를 처리하기 위한 파라미터(입력, 출력, 입출력)를 선언하고 있습니다. 커서나 로컬 변수 선언은 포함되어 있지 않습니다."
+    },
+    "tokenUsage": {
+      "prompt": 1208,
+      "completion": 457,
+      "total": 1665
+    },
+    "metadata": {
+      "type": "variable_extraction"
+    }
+  },
+  {
+    "timestamp": "2025-11-06T01:45:45.898139Z",
+    "prompt": "prompt/understand_variables_prompt.py",
+    "input": {
+      "declaration_code": "14: 14:     vPatientExists NUMBER;\n15: 15:     vReceptExists NUMBER;\n16: 16:     vReceptStatus CHAR(1);",
+      "locale": "ko"
+    },
+    "output": {
+      "variables": [
+        {
+          "name": "vPatientExists",
+          "type": "NUMBER",
+          "value": "None",
+          "parameter_type": "LOCAL"
+        },
+        {
+          "name": "vReceptExists",
+          "type": "NUMBER",
+          "value": "None",
+          "parameter_type": "LOCAL"
+        },
+        {
+          "name": "vReceptStatus",
+          "type": "CHAR",
+          "value": "None",
+          "parameter_type": "LOCAL"
+        }
+      ],
+      "summary": "로컬 변수로 환자 존재 여부, 접수 존재 여부, 접수 상태를 저장하는 변수들이 선언되어 있습니다."
+    },
+    "tokenUsage": {
+      "prompt": 951,
+      "completion": 151,
+      "total": 1102
+    },
+    "metadata": {
+      "type": "variable_extraction"
+    }
+  },
+  {
+    "timestamp": "2025-11-06T07:14:19.329033Z",
+    "prompt": "prompt/understand_variables_prompt.py",
+    "input": {
+      "declaration_code": "1: 1: CREATE OR REPLACE PROCEDURE TPX_HOSPITAL_RECEPTION(\n2: 2:     pActionType     IN VARCHAR2,        -- 작업 유형(REGISTER:접수/CANCEL:취소/COMPLETE:완료)\n3: 3:     pPatientKey     IN VARCHAR2,        -- 환자키\n4: 4:     pPatientName    IN VARCHAR2 DEFAULT NULL,  -- 환자명(신규 환자)\n5: 5:     pBirthDate      IN DATE DEFAULT NULL,      -- 생년월일(신규 환자)\n6: 6:     pGender         IN CHAR DEFAULT NULL,      -- 성별(신규 환자)\n7: 7:     pPhone          IN VARCHAR2 DEFAULT NULL,  -- 연락처(신규 환자)\n8: 8:     pDeptCode       IN VARCHAR2 DEFAULT NULL,  -- 진료과코드\n9: 9:     pSymptom        IN VARCHAR2 DEFAULT NULL,  -- 증상\n10: 10:     pReceptKey      IN OUT VARCHAR2,           -- 접수키\n11: 11:     pResultCode     OUT NUMBER,                -- 결과 코드(0:성공)\n12: 12:     pResultMessage  OUT VARCHAR2               -- 결과 메시지\n13: 13: ) IS",
+      "locale": "ko"
+    },
+    "output": {
+      "variables": [
+        {
+          "name": "pActionType",
+          "type": "VARCHAR2",
+          "value": "None",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pPatientKey",
+          "type": "VARCHAR2",
+          "value": "None",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pPatientName",
+          "type": "VARCHAR2",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pBirthDate",
+          "type": "DATE",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pGender",
+          "type": "CHAR",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pPhone",
+          "type": "VARCHAR2",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pDeptCode",
+          "type": "VARCHAR2",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pSymptom",
+          "type": "VARCHAR2",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pReceptKey",
+          "type": "VARCHAR2",
+          "value": "None",
+          "parameter_type": "IN_OUT"
+        },
+        {
+          "name": "pResultCode",
+          "type": "NUMBER",
+          "value": "None",
+          "parameter_type": "OUT"
+        },
+        {
+          "name": "pResultMessage",
+          "type": "VARCHAR2",
+          "value": "None",
+          "parameter_type": "OUT"
+        }
+      ],
+      "summary": "이 프로시저는 환자 접수 관련 정보를 처리하기 위한 파라미터(입력, 출력, 입출력)를 선언하고 있습니다. 커서나 로컬 변수 선언은 포함되어 있지 않습니다."
+    },
+    "tokenUsage": {
+      "prompt": 1208,
+      "completion": 457,
+      "total": 1665
+    },
+    "metadata": {
+      "type": "variable_extraction"
+    }
+  },
+  {
+    "timestamp": "2025-11-06T07:14:19.335030Z",
+    "prompt": "prompt/understand_variables_prompt.py",
+    "input": {
+      "declaration_code": "14: 14:     vPatientExists NUMBER;\n15: 15:     vReceptExists NUMBER;\n16: 16:     vReceptStatus CHAR(1);",
+      "locale": "ko"
+    },
+    "output": {
+      "variables": [
+        {
+          "name": "vPatientExists",
+          "type": "NUMBER",
+          "value": "None",
+          "parameter_type": "LOCAL"
+        },
+        {
+          "name": "vReceptExists",
+          "type": "NUMBER",
+          "value": "None",
+          "parameter_type": "LOCAL"
+        },
+        {
+          "name": "vReceptStatus",
+          "type": "CHAR",
+          "value": "None",
+          "parameter_type": "LOCAL"
+        }
+      ],
+      "summary": "로컬 변수로 환자 존재 여부, 접수 존재 여부, 접수 상태를 저장하는 변수들이 선언되어 있습니다."
+    },
+    "tokenUsage": {
+      "prompt": 951,
+      "completion": 151,
+      "total": 1102
+    },
+    "metadata": {
+      "type": "variable_extraction"
+    }
+  },
+  {
+    "timestamp": "2025-11-06T07:16:53.776007Z",
+    "prompt": "prompt/understand_variables_prompt.py",
+    "input": {
+      "declaration_code": "1: 1: CREATE OR REPLACE PROCEDURE TPX_HOSPITAL_RECEPTION(\n2: 2:     pActionType     IN VARCHAR2,        -- 작업 유형(REGISTER:접수/CANCEL:취소/COMPLETE:완료)\n3: 3:     pPatientKey     IN VARCHAR2,        -- 환자키\n4: 4:     pPatientName    IN VARCHAR2 DEFAULT NULL,  -- 환자명(신규 환자)\n5: 5:     pBirthDate      IN DATE DEFAULT NULL,      -- 생년월일(신규 환자)\n6: 6:     pGender         IN CHAR DEFAULT NULL,      -- 성별(신규 환자)\n7: 7:     pPhone          IN VARCHAR2 DEFAULT NULL,  -- 연락처(신규 환자)\n8: 8:     pDeptCode       IN VARCHAR2 DEFAULT NULL,  -- 진료과코드\n9: 9:     pSymptom        IN VARCHAR2 DEFAULT NULL,  -- 증상\n10: 10:     pReceptKey      IN OUT VARCHAR2,           -- 접수키\n11: 11:     pResultCode     OUT NUMBER,                -- 결과 코드(0:성공)\n12: 12:     pResultMessage  OUT VARCHAR2               -- 결과 메시지\n13: 13: ) IS",
+      "locale": "ko"
+    },
+    "output": {
+      "variables": [
+        {
+          "name": "pActionType",
+          "type": "VARCHAR2",
+          "value": "None",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pPatientKey",
+          "type": "VARCHAR2",
+          "value": "None",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pPatientName",
+          "type": "VARCHAR2",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pBirthDate",
+          "type": "DATE",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pGender",
+          "type": "CHAR",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pPhone",
+          "type": "VARCHAR2",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pDeptCode",
+          "type": "VARCHAR2",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pSymptom",
+          "type": "VARCHAR2",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pReceptKey",
+          "type": "VARCHAR2",
+          "value": "None",
+          "parameter_type": "IN_OUT"
+        },
+        {
+          "name": "pResultCode",
+          "type": "NUMBER",
+          "value": "None",
+          "parameter_type": "OUT"
+        },
+        {
+          "name": "pResultMessage",
+          "type": "VARCHAR2",
+          "value": "None",
+          "parameter_type": "OUT"
+        }
+      ],
+      "summary": "이 프로시저는 환자 접수 관련 정보를 처리하기 위한 파라미터(입력, 출력, 입출력)를 선언하고 있습니다. 커서나 로컬 변수 선언은 포함되어 있지 않습니다."
+    },
+    "tokenUsage": {
+      "prompt": 1208,
+      "completion": 457,
+      "total": 1665
+    },
+    "metadata": {
+      "type": "variable_extraction"
+    }
+  },
+  {
+    "timestamp": "2025-11-06T07:16:53.784508Z",
+    "prompt": "prompt/understand_variables_prompt.py",
+    "input": {
+      "declaration_code": "14: 14:     vPatientExists NUMBER;\n15: 15:     vReceptExists NUMBER;\n16: 16:     vReceptStatus CHAR(1);",
+      "locale": "ko"
+    },
+    "output": {
+      "variables": [
+        {
+          "name": "vPatientExists",
+          "type": "NUMBER",
+          "value": "None",
+          "parameter_type": "LOCAL"
+        },
+        {
+          "name": "vReceptExists",
+          "type": "NUMBER",
+          "value": "None",
+          "parameter_type": "LOCAL"
+        },
+        {
+          "name": "vReceptStatus",
+          "type": "CHAR",
+          "value": "None",
+          "parameter_type": "LOCAL"
+        }
+      ],
+      "summary": "로컬 변수로 환자 존재 여부, 접수 존재 여부, 접수 상태를 저장하는 변수들이 선언되어 있습니다."
+    },
+    "tokenUsage": {
+      "prompt": 951,
+      "completion": 151,
+      "total": 1102
+    },
+    "metadata": {
+      "type": "variable_extraction"
+    }
+  },
+  {
+    "timestamp": "2025-11-06T07:22:43.665103Z",
+    "prompt": "prompt/understand_variables_prompt.py",
+    "input": {
+      "declaration_code": "14: 14:     vPatientExists NUMBER;\n15: 15:     vReceptExists NUMBER;\n16: 16:     vReceptStatus CHAR(1);",
+      "locale": "ko"
+    },
+    "output": {
+      "variables": [
+        {
+          "name": "vPatientExists",
+          "type": "NUMBER",
+          "value": "None",
+          "parameter_type": "LOCAL"
+        },
+        {
+          "name": "vReceptExists",
+          "type": "NUMBER",
+          "value": "None",
+          "parameter_type": "LOCAL"
+        },
+        {
+          "name": "vReceptStatus",
+          "type": "CHAR",
+          "value": "None",
+          "parameter_type": "LOCAL"
+        }
+      ],
+      "summary": "로컬 변수로 환자 존재 여부, 접수 존재 여부, 접수 상태를 저장하는 변수들이 선언되어 있습니다."
+    },
+    "tokenUsage": {
+      "prompt": 951,
+      "completion": 151,
+      "total": 1102
+    },
+    "metadata": {
+      "type": "variable_extraction"
+    }
+  },
+  {
+    "timestamp": "2025-11-06T07:22:43.687234Z",
+    "prompt": "prompt/understand_variables_prompt.py",
+    "input": {
+      "declaration_code": "1: 1: CREATE OR REPLACE PROCEDURE TPX_HOSPITAL_RECEPTION(\n2: 2:     pActionType     IN VARCHAR2,        -- 작업 유형(REGISTER:접수/CANCEL:취소/COMPLETE:완료)\n3: 3:     pPatientKey     IN VARCHAR2,        -- 환자키\n4: 4:     pPatientName    IN VARCHAR2 DEFAULT NULL,  -- 환자명(신규 환자)\n5: 5:     pBirthDate      IN DATE DEFAULT NULL,      -- 생년월일(신규 환자)\n6: 6:     pGender         IN CHAR DEFAULT NULL,      -- 성별(신규 환자)\n7: 7:     pPhone          IN VARCHAR2 DEFAULT NULL,  -- 연락처(신규 환자)\n8: 8:     pDeptCode       IN VARCHAR2 DEFAULT NULL,  -- 진료과코드\n9: 9:     pSymptom        IN VARCHAR2 DEFAULT NULL,  -- 증상\n10: 10:     pReceptKey      IN OUT VARCHAR2,           -- 접수키\n11: 11:     pResultCode     OUT NUMBER,                -- 결과 코드(0:성공)\n12: 12:     pResultMessage  OUT VARCHAR2               -- 결과 메시지\n13: 13: ) IS",
+      "locale": "ko"
+    },
+    "output": {
+      "variables": [
+        {
+          "name": "pActionType",
+          "type": "VARCHAR2",
+          "value": "None",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pPatientKey",
+          "type": "VARCHAR2",
+          "value": "None",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pPatientName",
+          "type": "VARCHAR2",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pBirthDate",
+          "type": "DATE",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pGender",
+          "type": "CHAR",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pPhone",
+          "type": "VARCHAR2",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pDeptCode",
+          "type": "VARCHAR2",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pSymptom",
+          "type": "VARCHAR2",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pReceptKey",
+          "type": "VARCHAR2",
+          "value": "None",
+          "parameter_type": "IN_OUT"
+        },
+        {
+          "name": "pResultCode",
+          "type": "NUMBER",
+          "value": "None",
+          "parameter_type": "OUT"
+        },
+        {
+          "name": "pResultMessage",
+          "type": "VARCHAR2",
+          "value": "None",
+          "parameter_type": "OUT"
+        }
+      ],
+      "summary": "이 프로시저는 환자 접수 관련 정보를 처리하기 위한 파라미터(입력, 출력, 입출력)를 선언하고 있습니다. 커서나 로컬 변수 선언은 포함되어 있지 않습니다."
+    },
+    "tokenUsage": {
+      "prompt": 1208,
+      "completion": 457,
+      "total": 1665
+    },
+    "metadata": {
+      "type": "variable_extraction"
+    }
+  },
+  {
+    "timestamp": "2025-11-06T07:42:43.831687Z",
+    "prompt": "prompt/understand_variables_prompt.py",
+    "input": {
+      "declaration_code": "1: 1: CREATE OR REPLACE PROCEDURE TPX_HOSPITAL_RECEPTION(\n2: 2:     pActionType     IN VARCHAR2,        -- 작업 유형(REGISTER:접수/CANCEL:취소/COMPLETE:완료)\n3: 3:     pPatientKey     IN VARCHAR2,        -- 환자키\n4: 4:     pPatientName    IN VARCHAR2 DEFAULT NULL,  -- 환자명(신규 환자)\n5: 5:     pBirthDate      IN DATE DEFAULT NULL,      -- 생년월일(신규 환자)\n6: 6:     pGender         IN CHAR DEFAULT NULL,      -- 성별(신규 환자)\n7: 7:     pPhone          IN VARCHAR2 DEFAULT NULL,  -- 연락처(신규 환자)\n8: 8:     pDeptCode       IN VARCHAR2 DEFAULT NULL,  -- 진료과코드\n9: 9:     pSymptom        IN VARCHAR2 DEFAULT NULL,  -- 증상\n10: 10:     pReceptKey      IN OUT VARCHAR2,           -- 접수키\n11: 11:     pResultCode     OUT NUMBER,                -- 결과 코드(0:성공)\n12: 12:     pResultMessage  OUT VARCHAR2               -- 결과 메시지\n13: 13: ) IS",
+      "locale": "ko"
+    },
+    "output": {
+      "variables": [
+        {
+          "name": "pActionType",
+          "type": "VARCHAR2",
+          "value": "None",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pPatientKey",
+          "type": "VARCHAR2",
+          "value": "None",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pPatientName",
+          "type": "VARCHAR2",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pBirthDate",
+          "type": "DATE",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pGender",
+          "type": "CHAR",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pPhone",
+          "type": "VARCHAR2",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pDeptCode",
+          "type": "VARCHAR2",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pSymptom",
+          "type": "VARCHAR2",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pReceptKey",
+          "type": "VARCHAR2",
+          "value": "None",
+          "parameter_type": "IN_OUT"
+        },
+        {
+          "name": "pResultCode",
+          "type": "NUMBER",
+          "value": "None",
+          "parameter_type": "OUT"
+        },
+        {
+          "name": "pResultMessage",
+          "type": "VARCHAR2",
+          "value": "None",
+          "parameter_type": "OUT"
+        }
+      ],
+      "summary": "이 프로시저는 환자 접수 관련 정보를 처리하기 위한 파라미터(입력, 출력, 입출력)를 선언하고 있습니다. 커서나 로컬 변수 선언은 포함되어 있지 않습니다."
+    },
+    "tokenUsage": {
+      "prompt": 1208,
+      "completion": 457,
+      "total": 1665
+    },
+    "metadata": {
+      "type": "variable_extraction"
+    }
+  },
+  {
+    "timestamp": "2025-11-06T07:42:43.839924Z",
+    "prompt": "prompt/understand_variables_prompt.py",
+    "input": {
+      "declaration_code": "14: 14:     vPatientExists NUMBER;\n15: 15:     vReceptExists NUMBER;\n16: 16:     vReceptStatus CHAR(1);",
+      "locale": "ko"
+    },
+    "output": {
+      "variables": [
+        {
+          "name": "vPatientExists",
+          "type": "NUMBER",
+          "value": "None",
+          "parameter_type": "LOCAL"
+        },
+        {
+          "name": "vReceptExists",
+          "type": "NUMBER",
+          "value": "None",
+          "parameter_type": "LOCAL"
+        },
+        {
+          "name": "vReceptStatus",
+          "type": "CHAR",
+          "value": "None",
+          "parameter_type": "LOCAL"
+        }
+      ],
+      "summary": "로컬 변수로 환자 존재 여부, 접수 존재 여부, 접수 상태를 저장하는 변수들이 선언되어 있습니다."
+    },
+    "tokenUsage": {
+      "prompt": 951,
+      "completion": 151,
+      "total": 1102
+    },
+    "metadata": {
+      "type": "variable_extraction"
+    }
+  },
+  {
+    "timestamp": "2025-11-06T07:43:36.901877Z",
+    "prompt": "prompt/understand_variables_prompt.py",
+    "input": {
+      "declaration_code": "1: 1: CREATE OR REPLACE PROCEDURE TPX_HOSPITAL_RECEPTION(\n2: 2:     pActionType     IN VARCHAR2,        -- 작업 유형(REGISTER:접수/CANCEL:취소/COMPLETE:완료)\n3: 3:     pPatientKey     IN VARCHAR2,        -- 환자키\n4: 4:     pPatientName    IN VARCHAR2 DEFAULT NULL,  -- 환자명(신규 환자)\n5: 5:     pBirthDate      IN DATE DEFAULT NULL,      -- 생년월일(신규 환자)\n6: 6:     pGender         IN CHAR DEFAULT NULL,      -- 성별(신규 환자)\n7: 7:     pPhone          IN VARCHAR2 DEFAULT NULL,  -- 연락처(신규 환자)\n8: 8:     pDeptCode       IN VARCHAR2 DEFAULT NULL,  -- 진료과코드\n9: 9:     pSymptom        IN VARCHAR2 DEFAULT NULL,  -- 증상\n10: 10:     pReceptKey      IN OUT VARCHAR2,           -- 접수키\n11: 11:     pResultCode     OUT NUMBER,                -- 결과 코드(0:성공)\n12: 12:     pResultMessage  OUT VARCHAR2               -- 결과 메시지\n13: 13: ) IS",
+      "locale": "ko"
+    },
+    "output": {
+      "variables": [
+        {
+          "name": "pActionType",
+          "type": "VARCHAR2",
+          "value": "None",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pPatientKey",
+          "type": "VARCHAR2",
+          "value": "None",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pPatientName",
+          "type": "VARCHAR2",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pBirthDate",
+          "type": "DATE",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pGender",
+          "type": "CHAR",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pPhone",
+          "type": "VARCHAR2",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pDeptCode",
+          "type": "VARCHAR2",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pSymptom",
+          "type": "VARCHAR2",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pReceptKey",
+          "type": "VARCHAR2",
+          "value": "None",
+          "parameter_type": "IN_OUT"
+        },
+        {
+          "name": "pResultCode",
+          "type": "NUMBER",
+          "value": "None",
+          "parameter_type": "OUT"
+        },
+        {
+          "name": "pResultMessage",
+          "type": "VARCHAR2",
+          "value": "None",
+          "parameter_type": "OUT"
+        }
+      ],
+      "summary": "이 프로시저는 환자 접수 관련 정보를 처리하기 위한 파라미터(입력, 출력, 입출력)를 선언하고 있습니다. 커서나 로컬 변수 선언은 포함되어 있지 않습니다."
+    },
+    "tokenUsage": {
+      "prompt": 1208,
+      "completion": 457,
+      "total": 1665
+    },
+    "metadata": {
+      "type": "variable_extraction"
+    }
+  },
+  {
+    "timestamp": "2025-11-06T07:43:36.911247Z",
+    "prompt": "prompt/understand_variables_prompt.py",
+    "input": {
+      "declaration_code": "14: 14:     vPatientExists NUMBER;\n15: 15:     vReceptExists NUMBER;\n16: 16:     vReceptStatus CHAR(1);",
+      "locale": "ko"
+    },
+    "output": {
+      "variables": [
+        {
+          "name": "vPatientExists",
+          "type": "NUMBER",
+          "value": "None",
+          "parameter_type": "LOCAL"
+        },
+        {
+          "name": "vReceptExists",
+          "type": "NUMBER",
+          "value": "None",
+          "parameter_type": "LOCAL"
+        },
+        {
+          "name": "vReceptStatus",
+          "type": "CHAR",
+          "value": "None",
+          "parameter_type": "LOCAL"
+        }
+      ],
+      "summary": "로컬 변수로 환자 존재 여부, 접수 존재 여부, 접수 상태를 저장하는 변수들이 선언되어 있습니다."
+    },
+    "tokenUsage": {
+      "prompt": 951,
+      "completion": 151,
+      "total": 1102
+    },
+    "metadata": {
+      "type": "variable_extraction"
+    }
+  },
+  {
+    "timestamp": "2025-11-07T05:34:22.853959Z",
+    "prompt": "prompt/understand_variables_prompt.py",
+    "input": {
+      "declaration_code": "1: 1: CREATE OR REPLACE PROCEDURE TPX_HOSPITAL_RECEPTION(\n2: 2:     pActionType     IN VARCHAR2,        -- 작업 유형(REGISTER:접수/CANCEL:취소/COMPLETE:완료)\n3: 3:     pPatientKey     IN VARCHAR2,        -- 환자키\n4: 4:     pPatientName    IN VARCHAR2 DEFAULT NULL,  -- 환자명(신규 환자)\n5: 5:     pBirthDate      IN DATE DEFAULT NULL,      -- 생년월일(신규 환자)\n6: 6:     pGender         IN CHAR DEFAULT NULL,      -- 성별(신규 환자)\n7: 7:     pPhone          IN VARCHAR2 DEFAULT NULL,  -- 연락처(신규 환자)\n8: 8:     pDeptCode       IN VARCHAR2 DEFAULT NULL,  -- 진료과코드\n9: 9:     pSymptom        IN VARCHAR2 DEFAULT NULL,  -- 증상\n10: 10:     pReceptKey      IN OUT VARCHAR2,           -- 접수키\n11: 11:     pResultCode     OUT NUMBER,                -- 결과 코드(0:성공)\n12: 12:     pResultMessage  OUT VARCHAR2               -- 결과 메시지\n13: 13: ) IS",
+      "locale": "ko"
+    },
+    "output": {
+      "variables": [
+        {
+          "name": "pActionType",
+          "type": "VARCHAR2",
+          "value": "None",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pPatientKey",
+          "type": "VARCHAR2",
+          "value": "None",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pPatientName",
+          "type": "VARCHAR2",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pBirthDate",
+          "type": "DATE",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pGender",
+          "type": "CHAR",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pPhone",
+          "type": "VARCHAR2",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pDeptCode",
+          "type": "VARCHAR2",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pSymptom",
+          "type": "VARCHAR2",
+          "value": "NULL",
+          "parameter_type": "IN"
+        },
+        {
+          "name": "pReceptKey",
+          "type": "VARCHAR2",
+          "value": "None",
+          "parameter_type": "IN_OUT"
+        },
+        {
+          "name": "pResultCode",
+          "type": "NUMBER",
+          "value": "None",
+          "parameter_type": "OUT"
+        },
+        {
+          "name": "pResultMessage",
+          "type": "VARCHAR2",
+          "value": "None",
+          "parameter_type": "OUT"
+        }
+      ],
+      "summary": "이 프로시저는 환자 접수 관련 정보를 처리하기 위한 파라미터(입력, 출력, 입출력)를 선언하고 있습니다. 커서나 로컬 변수 선언은 포함되어 있지 않습니다."
+    },
+    "tokenUsage": {
+      "prompt": 1208,
+      "completion": 457,
+      "total": 1665
+    },
+    "metadata": {
+      "type": "variable_extraction"
+    }
+  },
+  {
+    "timestamp": "2025-11-07T05:34:22.857654Z",
+    "prompt": "prompt/understand_variables_prompt.py",
+    "input": {
+      "declaration_code": "14: 14:     vPatientExists NUMBER;\n15: 15:     vReceptExists NUMBER;\n16: 16:     vReceptStatus CHAR(1);",
+      "locale": "ko"
+    },
+    "output": {
+      "variables": [
+        {
+          "name": "vPatientExists",
+          "type": "NUMBER",
+          "value": "None",
+          "parameter_type": "LOCAL"
+        },
+        {
+          "name": "vReceptExists",
+          "type": "NUMBER",
+          "value": "None",
+          "parameter_type": "LOCAL"
+        },
+        {
+          "name": "vReceptStatus",
+          "type": "CHAR",
+          "value": "None",
+          "parameter_type": "LOCAL"
+        }
+      ],
+      "summary": "로컬 변수로 환자 존재 여부, 접수 존재 여부, 접수 상태를 저장하는 변수들이 선언되어 있습니다."
+    },
+    "tokenUsage": {
+      "prompt": 951,
+      "completion": 151,
+      "total": 1102
+    },
+    "metadata": {
+      "type": "variable_extraction"
+    }
+  }
+]

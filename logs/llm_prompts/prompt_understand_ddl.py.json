@@ -1,0 +1,127 @@
+[
+  {
+    "timestamp": "2025-11-07T05:44:49.762006Z",
+    "prompt": "prompt/understand_ddl.py",
+    "input": {
+      "ddl_content": "-- 환자 테이블\nCREATE TABLE TPJ_PATIENT (\n    PATIENT_KEY   VARCHAR2(10) PRIMARY KEY,   -- 환자키\n    PATIENT_NAME  VARCHAR2(50) NOT NULL,      -- 환자명\n    BIRTH_DATE    DATE NOT NULL,              -- 생년월일\n    GENDER        CHAR(1) NOT NULL,           -- 성별(M:남성/F:여성)\n    PHONE         VARCHAR2(20) NOT NULL,      -- 연락처\n    REG_DATE      DATE DEFAULT SYSDATE        -- 등록일자\n);\n\n\n-- 진료접수 테이블\nCREATE TABLE TPJ_RECEPTION (\n    RECEPT_KEY    VARCHAR2(20) PRIMARY KEY,   -- 접수키\n    PATIENT_KEY   VARCHAR2(10) NOT NULL,      -- 환자키\n    DEPT_CODE     VARCHAR2(10) NOT NULL,      -- 진료과코드(IM:내과/GS:외과/OS:정형외과)\n    SYMPTOM       VARCHAR2(500),              -- 증상\n    RECEPT_DATE   DATE DEFAULT SYSDATE,       -- 접수일시\n    STATUS        CHAR(1) NOT NULL,           -- 상태(W:대기/C:완료/X:취소)\n    FOREIGN KEY (PATIENT_KEY) REFERENCES TPJ_PATIENT(PATIENT_KEY)\n);",
+      "locale": "ko"
+    },
+    "output": {
+      "analysis": [
+        {
+          "table": {
+            "schema": "",
+            "name": "TPJ_PATIENT",
+            "table_type": "BASE TABLE",
+            "comment": "환자 테이블"
+          },
+          "columns": [
+            {
+              "name": "PATIENT_KEY",
+              "dtype": "VARCHAR2(10)",
+              "nullable": false,
+              "comment": "환자키"
+            },
+            {
+              "name": "PATIENT_NAME",
+              "dtype": "VARCHAR2(50)",
+              "nullable": false,
+              "comment": "환자명"
+            },
+            {
+              "name": "BIRTH_DATE",
+              "dtype": "DATE",
+              "nullable": false,
+              "comment": "생년월일"
+            },
+            {
+              "name": "GENDER",
+              "dtype": "CHAR(1)",
+              "nullable": false,
+              "comment": "성별(M:남성/F:여성)"
+            },
+            {
+              "name": "PHONE",
+              "dtype": "VARCHAR2(20)",
+              "nullable": false,
+              "comment": "연락처"
+            },
+            {
+              "name": "REG_DATE",
+              "dtype": "DATE",
+              "nullable": true,
+              "comment": "등록일자"
+            }
+          ],
+          "primaryKeys": [
+            "PATIENT_KEY"
+          ],
+          "foreignKeys": []
+        },
+        {
+          "table": {
+            "schema": "",
+            "name": "TPJ_RECEPTION",
+            "table_type": "BASE TABLE",
+            "comment": "진료접수 테이블"
+          },
+          "columns": [
+            {
+              "name": "RECEPT_KEY",
+              "dtype": "VARCHAR2(20)",
+              "nullable": false,
+              "comment": "접수키"
+            },
+            {
+              "name": "PATIENT_KEY",
+              "dtype": "VARCHAR2(10)",
+              "nullable": false,
+              "comment": "환자키"
+            },
+            {
+              "name": "DEPT_CODE",
+              "dtype": "VARCHAR2(10)",
+              "nullable": false,
+              "comment": "진료과코드(IM:내과/GS:외과/OS:정형외과)"
+            },
+            {
+              "name": "SYMPTOM",
+              "dtype": "VARCHAR2(500)",
+              "nullable": true,
+              "comment": "증상"
+            },
+            {
+              "name": "RECEPT_DATE",
+              "dtype": "DATE",
+              "nullable": true,
+              "comment": "접수일시"
+            },
+            {
+              "name": "STATUS",
+              "dtype": "CHAR(1)",
+              "nullable": false,
+              "comment": "상태(W:대기/C:완료/X:취소)"
+            }
+          ],
+          "primaryKeys": [
+            "RECEPT_KEY"
+          ],
+          "foreignKeys": [
+            {
+              "column": "PATIENT_KEY",
+              "ref": ".TPJ_PATIENT.PATIENT_KEY"
+            }
+          ]
+        }
+      ]
+    },
+    "tokenUsage": {
+      "prompt": 763,
+      "completion": 570,
+      "total": 1333
+    },
+    "metadata": {
+      "type": "ddl_analysis"
+    }
+  }
+]
