@@ -1212,12 +1212,9 @@ Neo4j Desktop 설치는 아래 문서를 참고하세요.
 
 ```
 [pytest]
-asyncio_mode = auto
-pythonpath = .
-testpaths = test
-python_files = test_*.py
-python_classes = Test*
-python_functions = test_*
+log_cli = true
+log_cli_level = INFO
+log_cli_format = %(levelname)s: %(message)s
 ```
 
 ### 8.2 Understanding 테스트 실행
