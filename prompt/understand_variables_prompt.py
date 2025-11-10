@@ -6,7 +6,7 @@ from langchain_community.cache import SQLiteCache
 from util.llm_client import get_llm
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import PromptTemplate
-from langchain_core.runnables import RunnablePassthrough
+from langchain_core.runnables import RunnablePassthrough, RunnableConfig
 from util.llm_audit import invoke_with_audit, ainvoke_with_audit
 from util.exception import LLMCallError
 import openai
@@ -120,6 +120,9 @@ def understand_variables(declaration_code, api_key, locale):
             prompt_name="prompt/understand_variables_prompt.py",
             input_payload=payload,
             metadata={"type": "variable_extraction"},
+            config=RunnableConfig(
+                prompt_type="understand_variables"
+            )
         )
         return result
     except Exception as e:
@@ -191,6 +194,9 @@ async def resolve_table_variable_type(var_name: str, declared_type: str, table_s
                 "locale": locale,
             },
             metadata={"type": "variable_type_resolution"},
+            config=RunnableConfig(
+                prompt_type="resolve_table_variable_type"
+            )
         )
         return result
     except Exception as e:

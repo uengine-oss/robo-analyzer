@@ -6,7 +6,7 @@ from langchain_community.cache import SQLiteCache
 from util.llm_client import get_llm
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import PromptTemplate
-from langchain_core.runnables import RunnablePassthrough
+from langchain_core.runnables import RunnablePassthrough, RunnableConfig
 from util.llm_audit import invoke_with_audit
 from util.exception import LLMCallError
 
@@ -112,6 +112,9 @@ def convert_postgres_to_oracle(source_code: str, antlr_data: str, api_key: str, 
             prompt_name="prompt/convert_dbms_prompt.py",
             input_payload=payload,
             metadata={"type": "dbms_conversion"},
+            config=RunnableConfig(
+                prompt_type="convert_postgres_to_oracle"
+            )
         )
 
         return result

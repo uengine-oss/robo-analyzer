@@ -6,7 +6,7 @@ from langchain_community.cache import SQLiteCache
 from util.llm_client import get_llm
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import PromptTemplate
-from langchain_core.runnables import RunnablePassthrough
+from langchain_core.runnables import RunnablePassthrough, RunnableConfig
 from util.llm_audit import invoke_with_audit
 from util.exception import LLMCallError
 import openai
@@ -83,6 +83,9 @@ def understand_summary(summaries, api_key, locale):
             prompt_name="prompt/understand_summarized_prompt.py",
             input_payload={"summaries": summaries, "locale": locale},
             metadata={"type": "procedure_summary"},
+            config=RunnableConfig(
+                prompt_type="understand_summary"
+            )
         )
         return result
     except Exception as e:

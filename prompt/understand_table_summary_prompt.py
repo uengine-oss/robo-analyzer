@@ -6,7 +6,7 @@ from langchain_core.globals import set_llm_cache
 from langchain_community.cache import SQLiteCache
 from langchain_core.prompts import PromptTemplate
 from langchain_core.output_parsers import JsonOutputParser
-from langchain_core.runnables import RunnablePassthrough
+from langchain_core.runnables import RunnablePassthrough, RunnableConfig
 
 from util.exception import LLMCallError
 from util.llm_client import get_llm
@@ -87,6 +87,9 @@ def summarize_table_metadata(
                 "locale": locale,
             },
             metadata={"type": "table_summary"},
+            config=RunnableConfig(
+                prompt_type="summarize_table_metadata"
+            )
         )
         if not isinstance(result, dict):
             return {"tableDescription": "", "columns": []}

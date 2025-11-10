@@ -29,3 +29,6 @@ langchain.db
 
 # Ignore LogComparisonResult.json
 LogComparisonResult.json
+
+# Private Datas
+p_*

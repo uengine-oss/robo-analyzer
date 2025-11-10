@@ -3,7 +3,7 @@ import os
 from langchain_core.globals import set_llm_cache
 from langchain_community.cache import SQLiteCache
 from langchain_core.prompts import PromptTemplate
-from langchain_core.runnables import RunnablePassthrough
+from langchain_core.runnables import RunnablePassthrough, RunnableConfig
 from util.llm_client import get_llm
 from util.llm_audit import ainvoke_with_audit
 from util.exception import LLMCallError
@@ -74,6 +74,9 @@ async def understand_column_roles(columns: list, dml_summaries: list, api_key: s
                 "locale": locale,
             },
             metadata={"type": "column_role_analysis"},
+            config=RunnableConfig(
+                prompt_type="understand_column_roles"
+            )
         )
         content = getattr(result, "content", str(result))
         return json.loads(content)

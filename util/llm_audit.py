@@ -162,9 +162,10 @@ def invoke_with_audit(
     input_payload: Optional[Any] = None,
     metadata: Optional[dict[str, Any]] = None,
     sort_key: Optional[Any] = None,
+    config: Optional[Any] = None
 ):
     with get_openai_callback() as callback:
-        result = chain.invoke(payload)
+        result = chain.invoke(payload, config=config)
     token_usage = _extract_token_usage(callback)
     log_llm_interaction(
         prompt_name,
@@ -185,9 +186,10 @@ async def ainvoke_with_audit(
     input_payload: Optional[Any] = None,
     metadata: Optional[dict[str, Any]] = None,
     sort_key: Optional[Any] = None,
+    config: Optional[Any] = None
 ):
     with get_openai_callback() as callback:
-        result = await chain.ainvoke(payload)
+        result = await chain.ainvoke(payload, config=config)
     token_usage = _extract_token_usage(callback)
     log_llm_interaction(
         prompt_name,

@@ -5,7 +5,7 @@ import re
 from langchain_core.globals import set_llm_cache
 from langchain_community.cache import SQLiteCache
 from langchain_core.prompts import PromptTemplate
-from langchain_core.runnables import RunnablePassthrough
+from langchain_core.runnables import RunnablePassthrough, RunnableConfig
 from util.llm_client import get_llm
 from util.exception  import LLMCallError
 from util.llm_audit import invoke_with_audit
@@ -222,6 +222,9 @@ def understand_code(sp_code, context_ranges, context_range_count, api_key, local
                 "endLine": max_end,
             },
             sort_key=min_start,
+            config=RunnableConfig(
+                prompt_type="understand_code"
+            )
         )
 
         content = getattr(result, "content", str(result))

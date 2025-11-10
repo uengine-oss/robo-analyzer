@@ -7,7 +7,7 @@ from util.llm_client import get_llm
 from util.llm_audit import invoke_with_audit
 from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import PromptTemplate
-from langchain_core.runnables import RunnablePassthrough
+from langchain_core.runnables import RunnablePassthrough, RunnableConfig
 from util.exception import LLMCallError
 
 db_path = os.path.join(os.path.dirname(__file__), 'langchain.db')
@@ -99,6 +99,9 @@ def understand_ddl(ddl_content, api_key, locale):
             prompt_name="prompt/understand_ddl.py",
             input_payload=payload,
             metadata={"type": "ddl_analysis"},
+            config=RunnableConfig(
+                prompt_type="understand_ddl"
+            )
         )
         return result
     except Exception as e:
