@@ -40,7 +40,7 @@ prompt = PromptTemplate.from_template(
 각 DML 구문(SELECT, INSERT, UPDATE, DELETE, MERGE, EXECUTE IMMEDIATE, CTE 등)에 대해 다음 정보를 추출합니다:
 1. 테이블 메타데이터: 테이블명, accessMode(r/w), 테이블 역할 설명
 2. 컬럼 메타데이터: 컬럼명, 데이터 타입, NULL 가능 여부, 컬럼 역할 설명
-3. 외래키 관계: sourceTable, sourceColumn, targetTable, targetColumn
+3. 참조 관계: sourceTable, sourceColumn, targetTable, targetColumn
 4. DB 링크 정보: name, mode
 
 
@@ -106,26 +106,29 @@ prompt = PromptTemplate.from_template(
 - 예시 3: "주문 상세와 상품 마스터를 조인하여 주문 내역을 조회합니다."
 
 
-[SECTION_2_FOREIGN_KEY_RELATIONS]
-외래키(FK) 관계 식별 및 표기:
+[SECTION_2_REFERENCE_RELATIONS]
+참조 관계(FK 포함) 식별 및 표기:
 
 === 수집 기준 ===
-- 단순히 컬럼명이 같거나 의미가 비슷하다는 이유로는 외래키로 간주하지 않습니다.
-- 한 테이블이 다른 테이블의 기본키(PK)나 고유키(UK)를 참조한다는 구조가 코드에 명확히 드러날 때만 기록합니다.
+- 한 테이블이 다른 테이블의 기본키(PK)나 고유키(UK)를 참조하거나, 일대일/일대다 참조 구조가 코드에 명확히 드러날 때만 기록합니다.
+- 다중 컬럼 비교가 존재하면 동일한 소스/타겟 테이블을 기준으로 컬럼 쌍을 순서에 맞게 배열로 묶어 하나의 객체로 기록합니다.
 - 명확한 근거 없이 추론하거나 추측하지 마십시오. 근거가 없으면 fkRelations는 빈 배열([])로 유지합니다.
 
 === 식별 예시 ===
 - 조인 조건에서 FK→PK 구조가 드러나는 경우: `FROM DETAIL d JOIN MASTER m ON d.MASTER_ID = m.ID`
 - INSERT/UPDATE 구문에서 참조 무결성을 전제로 하는 경우: `INSERT INTO DETAIL (MASTER_ID, ...)`
-- 서브쿼리나 동적 SQL에서도 FK→PK 구조가 확실히 나타나면 동일하게 기록합니다.
+- 서브쿼리나 동적 SQL에서도 참조 구조가 확실히 나타나면 동일하게 기록합니다.
+- 다중 조건: `JOIN ORDER_ITEM oi ON oi.ORDER_ID = om.ID AND oi.PRODUCT_ID = pm.ID` → sourceColumns=["ORDER_ID","PRODUCT_ID"], targetColumns=["ID","ID"]와 같이 순서를 맞춰 기록
 
 === 표기 형식 ===
 - 각 관계는 다음 필드를 모두 포함해야 합니다.
   - sourceTable: FK를 가진 테이블 (스키마 포함)
-  - sourceColumn: FK 컬럼명
+  - sourceColumns: FK 컬럼명을 순서대로 나열한 배열
   - targetTable: 참조 대상 테이블 (스키마 포함)
-  - targetColumn: 참조 대상 컬럼명 (PK 또는 UK)
+  - targetColumns: 참조 대상 컬럼명을 순서대로 나열한 배열 (PK 또는 UK)
+- sourceColumns와 targetColumns는 동일한 길이를 유지하며, 비교식 순서를 그대로 따릅니다.
 - 모든 문자열은 코드에 나타난 원문 케이스를 유지합니다.
+- 최종 출력에서는 각 범위(range)의 fkRelations 배열에 기록합니다.
 
 
 [SECTION_3_DB_LINK_IDENTIFICATION]
@@ -147,9 +150,10 @@ DB 링크 식별 및 범위 규칙:
 - name 필드에는 반드시 '@' 문자가 포함되어야 함
 - 원문 표기를 그대로 사용 (대소문자, 스키마명, 링크명 모두 보존)
 - 예시: "TPJ.ORDER_MASTER@DBLINK01", "CUSTOMER@REMOTE_DB", "SCHEMA.TABLE@LINK"
-- table 필드(로컬 테이블)에는 '@'가 포함된 대상을 절대 넣지 않음
 - 모든 외부 대상은 dbLinks 배열에만 기록
 - 동일 대상이 여러 번 등장하면 중복 없이 한 번만 기록
+- 각 dbLinks 항목에는 name과 mode만 포함합니다.
+- 최종 출력에서는 각 범위(range)의 dbLinks 배열에 값을 채웁니다.
 
 === DB 링크 범위 판별 규칙 ===
 - 실제 DB 링크 식별은 의미 해석이 아닌 'Table@DBLINK' 패턴 표기 자체의 존재 여부로 판단
@@ -213,21 +217,21 @@ DB 링크 식별 및 범위 규칙:
               "nullable": true,
               "description": "컬럼 역할 설명"
             }}
-          ],
-          "fkRelations": [
-            {{
-              "sourceTable": "스키마.테이블명",
-              "sourceColumn": "컬럼명",
-              "targetTable": "스키마.참조테이블명",
-              "targetColumn": "참조컬럼명"
-            }}
-          ],
-          "dbLinks": [
-            {{
-              "name": "스키마.테이블명@DB_링크명",
-              "mode": "r"
-            }}
           ]
+        }}
+      ],
+      "fkRelations": [
+        {{
+          "sourceTable": "스키마.테이블명",
+          "sourceColumns": ["컬럼명1", "컬럼명2"],
+          "targetTable": "스키마.참조테이블명",
+          "targetColumns": ["참조컬럼명1", "참조컬럼명2"]
+        }}
+      ],
+      "dbLinks": [
+        {{
+          "name": "스키마.테이블명@DB_링크명",
+          "mode": "r"
         }}
       ]
     }}
@@ -241,14 +245,14 @@ DB 링크 식별 및 범위 규칙:
 - 각 range 항목의 startLine/endLine은 입력과 동일하게 유지
 - tables 배열 안의 객체들은 위 스키마를 정확히 따름
 - ranges 배열의 순서는 입력 ranges 순서를 그대로 따라야 함
-- 각 range 항목에는 최소한 빈 배열이라도 tables 필드를 포함해야 함
+- 각 range 항목에는 최소한 빈 배열이라도 tables, fkRelations, dbLinks 필드를 포함해야 함
 - accessMode는 반드시 'r' 또는 'w'
 - columns, fkRelations, dbLinks 배열은 빈 배열 가능
+- fkRelations 객체의 sourceColumns와 targetColumns는 최소 1개의 컬럼을 포함하며, 다중 비교 시 모든 컬럼을 빠짐없이 기록
 - 빈 값은 null 대신 빈 배열([]) 또는 빈 문자열("") 사용
 - 코드펜스(```json ... ``` 등) 포함 금지
 - 트레일링 콤마 금지
 - dbLinks.name은 반드시 '@' 포함, 해당 패턴이 범위 내에 없으면 dbLinks는 []
-- table 필드에는 '@' 포함 금지 (로컬 테이블만)
 """
 )
 

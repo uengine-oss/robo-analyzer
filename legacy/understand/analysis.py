@@ -443,13 +443,19 @@ class Analyzer:
                     user_id, dbms, project_name = self.user_id, self.dbms, self.project_name
                     
                     for fk in fk_relations:
-                        src_table, src_column, tgt_table, tgt_column = (
-                            (fk.get('sourceTable') or '').strip().upper(),
-                            (fk.get('sourceColumn') or '').strip(),
-                            (fk.get('targetTable') or '').strip().upper(),
-                            (fk.get('targetColumn') or '').strip()
-                        )
-                        if not (src_table and src_column and tgt_table and tgt_column):
+                        src_table = (fk.get('sourceTable') or '').strip().upper()
+                        tgt_table = (fk.get('targetTable') or '').strip().upper()
+                        src_columns = [
+                            (col or '').strip()
+                            for col in (fk.get('sourceColumns') or [])
+                            if col is not None and str(col).strip()
+                        ]
+                        tgt_columns = [
+                            (col or '').strip()
+                            for col in (fk.get('targetColumns') or [])
+                            if col is not None and str(col).strip()
+                        ]
+                        if not (src_table and tgt_table and src_columns and tgt_columns):
                             continue
 
                         src_schema, src_table_name, _ = parse_table_identifier(src_table)
@@ -467,14 +473,17 @@ class Analyzer:
                         )
 
                         # Column FK 관계
-                        src_fqn = '.'.join(filter(None, [src_schema, src_table_name, src_column])).lower()
-                        tgt_fqn = '.'.join(filter(None, [tgt_schema, tgt_table_name, tgt_column])).lower()
-                        
-                        cypher_query.append(
-                            f"MATCH (sc:Column {{user_id: '{user_id}', name: '{src_column}', fqn: '{src_fqn}'}})\n"
-                            f"MATCH (dc:Column {{user_id: '{user_id}', name: '{tgt_column}', fqn: '{tgt_fqn}'}})\n"
-                            f"MERGE (sc)-[:FK_TO]->(dc)"
-                        )
+                        for src_column, tgt_column in zip(src_columns, tgt_columns):
+                            if not (src_column and tgt_column):
+                                continue
+                            src_fqn = '.'.join(filter(None, [src_schema, src_table_name, src_column])).lower()
+                            tgt_fqn = '.'.join(filter(None, [tgt_schema, tgt_table_name, tgt_column])).lower()
+                            
+                            cypher_query.append(
+                                f"MATCH (sc:Column {{user_id: '{user_id}', name: '{src_column}', fqn: '{src_fqn}'}})\n"
+                                f"MATCH (dc:Column {{user_id: '{user_id}', name: '{tgt_column}', fqn: '{tgt_fqn}'}})\n"
+                                f"MERGE (sc)-[:FK_TO]->(dc)"
+                            )
 
                 # DBLink 처리 (최적화: 빈 체크 + 캐싱)
                 if table_relationship_type and db_links:
