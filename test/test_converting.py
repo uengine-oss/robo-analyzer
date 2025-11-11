@@ -467,69 +467,49 @@ class TestFullPipeline:
 # ==================== 통합 테스트: 전체 파이프라인 ====================
 
 class TestConvertingPipeline:
-    """Converting 전체 파이프라인 통합 테스트 (모든 전략 지원)"""
+    """Converting 전체 파이프라인 통합 테스트 (전략별 분리 실행 가능)"""
     
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize("conversion_type,target_framework,target_dbms", [
-        ("framework", "springboot", None),
-        ("dbms", None, "oracle"),
-    ])
-    async def test_complete_converting_pipeline(self, setup_test_db, conversion_type, target_framework, target_dbms):
-        """전략별 Converting 전체 파이프라인 실행 테스트"""
+    async def _run_pipeline(self, conversion_type: str, orchestrator: ServiceOrchestrator) -> None:
         if not TEST_API_KEY:
             pytest.skip("LLM_API_KEY가 설정되지 않았습니다")
         
+        target_framework = "springboot" if conversion_type == "framework" else None
+        target_dbms = "oracle" if conversion_type == "dbms" else None
+        
         print(f"\n{'='*80}")
         print(f"🚀 통합 테스트: {conversion_type.upper()} 전략 파이프라인")
-        if conversion_type == "framework":
+        if target_framework:
             print(f"   타겟 프레임워크: {target_framework}")
-        elif conversion_type == "dbms":
+        if target_dbms:
             print(f"   타겟 DBMS: {target_dbms}")
         print(f"{'='*80}")
         print(f"📊 설정: USER_ID={TEST_USER_ID}, PROJECT={TEST_PROJECT_NAME}")
         print(f"🎯 타겟 언어: {TEST_TARGET_LANG}")
         print(f"{'='*80}\n")
         
-        # ServiceOrchestrator 생성
-        orchestrator = ServiceOrchestrator(
-            user_id=TEST_USER_ID,
-            api_key=TEST_API_KEY,
-            locale=TEST_LOCALE,
-            project_name=TEST_PROJECT_NAME,
-            dbms=TEST_DBMS,
-            target_lang=TEST_TARGET_LANG
-        )
-        
-        # src 폴더 아래의 모든 SP 파일 동적으로 찾기
         sp_files = []
         src_dir = TEST_DATA_DIR / "src"
         if src_dir.exists():
             for folder in src_dir.iterdir():
                 if folder.is_dir():
                     for sql_file in folder.glob("*.sql"):
-                        folder_name = folder.name
-                        file_name = sql_file.name
-                        sp_files.append((folder_name, file_name))
+                        sp_files.append((folder.name, sql_file.name))
         
         assert len(sp_files) > 0, f"SP 파일이 없습니다: {src_dir}"
-        
-        # 변환할 파일 (동적으로 찾은 파일들)
         file_names = sp_files
         
         print(f"📝 변환할 SP 파일: {len(sp_files)}개")
         for folder_name, file_name in sp_files:
             print(f"   - {folder_name}/{file_name}")
         
-        # 실제 서비스 로직과 동일하게 전략 패턴 사용
         strategy_kwargs = {"conversion_type": conversion_type}
-        if conversion_type == "framework":
-            strategy_kwargs["target_framework"] = target_framework or "springboot"
-        elif conversion_type == "dbms":
-            strategy_kwargs["target_dbms"] = target_dbms or "oracle"
+        if target_framework:
+            strategy_kwargs["target_framework"] = target_framework
+        if target_dbms:
+            strategy_kwargs["target_dbms"] = target_dbms
         
         strategy = StrategyFactory.create_strategy(**strategy_kwargs)
         
-        # 전체 파이프라인 실행
         events = []
         step_messages = []
         generated_files = {}
@@ -538,59 +518,47 @@ class TestConvertingPipeline:
             print("📝 Converting 파이프라인 실행 중...\n")
             
             async for chunk in strategy.convert(file_names, orchestrator=orchestrator):
-                # 이벤트 수집
                 events.append(chunk)
-                
-                # 파싱하여 내용 확인 (실제 서비스 로직과 동일한 형식)
                 chunk_str = chunk.decode('utf-8').replace('send_stream', '')
-                if chunk_str:
-                    try:
-                        data = json.loads(chunk_str)
-                        event_type = data.get('type')
-                        
-                        # 단계 메시지
-                        if event_type == 'message':
-                            content = data.get('content')
-                            step_messages.append(content)
-                            print(f"  📌 {content}")
-                        
-                        # 생성된 파일 및 데이터
-                        elif event_type == 'data':
-                            file_type = data.get('file_type')
-                            file_name = data.get('file_name')
-                            
-                            if file_type == 'project_name':
-                                print(f"  📦 프로젝트: {data.get('project_name')}")
-                            elif file_name:
-                                generated_files.setdefault(file_type, []).append(file_name)
-                                print(f"  ✅ 생성: {file_name} ({file_type})")
-                        
-                        # 단계 완료 상태
-                        elif event_type == 'status':
-                            step = data.get('step')
-                            done = data.get('done', False)
-                            if done and step:
-                                print(f"  ✔️  Step {step} 완료\n")
-                        
-                        # 에러
-                        elif event_type == 'error':
-                            content = data.get('content')
-                            print(f"  ❌ ERROR: {content}")
-                    
-                    except json.JSONDecodeError:
-                        pass
+                if not chunk_str:
+                    continue
+                try:
+                    data = json.loads(chunk_str)
+                except json.JSONDecodeError:
+                    continue
+                
+                event_type = data.get('type')
+                if event_type == 'message':
+                    content = data.get('content')
+                    step_messages.append(content)
+                    print(f"  📌 {content}")
+                elif event_type == 'data':
+                    file_type = data.get('file_type')
+                    file_name = data.get('file_name')
+                    if file_type == 'project_name':
+                        print(f"  📦 프로젝트: {data.get('project_name')}")
+                        continue
+                    if not file_name:
+                        continue
+                    generated_files.setdefault(file_type, []).append(file_name)
+                    print(f"  ✅ 생성: {file_name} ({file_type})")
+                elif event_type == 'status':
+                    step = data.get('step')
+                    done = data.get('done', False)
+                    if done and step:
+                        print(f"  ✔️  Step {step} 완료\n")
+                elif event_type == 'error':
+                    content = data.get('content')
+                    print(f"  ❌ ERROR: {content}")
             
             print(f"\n{'='*80}")
             print("📊 통합 테스트 결과")
             print(f"{'='*80}")
             
-            # 검증 1: 이벤트 수신 확인
             assert len(events) > 0, "이벤트가 수신되지 않았습니다"
             print(f"✅ 스트리밍 이벤트: {len(events)}개 수신")
             
-            # 전략별 검증 (실제 서비스 스펙과 일치)
             if conversion_type == "framework":
-                # Framework 전략 검증
                 assert 'entity_class' in generated_files, "Entity 파일이 생성되지 않았습니다"
                 assert 'repository_class' in generated_files, "Repository 파일이 생성되지 않았습니다"
                 assert 'pom' in generated_files, "pom.xml이 생성되지 않았습니다"
@@ -604,16 +572,13 @@ class TestConvertingPipeline:
                 print(f"✅ Config: pom.xml, application.properties")
                 print(f"✅ Main: {generated_files.get('main', ['N/A'])[0]}")
             
-            elif conversion_type == "dbms":
-                # DBMS 전략 검증
+            if conversion_type == "dbms":
                 assert 'converted_sp' in generated_files, "변환된 SP 파일이 생성되지 않았습니다"
-                
                 converted_count = len(generated_files.get('converted_sp', []))
                 print(f"✅ 변환된 SP 파일: {converted_count}개")
                 for file_name in generated_files.get('converted_sp', []):
                     print(f"   - {file_name}")
             
-            # 검증 3: 단계 메시지 확인
             assert len(step_messages) > 0, "단계 메시지가 없습니다"
             print(f"\n✅ 파이프라인 단계: {len(step_messages)}개 메시지")
             
@@ -624,16 +589,60 @@ class TestConvertingPipeline:
         except Exception as e:
             print(f"\n❌ 통합 테스트 실패: {str(e)}\n")
             raise
+    
+    @pytest.mark.asyncio
+    async def test_framework_pipeline(self, setup_test_db):
+        orchestrator = ServiceOrchestrator(
+            user_id=TEST_USER_ID,
+            api_key=TEST_API_KEY,
+            locale=TEST_LOCALE,
+            project_name=TEST_PROJECT_NAME,
+            dbms=TEST_DBMS,
+            target_lang=TEST_TARGET_LANG
+        )
+        await self._run_pipeline("framework", orchestrator)
+    
+    @pytest.mark.asyncio
+    async def test_dbms_pipeline(self, setup_test_db):
+        orchestrator = ServiceOrchestrator(
+            user_id=TEST_USER_ID,
+            api_key=TEST_API_KEY,
+            locale=TEST_LOCALE,
+            project_name=TEST_PROJECT_NAME,
+            dbms=TEST_DBMS,
+            target_lang=TEST_TARGET_LANG
+        )
+        await self._run_pipeline("dbms", orchestrator)
 
 
 # ==================== 실행 ====================
 
 if __name__ == "__main__":
-    pytest.main([
-        __file__, 
-        "-v", 
-        "-s", 
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Legacy Modernizer 통합 테스트 실행기")
+    parser.add_argument(
+        "--scenario",
+        choices=("all", "framework", "dbms", "steps"),
+        default="all",
+        help="실행할 테스트 시나리오를 선택합니다."
+    )
+    args = parser.parse_args()
+    
+    pytest_args = [
+        __file__,
+        "-v",
+        "-s",
         "--tb=short",
-        "--color=yes"
-    ])
+        "--color=yes",
+    ]
+    
+    if args.scenario == "framework":
+        pytest_args += ["-k", "TestConvertingPipeline and test_framework_pipeline"]
+    elif args.scenario == "dbms":
+        pytest_args += ["-k", "TestConvertingPipeline and test_dbms_pipeline"]
+    elif args.scenario == "steps":
+        pytest_args += ["-k", "TestEntityGeneration or TestRepositoryGeneration or TestServiceSkeletonGeneration or TestServiceCodeGeneration or TestControllerGeneration"]
+    
+    pytest.main(pytest_args)
 
