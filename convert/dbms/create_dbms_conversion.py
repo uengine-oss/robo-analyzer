@@ -1,4 +1,5 @@
 import logging
+import os
 import textwrap
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError
@@ -280,10 +281,9 @@ class DbmsConversionGenerator:
                 self.project_name,
                 self.user_id,
                 self.target_dbms,
-                'dbms_conversion',
-                project_name=self.project_name,
-                folder_name=self.folder_name
+                'dbms_conversion'
             )
+            base_path = os.path.join(base_path, self.folder_name)
             
             # 스켈레톤과 병합
             final_code = self.skeleton_code.replace("CodePlaceHolder", self.merged_code.strip())
