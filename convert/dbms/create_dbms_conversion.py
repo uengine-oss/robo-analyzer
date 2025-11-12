@@ -1,10 +1,10 @@
 import logging
 import textwrap
-from typing import AsyncGenerator, Any
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError
 from util.utility_tool import build_rule_based_path, save_file
 from util.rule_loader import RuleLoader
+from convert.dbms.create_dbms_skeleton import start_dbms_skeleton
 
 
 # ----- 상수 정의 -----
@@ -23,15 +23,16 @@ class DbmsConversionGenerator:
     """
     __slots__ = (
         'traverse_nodes', 'folder_name', 'file_name', 'procedure_name',
-        'user_id', 'api_key', 'locale', 'project_name', 'target_dbms',
+        'user_id', 'api_key', 'locale', 'project_name', 'target_dbms', 'skeleton_code',
         'merged_code', 'total_tokens', 'current_parent', 
         'code_buffer', 'sp_code_parts', 'sp_start', 'sp_end',
-        'pending_try_mode', 'rule_loader'
+        'rule_loader'
     )
 
     def __init__(self, traverse_nodes: list, folder_name: str, file_name: str,
                  procedure_name: str, user_id: str, api_key: str, locale: str, 
-                 project_name: str = "demo", target_dbms: str = "oracle"):
+                 project_name: str = "demo", target_dbms: str = "oracle",
+                 skeleton_code: str | None = None):
         self.traverse_nodes = traverse_nodes
         self.folder_name = folder_name
         self.file_name = file_name
@@ -41,6 +42,7 @@ class DbmsConversionGenerator:
         self.locale = locale
         self.project_name = project_name or "demo"
         self.target_dbms = target_dbms
+        self.skeleton_code = (skeleton_code or "").strip()
 
         # 상태 초기화
         self.merged_code = ""
@@ -50,9 +52,6 @@ class DbmsConversionGenerator:
         self.sp_code_parts = []
         self.sp_start = None
         self.sp_end = None
-        
-        # TRY-EXCEPTION 처리
-        self.pending_try_mode = False
         
         # Rule 파일 로더 (target_dbms로 디렉토리 찾음)
         self.rule_loader = RuleLoader(target_lang=target_dbms)
@@ -110,16 +109,6 @@ class DbmsConversionGenerator:
             "있음" if has_children else "없음"
         )
 
-        # TRY 노드 감지 → 플래그 설정
-        if node_type == 'TRY':
-            self.pending_try_mode = True
-            logging.info("    🔒 TRY 노드 감지 → EXCEPTION까지 병합 보류")
-        
-        # EXCEPTION 노드 감지 → 전용 처리
-        if node_type == 'EXCEPTION':
-            await self._handle_exception_node(node, start_line, end_line)
-            return
-        
         # 부모 경계 체크
         parent = self.current_parent
         if parent and relationship == 'NEXT' and start_line > parent['end']:
@@ -216,65 +205,13 @@ class DbmsConversionGenerator:
                 CODE_PLACEHOLDER, f"\n{textwrap.indent(self.code_buffer.strip(), '    ')}", 1
             )
 
-        # 병합 (TRY 대기 중이면 보류)
-        if not self.pending_try_mode:
-            self.merged_code += f"\n{self.current_parent['code']}"
-            logging.info("      🧩 부모 스켈레톤에 코드 병합 완료")
-        else:
-            logging.info("      🕒 TRY 블록 병합 대기 상태 유지")
+        # 병합
+        self.merged_code += f"\n{self.current_parent['code']}"
+        logging.info("      🧩 부모 스켈레톤에 코드 병합 완료")
 
         # 초기화
         self.current_parent = None
         self.code_buffer = ""
-
-    # ----- EXCEPTION 노드 전용 처리 -----
-
-    async def _handle_exception_node(self, node: dict, start_line: int, end_line: int) -> None:
-        """EXCEPTION 노드 전용 처리: 전체 코드를 try-exception으로 감싸는 예외처리 구조 생성"""
-        logging.info("    ⚡ EXCEPTION 노드 감지 → 예외 처리 구조 생성 시작")
-        
-        # 1. 쌓인 코드 먼저 분석
-        if self.sp_code_parts:
-            await self._analyze_and_merge()
-        
-        # 2. EXCEPTION 블록을 타겟 DBMS exception 구조로 변환 (Role 파일 사용)
-        node_code = (node.get('node_code') or '').strip()
-        if not node_code:
-            logging.warning("      ⚠️  EXCEPTION 노드 코드가 비어있음 → 처리 중단")
-            return
-            
-        result = self.rule_loader.execute(
-            role_name='dbms_exception',
-            inputs={
-                'node_code': node_code,
-                'locale': self.locale
-            },
-            api_key=self.api_key
-        )
-        exception_code = result.get('code', '').strip()
-        
-        if 'CodePlaceHolder' not in exception_code:
-            logging.warning("      ⚠️  예외 템플릿에 CodePlaceHolder 없음 → 처리 중단")
-            return
-        
-        # 3. 전체 코드를 예외처리로 감싸기
-        if self.pending_try_mode:
-            # Case 1: TRY 노드 존재 → TRY 블록 코드만 감싸기
-            try_block_code = self.code_buffer.strip()
-            wrapped_code = exception_code.replace('CodePlaceHolder', try_block_code)
-            self.merged_code += f"\n{wrapped_code}"
-            logging.info("      🧷 TRY 블록 코드 예외처리 완료 (code_buffer 사용)")
-        else:
-            # Case 2: TRY 노드 미존재 → 전체 메서드 코드를 감싸기
-            entire_code = self.merged_code.strip()
-            wrapped_code = exception_code.replace('CodePlaceHolder', entire_code)
-            self.merged_code = wrapped_code
-            logging.info("      🧷 전체 코드 예외처리 완료 (merged_code 사용)")
-        
-        # 4. 상태 초기화
-        self.code_buffer = ""
-        self.pending_try_mode = False
-        logging.info("      🔄 예외처리 완료 → 상태 초기화")
 
     # ----- 분석 및 병합 -----
 
@@ -314,15 +251,9 @@ class DbmsConversionGenerator:
                 self.code_buffer += f"\n{generated_code}"
                 logging.info("      ➕ 부모 버퍼에 변환 코드 추가")
             else:
-                # 작은 노드 처리
-                if self.pending_try_mode:
-                    # TRY 노드 → code_buffer에 보관 (merge 안 함)
-                    self.code_buffer += f"\n{generated_code}"
-                    logging.info("      🕒 TRY 블록 코드 임시 보관 (EXCEPTION 대기)")
-                else:
-                    # 일반 노드 → 바로 merge
-                    self.merged_code += f"\n{generated_code}"
-                    logging.info("      ➕ 최종 코드에 변환 결과 추가")
+                # 일반 노드 → 바로 merge
+                self.merged_code += f"\n{generated_code}"
+                logging.info("      ➕ 최종 코드에 변환 결과 추가")
 
         # 상태 초기화
         self.total_tokens = int(0)
@@ -347,9 +278,12 @@ class DbmsConversionGenerator:
             # 저장 경로 설정
             base_path = build_rule_based_path(self.project_name, self.user_id, self.target_dbms, 'dbms')
             
+            # 스켈레톤과 병합
+            final_code = self.skeleton_code.replace("CodePlaceHolder", self.merged_code.strip())
+
             # 파일 저장
             await save_file(
-                content=self.merged_code.strip(),
+                content=final_code,
                 filename=f"{base_name}.sql",
                 base_path=base_path
             )
@@ -357,7 +291,7 @@ class DbmsConversionGenerator:
             logging.info(f"✅ [{base_name}] {self.target_dbms.capitalize()} 파일 자동 저장 완료")
             logging.info(f"📁 저장 경로: {base_path}/{base_name}.sql")
             
-            return self.merged_code.strip()
+            return final_code
             
         except Exception as e:
             logging.error(f"❌ {self.target_dbms.capitalize()} 파일 저장 실패: {str(e)}")
@@ -448,6 +382,18 @@ async def start_dbms_conversion(
         ])
         dbms_nodes = query_results[0] if query_results else []
 
+        # 스켈레톤 생성
+        skeleton_code = await start_dbms_skeleton(
+            folder_name=folder_name,
+            file_name=file_name,
+            procedure_name=procedure_name,
+            project_name=project_name,
+            user_id=user_id,
+            api_key=api_key,
+            locale=locale,
+            target_dbms=target_dbms
+        )
+
         # 변환 수행
         generator = DbmsConversionGenerator(
             dbms_nodes,
@@ -458,7 +404,8 @@ async def start_dbms_conversion(
             api_key,
             locale,
             project_name,
-            target_dbms
+            target_dbms,
+            skeleton_code
         )
 
         await generator.generate()
