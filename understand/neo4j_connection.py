@@ -1,6 +1,7 @@
 import logging
 import os
 import warnings
+from pathlib import Path
 from dotenv import load_dotenv
 from neo4j import AsyncGraphDatabase
 from util.exception import Neo4jError
@@ -13,7 +14,16 @@ warnings.filterwarnings('ignore', message='.*Received notification from DBMS ser
 logging.getLogger('neo4j.notifications').setLevel(logging.ERROR)
 
 # 환경변수 미리 로드 (모듈 레벨에서 한번만)
-load_dotenv()
+# - 현재 작업 디렉터리가 달라도 항상 프로젝트 루트의 .env를 찾도록 경로를 명시합니다.
+try:
+    _ENV_PATH = Path(__file__).resolve().parents[1] / ".env"
+    if _ENV_PATH.exists():
+        load_dotenv(dotenv_path=str(_ENV_PATH))
+    else:
+        load_dotenv()
+except Exception:
+    # .env 로드 실패하더라도 시스템 환경변수 사용
+    load_dotenv()
 
 class Neo4jConnection:
     """Neo4j 비동기 연결 관리 및 쿼리 실행"""
@@ -22,9 +32,17 @@ class Neo4jConnection:
     
     # 클래스 상수
     DATABASE_NAME = "neo4j"
-    DEFAULT_URI = "bolt://localhost:7687"
+    DEFAULT_URI = "bolt://127.0.0.1:7687"
     DEFAULT_USER = "neo4j"
     DEFAULT_PASSWORD = "neo4j"
+    _CONSTRAINT_QUERIES = [
+        # SYSTEM: (user_id, project_name, name) 유니크
+        "CREATE CONSTRAINT system_unique IF NOT EXISTS FOR (s:SYSTEM) REQUIRE (s.user_id, s.project_name, s.name) IS UNIQUE",
+        # Table: (user_id, project_name, folder_name, name) 유니크 (스키마 대신 폴더 기준으로 식별 통일)
+        "CREATE CONSTRAINT table_unique_by_folder IF NOT EXISTS FOR (t:Table) REQUIRE (t.user_id, t.project_name, t.folder_name, t.name) IS UNIQUE",
+        # Column: (user_id, project_name, fqn) 유니크
+        "CREATE CONSTRAINT column_unique IF NOT EXISTS FOR (c:Column) REQUIRE (c.user_id, c.project_name, c.fqn) IS UNIQUE",
+    ]
 
     def __init__(self):
         """환경변수에서 연결 정보를 읽어 드라이버 초기화"""
@@ -53,6 +71,19 @@ class Neo4jConnection:
             logging.exception(error_msg)
             raise Neo4jError(error_msg)
     
+    async def ensure_constraints(self) -> None:
+        """병합(업서트) 시 중복/충돌을 방지하기 위한 유니크 제약을 보장합니다."""
+        try:
+            async with self.__driver.session(database=self.DATABASE_NAME) as session:
+                for q in self._CONSTRAINT_QUERIES:
+                    try:
+                        await session.run(q)
+                    except Exception:
+                        # 멱등 실행: 이미 존재하거나 권한 이슈는 로깅 후 무시
+                        logging.debug(f"Constraint ensure skipped: {q}")
+        except Exception as e:
+            # 제약 생성 실패는 기능 차질이 크지 않도록 경고만 남깁니다.
+            logging.warning(f"제약 보장 중 경고: {str(e)}")
     
     # 클래스 상수로 쿼리 캐싱
     _DEFAULT_GRAPH_QUERY = """

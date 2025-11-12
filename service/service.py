@@ -36,7 +36,7 @@ class ServiceOrchestrator:
     Understanding과 Converting 전체 프로세스를 관리하는 오케스트레이터 클래스
     """
 
-    def __init__(self, user_id: str, api_key: str, locale: str, project_name: str, dbms: str, target_lang: str = 'java'):
+    def __init__(self, user_id: str, api_key: str, locale: str, project_name: str, dbms: str, target_lang: str = 'java', update_mode: str = 'merge'):
         """
         ServiceOrchestrator 초기화
         
@@ -54,6 +54,7 @@ class ServiceOrchestrator:
         self.project_name = project_name
         self.dbms = dbms
         self.target_lang = target_lang
+        self.update_mode = update_mode if update_mode in ('skip', 'merge') else 'merge'
         self.project_name_cap = project_name.capitalize() if project_name else ''
         
         # 디렉토리 경로 설정
@@ -103,12 +104,18 @@ class ServiceOrchestrator:
         try:
             yield emit_message("Preparing Analysis Data")
 
-            # 이미 분석된 경우
+            # 병합 모드 안전성 보장: 유니크 제약 생성(멱등)
+            await connection.ensure_constraints()
+
+            # 이미 분석된 경우: skip 또는 merge 모드 분기
             if await connection.node_exists(self.user_id, file_names):
-                yield emit_message("ALREADY ANALYZED")
-                graph_data = await connection.execute_query_and_return_graph(self.user_id, file_names)
-                yield emit_data(graph=graph_data, analysis_progress=100)
-                return
+                if self.update_mode == 'skip':
+                    yield emit_message("ALREADY ANALYZED")
+                    graph_data = await connection.execute_query_and_return_graph(self.user_id, file_names)
+                    yield emit_data(graph=graph_data, analysis_progress=100)
+                    return
+                else:
+                    yield emit_message("ALREADY ANALYZED: MERGE MODE - RE-APPLYING UPDATES")
 
             # DDL 파일 처리
             ddl_files = self._list_ddl_files()
@@ -269,7 +276,8 @@ class ServiceOrchestrator:
                 effective_schema = parsed_schema or ''
 
                 # Table 노드 MERGE
-                t_merge_key = {**common_props, 'schema': effective_schema, 'name': parsed_table}
+                # 폴더 기준 유니크 키 사용을 위해 DDL 경로에서는 folder_name='system'으로 통일
+                t_merge_key = {**common_props, 'folder_name': 'system', 'schema': effective_schema, 'name': parsed_table}
                 t_merge_str = ', '.join(f"`{k}`: '{v}'" for k, v in t_merge_key.items())
                 t_set_props = {**common_props, 'description': escape_for_cypher(table_comment), 'table_type': table_type}
                 t_set_str = ', '.join(f"t.`{k}` = '{v}'" for k, v in t_set_props.items())
