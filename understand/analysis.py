@@ -833,7 +833,11 @@ class ApplyManager:
                     continue
                 mode = (link_item.get('mode') or 'r').lower()
                 schema_link, name_link, link_name = parse_table_identifier(link_name_raw)
-                remote_merge = self._build_table_merge(name_link, schema_link).replace(f", db: '{self.dbms}'", "")
+                remote_merge = (
+                    self._build_table_merge(name_link, schema_link)
+                    .replace(f", db: '{self.dbms}'", "")
+                    .replace(f", folder_name: '{self.folder_name}'", "")
+                )
                 queries.append(
                     f"{remote_merge}\n"
                     f"ON CREATE SET t.folder_name = ''\n"
@@ -955,7 +959,7 @@ class ApplyManager:
     def _build_table_merge(self, table_name: str, schema: Optional[str]) -> str:
         schema_part = f", schema: '{schema}'" if schema else ""
         return (
-            f"MERGE (t:Table {{{self.table_base_props}, name: '{table_name}'{schema_part}, db: '{self.dbms}', project_name: '{self.project_name}'}})"
+            f"MERGE (t:Table {{{self.table_base_props}, folder_name: '{self.folder_name}', name: '{table_name}'{schema_part}, db: '{self.dbms}', project_name: '{self.project_name}'}})"
         )
 
     def _record_table_summary(self, schema: Optional[str], name: str, description: Optional[str]) -> Tuple[str, str]:
