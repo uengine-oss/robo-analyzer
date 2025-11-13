@@ -804,10 +804,18 @@ class ApplyManager:
                     column_name = (column.get('name') or '').strip()
                     if not column_name:
                         continue
-                    col_type = escape_for_cypher(column.get('dtype') or '')
+                    raw_dtype = (column.get('dtype') or '')
+                    col_type = escape_for_cypher(raw_dtype or '')
                     raw_column_desc = (column.get('description') or column.get('comment') or '').strip()
-                    # 컬럼 설명도 테이블 버킷에 적재하여 후속 요약에 활용합니다.
-                    self._record_column_summary(bucket_key, column_name, raw_column_desc)
+                    # 컬럼 설명/메타/예시 값을 테이블 버킷에 적재하여 후속 요약에 활용합니다.
+                    self._record_column_summary(
+                        bucket_key,
+                        column_name,
+                        raw_column_desc,
+                        dtype=raw_dtype,
+                        nullable=column.get('nullable', True),
+                        examples=(column.get('examples') or [])
+                    )
                     col_description = escape_for_cypher(raw_column_desc)
                     nullable_flag = 'true' if column.get('nullable', True) else 'false'
                     fqn = '.'.join(filter(None, [schema_part, name_part, column_name]))
@@ -977,21 +985,30 @@ class ApplyManager:
             bucket["summaries"].add(text)
         return (schema_key, name_key)
 
-    def _record_column_summary(self, table_key: Tuple[str, str], column_name: str, description: Optional[str]):
-        """컬럼 설명 문장을 버킷에 누적합니다."""
+    def _record_column_summary(self, table_key: Tuple[str, str], column_name: str, description: Optional[str], dtype: Optional[str] = None, nullable: Optional[bool] = None, examples: Optional[List[str]] = None):
+        """컬럼 설명과 메타데이터(dtype/nullable/예시값)를 버킷에 누적합니다."""
         text = (description or '').strip()
-        if not text:
-            return
         bucket = self._table_summary_store.setdefault(table_key, {"summaries": set(), "columns": {}})
         columns = bucket["columns"]
         canonical = column_name
         entry = columns.get(canonical)
         if entry is None:
-            # 최초 등장하는 컬럼이면 요약 후보 세트를 초기화합니다.
-            entry = {"name": column_name, "summaries": set()}
+            entry = {"name": column_name, "summaries": set(), "dtype": (dtype or ''), "nullable": True if nullable is None else bool(nullable), "examples": set()}
             columns[canonical] = entry
-        # 동일 컬럼에 대한 설명을 모아 후속 요약에 활용합니다.
-        entry["summaries"].add(text)
+        # 메타데이터 최신화
+        if dtype is not None and not entry.get("dtype"):
+            entry["dtype"] = dtype
+        if nullable is not None:
+            entry["nullable"] = bool(nullable)
+        if text:
+            entry["summaries"].add(text)
+        if examples:
+            for v in examples:
+                if v is None:
+                    continue
+                s = str(v).strip()
+                if s:
+                    entry["examples"].add(s)
 
     async def _finalize_table_summaries(self):
         """버킷에 모은 테이블/컬럼 설명을 병렬로 요약합니다."""
@@ -1019,12 +1036,23 @@ class ApplyManager:
             return
 
         table_display = f"{schema_key}.{name_key}" if schema_key else name_key
+        # 컬럼 메타데이터를 구성합니다.
+        column_metadata = {
+            entry['name']: {
+                "dtype": entry.get("dtype") or "",
+                "nullable": bool(entry.get("nullable", True)),
+                "examples": sorted(list(entry.get("examples") or []))[:5],
+            }
+            for entry in columns_map.values()
+        }
+
         # 테이블/컬럼 설명을 단일 프롬프트로 묶어 배치 요약을 수행합니다.
         result = await asyncio.to_thread(
             summarize_table_metadata,
             table_display,
             summaries,
             column_sentences,
+            column_metadata,
             self.api_key,
             self.locale,
         )
@@ -1043,6 +1071,14 @@ class ApplyManager:
             # 테이블 설명을 최신 요약으로 덮어씁니다.
             queries.append(
                 f"MATCH (t:Table {{{table_props}}})\nSET t.description = '{escape_for_cypher(table_desc)}'"
+            )
+
+        # detailDescription(사람이 읽을 수 있는 텍스트) 적용
+        # - 호환성: detailDescriptionText 키도 함께 지원
+        detail_text = result.get('detailDescription') or result.get('detailDescriptionText') or ''
+        if isinstance(detail_text, str) and detail_text.strip():
+            queries.append(
+                f"MATCH (t:Table {{{table_props}}})\nSET t.detailDescription = '{escape_for_cypher(detail_text.strip())}'"
             )
 
         for column_info in result.get('columns', []) or []:

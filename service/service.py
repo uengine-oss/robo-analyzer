@@ -279,7 +279,22 @@ class ServiceOrchestrator:
                 # 폴더 기준 유니크 키 사용을 위해 DDL 경로에서는 folder_name='system'으로 통일
                 t_merge_key = {**common_props, 'folder_name': 'system', 'schema': effective_schema, 'name': parsed_table}
                 t_merge_str = ', '.join(f"`{k}`: '{v}'" for k, v in t_merge_key.items())
-                t_set_props = {**common_props, 'description': escape_for_cypher(table_comment), 'table_type': table_type}
+                # detailDescription 초기 구성 (사람이 읽는 텍스트로 저장)
+                lines = []
+                summary_line = f"설명: {table_comment}" if table_comment else "설명: "
+                lines.append(summary_line)
+                lines.append("")
+                lines.append("주요  컬럼:")
+                for col in columns:
+                    col_name_i = (col.get('name') or '').strip()
+                    if not col_name_i:
+                        continue
+                    role = (col.get('comment') or '').strip()
+                    # DDL 단계에서는 예시값이 없으므로 예시는 생략
+                    lines.append(f"   {col_name_i}: {role}" if role else f"   {col_name_i}: ")
+                detail_desc_text = "\n".join(lines)
+
+                t_set_props = {**common_props, 'description': escape_for_cypher(table_comment), 'table_type': table_type, 'detailDescription': escape_for_cypher(detail_desc_text)}
                 t_set_str = ', '.join(f"t.`{k}` = '{v}'" for k, v in t_set_props.items())
                 cypher_queries.append(f"MERGE (t:Table {{{t_merge_str}}}) SET {t_set_str}")
 
