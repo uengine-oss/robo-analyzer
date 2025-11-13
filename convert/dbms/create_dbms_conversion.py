@@ -111,7 +111,7 @@ class DbmsConversionGenerator:
         )
 
         # 부모 경계 체크
-        while self.parent_stack and relationship == 'NEXT' and start_line > self.parent_stack[-1]['end']:
+        while self.parent_stack and start_line > self.parent_stack[-1]['end']:
             if self.sp_code_parts:
                 await self._analyze_and_merge()
             await self._finalize_parent()
