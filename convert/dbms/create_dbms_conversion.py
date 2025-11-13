@@ -99,13 +99,14 @@ class DbmsConversionGenerator:
         # 노드 처리 로그
         readable_type = node_type.split('[')[0] if '[' in str(node_type) else str(node_type)
         logging.info(
-            "➡️  노드 처리 시작 | 타입: %s | 라인: %s~%s | 토큰: %s | 관계: %s | 자식노드: %s",
+            "➡️  노드 감지 | 타입=%s | 라인=%s~%s | 토큰=%s | 관계=%s | 자식=%s | stack_depth=%s",
             readable_type,
             start_line,
             end_line,
             token,
             relationship,
-            "있음" if has_children else "없음"
+            "있음" if has_children else "없음",
+            len(self.parent_stack)
         )
 
         # 부모 경계 체크
@@ -120,9 +121,22 @@ class DbmsConversionGenerator:
             if self.sp_code_parts:
                 await self._analyze_and_merge()
             
-            logging.info("    🧱 대용량 노드 진입 | 라인: %s~%s | 토큰: %s", start_line, end_line, token)
+            logging.info(
+                "    🧱 대용량 노드 처리 준비 | 라인=%s~%s | 토큰=%s | 현재 stack=%s",
+                start_line,
+                end_line,
+                token,
+                len(self.parent_stack)
+            )
             await self._handle_large_node(node, start_line, end_line, token)
         else:
+            logging.info(
+                "    ✏️ 일반 노드 누적 | 라인=%s~%s | 토큰=%s | 현재 stack=%s",
+                start_line,
+                end_line,
+                token,
+                len(self.parent_stack)
+            )
             self._handle_small_node(node, start_line, end_line, token)
 
         # 임계값 체크
@@ -157,7 +171,12 @@ class DbmsConversionGenerator:
             'children': []
         }
         self.parent_stack.append(entry)
-        logging.info("      📦 부모 노드 스켈레톤 등록 (stack depth=%s)", len(self.parent_stack))
+        logging.info(
+            "      📦 부모 스켈레톤 push | 라인=%s~%s | stack=%s",
+            start_line,
+            end_line,
+            len(self.parent_stack)
+        )
 
     # ----- 소형 노드 처리 -----
 
@@ -192,9 +211,11 @@ class DbmsConversionGenerator:
 
         entry = self.parent_stack.pop()
         logging.info(
-            "    ✅ 대용량 노드 완료 | 라인: %s~%s",
+            "    ✅ 부모 스켈레톤 pop | 라인=%s~%s | 잔여 children=%s | stack→%s",
             entry['start'],
-            entry['end']
+            entry['end'],
+            len(entry['children']),
+            len(self.parent_stack)
         )
 
         code = entry['code']
@@ -214,7 +235,12 @@ class DbmsConversionGenerator:
 
         if self.parent_stack:
             self.parent_stack[-1]['children'].append(code)
-            logging.info("      🔁 상위 부모 children에 병합 (stack depth=%s)", len(self.parent_stack))
+            logging.info(
+                "      🔁 상위 부모 children에 merge | 상위 라인=%s~%s | stack=%s",
+                self.parent_stack[-1]['start'],
+                self.parent_stack[-1]['end'],
+                len(self.parent_stack)
+            )
         else:
             self.merged_code += f"\n{code}"
             logging.info("      🧩 최상위 코드에 병합 완료")
@@ -228,7 +254,7 @@ class DbmsConversionGenerator:
 
         # 문자열 조인
         sp_code = '\n'.join(self.sp_code_parts)
-        target = "부모버퍼" if self.parent_stack else "최종코드"
+        target = "부모 children" if self.parent_stack else "최종코드"
         logging.info(
             "    🤖 LLM 변환 요청 | 라인: %s~%s | 파트 수: %s | 토큰: %s | 대상: %s",
             self.sp_start,
@@ -239,6 +265,11 @@ class DbmsConversionGenerator:
         )
 
         parent_code = self._build_parent_context()
+        logging.debug(
+            "      ↳ parent_code 길이=%s | stack=%s",
+            len(parent_code),
+            len(self.parent_stack)
+        )
         result = self.rule_loader.execute(
             role_name='dbms_conversion',
             inputs={
@@ -254,7 +285,12 @@ class DbmsConversionGenerator:
         if generated_code:
             if self.parent_stack:
                 self.parent_stack[-1]['children'].append(generated_code)
-                logging.info("      ➕ 현재 부모 children에 코드 추가")
+                logging.info(
+                    "      ➕ 현재 부모(children) 추가 | 부모 라인=%s~%s | child_len=%s",
+                    self.parent_stack[-1]['start'],
+                    self.parent_stack[-1]['end'],
+                    len(self.parent_stack[-1]['children'])
+                )
             else:
                 self.merged_code += f"\n{generated_code}"
                 logging.info("      ➕ 최종 코드에 변환 결과 추가")

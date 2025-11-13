@@ -11,6 +11,7 @@ import os
 import yaml
 import logging
 from typing import Dict, Any, Optional
+import traceback
 from jinja2 import Template, TemplateError
 from functools import lru_cache
 from langchain_core.prompts import PromptTemplate
@@ -26,6 +27,33 @@ def _safe_copy(value: Any) -> Any:
         return json.loads(json.dumps(value, ensure_ascii=False))
     except (TypeError, ValueError):
         return value
+
+
+def _format_llm_error(exc: Exception) -> str:
+    details = []
+    status_code = getattr(exc, "status_code", None) or getattr(exc, "http_status", None)
+    if status_code is not None:
+        details.append(f"status={status_code}")
+    error_code = getattr(exc, "code", None) or getattr(exc, "error_code", None)
+    if error_code:
+        details.append(f"code={error_code}")
+    error_type = exc.__class__.__name__
+    body = getattr(exc, "body", None)
+    if body is None and hasattr(exc, "response"):
+        response = getattr(exc, "response")
+        if hasattr(response, "json"):
+            try:
+                body = response.json()
+            except Exception:
+                body = getattr(response, "text", None)
+    body_repr = ""
+    if body:
+        body_repr = f" body={body}"
+    origin = "".join(traceback.format_exception_only(exc.__class__, exc)).strip()
+    joined_details = " ".join(details)
+    if joined_details:
+        joined_details = f" {joined_details}"
+    return f"[{error_type}{joined_details}] {origin}{body_repr}"
 
 
 class RuleLoader:
@@ -216,7 +244,8 @@ class RuleLoader:
             return result
             
         except Exception as e:
-            err_msg = f"{role_name} 프롬프트 실행 중 오류: {str(e)}"
+            formatted = _format_llm_error(e)
+            err_msg = f"{role_name} 프롬프트 실행 중 오류: {formatted}"
             logging.error(err_msg)
             raise LLMCallError(err_msg)
     
