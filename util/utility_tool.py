@@ -78,7 +78,7 @@ def build_rule_based_path(project_name: str, user_id: str, target_lang: str, rol
     base_dir = docker_ctx if docker_ctx else _WORKSPACE_DIR
     base_path = os.path.join(base_dir, 'target', target_lang, user_id, project_name)
     
-    return os.path.join(base_path, relative_path)
+    return os.path.normpath(os.path.join(base_path, relative_path))
 
 
 #==============================================================================

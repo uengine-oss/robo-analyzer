@@ -24,8 +24,8 @@ class DbmsConversionGenerator:
     __slots__ = (
         'traverse_nodes', 'folder_name', 'file_name', 'procedure_name',
         'user_id', 'api_key', 'locale', 'project_name', 'target_dbms', 'skeleton_code',
-        'merged_code', 'total_tokens', 'current_parent', 
-        'code_buffer', 'sp_code_parts', 'sp_start', 'sp_end',
+        'merged_code', 'total_tokens', 'parent_stack',
+        'sp_code_parts', 'sp_start', 'sp_end',
         'rule_loader'
     )
 
@@ -47,8 +47,7 @@ class DbmsConversionGenerator:
         # 상태 초기화
         self.merged_code = ""
         self.total_tokens = int(0)
-        self.current_parent = None
-        self.code_buffer = ""
+        self.parent_stack = []
         self.sp_code_parts = []
         self.sp_start = None
         self.sp_end = None
@@ -110,8 +109,7 @@ class DbmsConversionGenerator:
         )
 
         # 부모 경계 체크
-        parent = self.current_parent
-        if parent and relationship == 'NEXT' and start_line > parent['end']:
+        while self.parent_stack and relationship == 'NEXT' and start_line > self.parent_stack[-1]['end']:
             if self.sp_code_parts:
                 await self._analyze_and_merge()
             await self._finalize_parent()
@@ -152,15 +150,14 @@ class DbmsConversionGenerator:
         )
         skeleton = result['code']
 
-        # 부모 설정 또는 삽입
-        if not self.current_parent:
-            self.current_parent = {'start': start_line, 'end': end_line, 'code': skeleton}
-            logging.info("      📦 부모 노드 스켈레톤 설정 완료")
-        else:
-            self.current_parent['code'] = self.current_parent['code'].replace(
-                CODE_PLACEHOLDER, f"\n{textwrap.indent(skeleton, '    ')}", 1
-            )
-            logging.info("      🔁 중첩 부모 스켈레톤에 자식 스켈레톤 삽입")
+        entry = {
+            'start': start_line,
+            'end': end_line,
+            'code': skeleton,
+            'children': []
+        }
+        self.parent_stack.append(entry)
+        logging.info("      📦 부모 노드 스켈레톤 등록 (stack depth=%s)", len(self.parent_stack))
 
     # ----- 소형 노드 처리 -----
 
@@ -190,28 +187,37 @@ class DbmsConversionGenerator:
 
     async def _finalize_parent(self) -> None:
         """현재 부모 마무리"""
-        if not self.current_parent:
+        if not self.parent_stack:
             return
-        
+
+        entry = self.parent_stack.pop()
         logging.info(
             "    ✅ 대용량 노드 완료 | 라인: %s~%s",
-            self.current_parent['start'],
-            self.current_parent['end']
+            entry['start'],
+            entry['end']
         )
 
-        # 버퍼 삽입
-        if self.code_buffer:
-            self.current_parent['code'] = self.current_parent['code'].replace(
-                CODE_PLACEHOLDER, f"\n{textwrap.indent(self.code_buffer.strip(), '    ')}", 1
-            )
+        code = entry['code']
+        child_block = "\n".join(entry['children']).strip()
 
-        # 병합
-        self.merged_code += f"\n{self.current_parent['code']}"
-        logging.info("      🧩 부모 스켈레톤에 코드 병합 완료")
+        if CODE_PLACEHOLDER in code:
+            if child_block:
+                indented = textwrap.indent(child_block, '    ')
+                code = code.replace(CODE_PLACEHOLDER, f"\n{indented}\n", 1)
+            else:
+                code = code.replace(CODE_PLACEHOLDER, "", 1)
+        elif child_block:
+            indented = textwrap.indent(child_block, '    ')
+            code = f"{code}\n{indented}"
 
-        # 초기화
-        self.current_parent = None
-        self.code_buffer = ""
+        code = code.strip()
+
+        if self.parent_stack:
+            self.parent_stack[-1]['children'].append(code)
+            logging.info("      🔁 상위 부모 children에 병합 (stack depth=%s)", len(self.parent_stack))
+        else:
+            self.merged_code += f"\n{code}"
+            logging.info("      🧩 최상위 코드에 병합 완료")
 
     # ----- 분석 및 병합 -----
 
@@ -222,7 +228,7 @@ class DbmsConversionGenerator:
 
         # 문자열 조인
         sp_code = '\n'.join(self.sp_code_parts)
-        target = "부모버퍼" if self.current_parent else "최종코드"
+        target = "부모버퍼" if self.parent_stack else "최종코드"
         logging.info(
             "    🤖 LLM 변환 요청 | 라인: %s~%s | 파트 수: %s | 토큰: %s | 대상: %s",
             self.sp_start,
@@ -232,13 +238,13 @@ class DbmsConversionGenerator:
             target
         )
 
-        # LLM 분석 (Role 파일 사용)
+        parent_code = self._build_parent_context()
         result = self.rule_loader.execute(
             role_name='dbms_conversion',
             inputs={
                 'code': sp_code,
                 'locale': self.locale,
-                'parent_code': self.current_parent['code'] if self.current_parent else ""
+                'parent_code': parent_code
             },
             api_key=self.api_key
         )
@@ -246,12 +252,10 @@ class DbmsConversionGenerator:
         # 생성된 코드 병합
         generated_code = (result.get('code') or '').strip()
         if generated_code:
-            if self.current_parent:
-                # 큰 노드 → code_buffer에 추가
-                self.code_buffer += f"\n{generated_code}"
-                logging.info("      ➕ 부모 버퍼에 변환 코드 추가")
+            if self.parent_stack:
+                self.parent_stack[-1]['children'].append(generated_code)
+                logging.info("      ➕ 현재 부모 children에 코드 추가")
             else:
-                # 일반 노드 → 바로 merge
                 self.merged_code += f"\n{generated_code}"
                 logging.info("      ➕ 최종 코드에 변환 결과 추가")
 
@@ -261,14 +265,36 @@ class DbmsConversionGenerator:
         self.sp_start = None
         self.sp_end = None
 
+    def _build_parent_context(self) -> str:
+        """현재 부모 스켈레톤 컨텍스트 구성"""
+        if not self.parent_stack:
+            return ""
+
+        entry = self.parent_stack[-1]
+        code = entry['code']
+
+        if CODE_PLACEHOLDER not in code:
+            return code
+
+        if not entry['children']:
+            return code
+
+        child_block = "\n".join(entry['children']).strip()
+        if not child_block:
+            return code
+
+        indented = textwrap.indent(child_block, '    ')
+        return code.replace(CODE_PLACEHOLDER, f"\n{indented}\n{CODE_PLACEHOLDER}", 1)
+
     # ----- 마무리 -----
 
     async def _finalize_remaining(self) -> None:
         """남은 데이터 정리"""
-        if self.current_parent:
+        if self.parent_stack:
             if self.sp_code_parts:
                 await self._analyze_and_merge()
-            await self._finalize_parent()
+            while self.parent_stack:
+                await self._finalize_parent()
         elif self.sp_code_parts:
             await self._analyze_and_merge()
 

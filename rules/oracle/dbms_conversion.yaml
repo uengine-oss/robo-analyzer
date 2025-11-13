@@ -6,7 +6,7 @@ description: "PostgreSQL SP를 Oracle SP로 변환"
 version: "1.0"
 
 # 저장 경로 정의
-path: "{project_name}/{folder_name}/dbms"
+path: "../dbms/{project_name}/{folder_name}"
 
 # 입력 스키마
 input_schema:
