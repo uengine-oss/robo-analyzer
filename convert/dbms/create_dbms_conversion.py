@@ -126,7 +126,10 @@ class DbmsConversionGenerator:
             return
 
         # 노드 타입별 처리
-        if token >= TOKEN_THRESHOLD and has_children and node_type not in DML_TYPES:
+        is_large_parent = token >= TOKEN_THRESHOLD and has_children and node_type not in DML_TYPES
+        is_large_leaf = token >= TOKEN_THRESHOLD and not has_children
+
+        if is_large_parent:
             # 큰 노드 처리 전에 쌓인 작은 노드들 먼저 변환
             if self.sp_code_parts:
                 await self._analyze_and_merge()
@@ -140,6 +143,12 @@ class DbmsConversionGenerator:
             )
             await self._handle_large_node(node, start_line, end_line, token)
         else:
+            if is_large_leaf:
+                if self.sp_code_parts:
+                    await self._analyze_and_merge()
+            else:
+                await self._flush_pending_accumulation(token)
+
             logging.info(
                 "    ✏️ 일반 노드 누적 | 라인=%s~%s | 토큰=%s | 현재 stack=%s",
                 start_line,
@@ -150,7 +159,10 @@ class DbmsConversionGenerator:
             self._handle_small_node(node, start_line, end_line, token)
 
         # 임계값 체크
-        if int(self.total_tokens) >= TOKEN_THRESHOLD:
+        if is_large_leaf:
+            logging.info("    ⚠️  단독 대용량 리프 노드 변환 실행")
+            await self._analyze_and_merge()
+        elif int(self.total_tokens) >= TOKEN_THRESHOLD:
             logging.info("    ⚠️  토큰 누적 %s ≥ %s → LLM 분석 실행", int(self.total_tokens), TOKEN_THRESHOLD)
             await self._analyze_and_merge()
 
@@ -211,6 +223,14 @@ class DbmsConversionGenerator:
             self.sp_start = start_line
         if self.sp_end is None or end_line > self.sp_end:
             self.sp_end = end_line
+
+    async def _flush_pending_accumulation(self, incoming_token: int) -> None:
+        """다음 노드 추가 전에 임계값 초과 여부 확인"""
+        if (self.sp_code_parts
+                and incoming_token is not None
+                and (int(self.total_tokens) + int(incoming_token)) >= TOKEN_THRESHOLD):
+            logging.info("    ⚠️  다음 노드 추가 시 토큰 초과 예상 → 기존 누적 변환")
+            await self._analyze_and_merge()
 
     # ----- 부모 관리 -----
 
