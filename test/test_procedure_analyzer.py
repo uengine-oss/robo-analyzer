@@ -2,11 +2,10 @@
 # -*- coding: utf-8 -*-
 """
 Stored Procedure 분석 및 레포트 생성 프로그램
-Neo4j에서 추출한 Stored Procedure 데이터를 분석하여 상세 레포트를 생성합니다.
+Neo4j에서 추출한 구조화된 JSON 데이터를 분석하여 상세 레포트를 생성합니다.
 """
 
 import json
-import re
 from dataclasses import dataclass, field
 from typing import List, Dict, Set, Optional
 from collections import defaultdict
@@ -63,37 +62,14 @@ class ProcedureInfo:
 
 
 class ProcedureAnalyzer:
-    """Stored Procedure 분석기"""
-    
-    # SQL 키워드 패턴 (analysis.py의 DML_STATEMENT_TYPES와 일치)
-    DML_PATTERNS = {
-        'SELECT': r'\bSELECT\b',
-        'INSERT': r'\bINSERT\s+INTO\b',
-        'UPDATE': r'\bUPDATE\b',
-        'DELETE': r'\bDELETE\s+FROM\b',
-        'MERGE': r'\bMERGE\s+INTO\b',
-        'EXECUTE_IMMEDIATE': r'\bEXECUTE\s+IMMEDIATE\b',
-        'FETCH': r'\bFETCH\b',
-        'CREATE_TEMP_TABLE': r'\bCREATE\s+(?:TEMPORARY|TEMP)\s+TABLE\b',
-        'CTE': r'\bWITH\s+[A-Z_][A-Z0-9_]*\s+AS\s*\(',
-        'OPEN_CURSOR': r'\bOPEN\s+[A-Z_][A-Z0-9_]*\b'
-    }
-    
-    # 테이블 추출 패턴
-    TABLE_PATTERNS = {
-        'FROM': r'\bFROM\s+([A-Z_][A-Z0-9_]*(?:\.[A-Z_][A-Z0-9_]*)?)',
-        'INTO': r'\bINTO\s+([A-Z_][A-Z0-9_]*(?:\.[A-Z_][A-Z0-9_]*)?)',
-        'UPDATE': r'\bUPDATE\s+([A-Z_][A-Z0-9_]*(?:\.[A-Z_][A-Z0-9_]*)?)',
-        'JOIN': r'\bJOIN\s+([A-Z_][A-Z0-9_]*(?:\.[A-Z_][A-Z0-9_]*)?)',
-        'MERGE_INTO': r'\bMERGE\s+INTO\s+([A-Z_][A-Z0-9_]*(?:\.[A-Z_][A-Z0-9_]*)?)',
-    }
+    """Stored Procedure 분석기 (구조화된 JSON 기반)"""
     
     def __init__(self, json_path: str):
         self.json_path = json_path
         self.procedures: List[ProcedureInfo] = []
         
     def load_data(self):
-        """JSON 데이터 로드"""
+        """구조화된 JSON 데이터 로드 및 프로시저별 그룹화"""
         with open(self.json_path, 'rb') as f:
             raw_content = f.read()
         
@@ -103,245 +79,171 @@ class ProcedureAnalyzer:
         
         data = json.loads(content, strict=False)
         
+        # procedure_name과 procedure_start_line으로 그룹화
+        procedure_groups = defaultdict(list)
         for record in data:
-            if 'n' not in record:
-                continue
-                
-            node = record['n']
-            labels = node['labels']
-            props = node['properties']
+            proc_name = record.get('procedure_name')
+            proc_start_line = record.get('procedure_start_line')
             
-            # PROCEDURE 노드만 처리 (FUNCTION, PROCEDURE 포함)
-            if 'PROCEDURE' not in labels:
-                continue
-                
-            # 실제 프로시저만 처리 (함수 참조는 제외)
-            if 'node_code' not in props:
-                continue
-            
-            proc = ProcedureInfo(
-                name=props.get('procedure_name', 'UNKNOWN'),
-                file_name=props.get('file_name', ''),
-                folder_name=props.get('folder_name', ''),
-                project_name=props.get('project_name', ''),
-                start_line=props.get('startLine', 0),
-                end_line=props.get('endLine', 0),
-                summary=props.get('summary', ''),
-                code=props.get('node_code', ''),
-                summarized_code=props.get('summarized_code', ''),
-                token_count=props.get('token', 0),
-                has_children=props.get('has_children', False)
-            )
-            
-            self.procedures.append(proc)
+            if proc_name is not None and proc_start_line is not None:
+                key = (proc_name, proc_start_line)
+                procedure_groups[key].append(record)
+        
+        # 각 프로시저 그룹 처리
+        for (proc_name, proc_start_line), records in procedure_groups.items():
+            proc = self._process_procedure_group(records)
+            if proc:
+                self.procedures.append(proc)
     
-    def analyze_procedures(self):
-        """모든 프로시저 분석"""
-        for proc in self.procedures:
-            self._analyze_procedure(proc)
-    
-    def _analyze_procedure(self, proc: ProcedureInfo):
-        """개별 프로시저 분석"""
-        code = proc.code
-        lines = code.split('\n')
-        
-        # 변수 추출
-        proc.variables = self._extract_variables(code)
-        
-        # 커서 추출
-        proc.cursors = self._extract_cursors(code)
-        
-        # 호출된 프로시저 추출
-        proc.called_procedures = self._extract_called_procedures(code)
-        
-        # SQL 문장 분석
-        self._analyze_statements(proc, lines)
-    
-    def _extract_variables(self, code: str) -> List[str]:
-        """변수 선언 추출 (analysis.py의 VARIABLE_DECLARATION_TYPES와 유사하게 처리)
-        
-        주의: analysis.py는 LLM을 사용하므로 완전히 동일하지 않을 수 있음.
-        정규식으로는 기본 타입만 추출 가능.
-        """
-        variables = []
-        
-        # Oracle 변수 선언 패턴 (더 많은 타입 포함)
-        patterns = [
-            # 기본 타입
-            r'^\s*([A-Z_][A-Z0-9_]*)\s+VARCHAR2',
-            r'^\s*([A-Z_][A-Z0-9_]*)\s+NUMBER',
-            r'^\s*([A-Z_][A-Z0-9_]*)\s+DATE',
-            r'^\s*([A-Z_][A-Z0-9_]*)\s+CHAR',
-            r'^\s*([A-Z_][A-Z0-9_]*)\s+INTEGER',
-            r'^\s*([A-Z_][A-Z0-9_]*)\s+BOOLEAN',
-            # %TYPE, %ROWTYPE
-            r'^\s*([A-Z_][A-Z0-9_]*)\s+[A-Z_][A-Z0-9_]*\s*%TYPE',
-            r'^\s*([A-Z_][A-Z0-9_]*)\s+[A-Z_][A-Z0-9_]*\s*%ROWTYPE',
-            # 파라미터 (IN, OUT, IN OUT)
-            r'^\s*(?:IN|OUT|IN\s+OUT)\s+([A-Z_][A-Z0-9_]*)\s+',
-        ]
-        
-        for line in code.split('\n'):
-            for pattern in patterns:
-                match = re.search(pattern, line, re.IGNORECASE)
-                if match:
-                    variables.append(match.group(1))
-        
-        return list(set(variables))
-    
-    def _extract_cursors(self, code: str) -> List[str]:
-        """커서 선언 추출 (analysis.py는 LLM을 사용하므로 완전히 동일하지 않을 수 있음)
-        
-        주의: analysis.py는 REF CURSOR, SYS_REFCURSOR 등도 처리하지만
-        정규식으로는 명명형 커서만 추출 가능.
-        """
-        cursors = []
-        
-        # 명명형 커서 패턴
-        patterns = [
-            r'\bCURSOR\s+([A-Z_][A-Z0-9_]*)\s+IS',
-            r'\bCURSOR\s+([A-Z_][A-Z0-9_]*)\s+FOR',
-            # REF CURSOR 타입 변수 (간단한 패턴만)
-            r'\b([A-Z_][A-Z0-9_]*)\s+(?:SYS_)?REF\s+CURSOR',
-        ]
-        
-        for pattern in patterns:
-            for match in re.finditer(pattern, code, re.IGNORECASE):
-                cursors.append(match.group(1))
-        
-        return list(set(cursors))
-    
-    def _extract_called_procedures(self, code: str) -> List[str]:
-        """호출된 프로시저/함수 추출 (analysis.py는 LLM을 사용하므로 완전히 동일하지 않을 수 있음)
-        
-        주의: analysis.py는 LLM이 프로시저 호출을 더 정확히 식별하지만,
-        정규식으로는 기본 패턴만 추출 가능.
-        """
-        called = []
-        
-        # EXECUTE, CALL 패턴 (더 많은 패턴 포함)
-        patterns = [
-            # EXECUTE IMMEDIATE 내부의 호출
-            r"EXECUTE\s+IMMEDIATE\s+['\"](?:CALL\s+)?([A-Z_][A-Z0-9_.]*)",
-            # 직접 호출
-            r'\bCALL\s+([A-Z_][A-Z0-9_.]*)',
-            # 패키지.프로시저 형태
-            r'\b([A-Z_][A-Z0-9_]*\.[A-Z_][A-Z0-9_]*)\s*\(',
-            # 단독 프로시저 호출 (함수 호출과 구분 어려움)
-            r'\b([A-Z_][A-Z0-9_]*)\s*\([^)]*\)\s*;',
-            # DBMS_OUTPUT.PUT_LINE 등
-            r'([A-Z_][A-Z0-9_.]*\.PUT_LINE)',
-        ]
-        
-        for pattern in patterns:
-            for match in re.finditer(pattern, code, re.IGNORECASE):
-                proc_name = match.group(1)
-                # 괄호 제거 (analysis.py는 이름만 반환)
-                proc_name = proc_name.split('(')[0].strip()
-                if proc_name:
-                    called.append(proc_name)
-        
-        return list(set(called))
-    
-    def _analyze_statements(self, proc: ProcedureInfo, lines: List[str]):
-        """SQL 문장 분석 및 테이블 추출"""
-        current_statement = []
-        statement_start_line = 0
-        in_statement = False
-        
-        for i, line in enumerate(lines, 1):
-            stripped = line.strip()
-            
-            # 주석 제거
-            if stripped.startswith('--') or stripped.startswith('/*'):
-                continue
-            
-            # DML 문장 시작 감지
-            for stmt_type, pattern in self.DML_PATTERNS.items():
-                if re.search(pattern, line, re.IGNORECASE):
-                    if current_statement and in_statement:
-                        # 이전 문장 처리
-                        self._process_statement(proc, current_statement, statement_start_line)
-                    
-                    current_statement = [line]
-                    statement_start_line = i
-                    in_statement = True
-                    break
-            else:
-                if in_statement:
-                    current_statement.append(line)
-                    
-                    # 문장 종료 감지 (세미콜론)
-                    if ';' in line:
-                        self._process_statement(proc, current_statement, statement_start_line)
-                        current_statement = []
-                        in_statement = False
-        
-        # 마지막 문장 처리
-        if current_statement:
-            self._process_statement(proc, current_statement, statement_start_line)
-    
-    def _process_statement(self, proc: ProcedureInfo, statement_lines: List[str], start_line: int):
-        """SQL 문장 처리"""
-        statement = ' '.join(statement_lines)
-        
-        # 문장 타입 결정
-        stmt_type = 'UNKNOWN'
-        for stype, pattern in self.DML_PATTERNS.items():
-            if re.search(pattern, statement, re.IGNORECASE):
-                stmt_type = stype
+    def _process_procedure_group(self, records: List[Dict]) -> Optional[ProcedureInfo]:
+        """프로시저 그룹 처리"""
+        # PROCEDURE 노드 찾기
+        procedure_node = None
+        for record in records:
+            if record.get('node_type') == 'PROCEDURE':
+                procedure_node = record.get('procedure_node')
                 break
         
-        # 테이블 추출
-        tables = self._extract_tables(statement, stmt_type)
+        if not procedure_node:
+            return None
+        
+        props = procedure_node.get('properties', {})
+        
+        # 프로시저 기본 정보
+        proc = ProcedureInfo(
+            name=props.get('procedure_name', 'UNKNOWN'),
+            file_name=props.get('file_name', ''),
+            folder_name=props.get('folder_name', ''),
+            project_name=props.get('project_name', ''),
+            start_line=props.get('startLine', 0),
+            end_line=props.get('endLine', 0),
+            summary=props.get('summary', ''),
+            code=props.get('node_code', ''),
+            summarized_code=props.get('summarized_code', ''),
+            token_count=props.get('token', 0),
+            has_children=props.get('has_children', False)
+        )
+        
+        # 각 레코드 분석
+        for record in records:
+            node_type = record.get('node_type')
+            node1 = record.get('node1')
+            node2 = record.get('node2')
+            relationship = record.get('relationship')
+            
+            if not node1:
+                continue
+            
+            # DML 노드 처리 (SELECT, INSERT, UPDATE, DELETE, MERGE 등)
+            if node_type in ['SELECT', 'INSERT', 'UPDATE', 'DELETE', 'MERGE', 
+                           'EXECUTE_IMMEDIATE', 'FETCH', 'CTE', 'OPEN_CURSOR']:
+                self._process_dml_node(proc, node1, node2, relationship, node_type)
+            
+            # CREATE_TEMP_TABLE 노드 처리
+            elif node_type == 'CREATE_TEMP_TABLE':
+                self._process_temp_table_node(proc, node1)
+            
+            # Variable 노드 처리 (SPEC/DECLARE를 통해)
+            elif node_type in ['SPEC', 'DECLARE', 'PACKAGE_VARIABLE']:
+                if node2 and 'Variable' in node2.get('labels', []):
+                    self._process_variable_node(proc, node2)
+            
+            # CALL 관계 처리
+            if relationship and relationship.get('type') == 'CALL':
+                if node2:
+                    node2_labels = node2.get('labels', [])
+                    if 'PROCEDURE' in node2_labels or 'FUNCTION' in node2_labels:
+                        node2_props = node2.get('properties', {})
+                        called_name = node2_props.get('procedure_name') or node2_props.get('name', 'UNKNOWN')
+                        if called_name not in proc.called_procedures:
+                            proc.called_procedures.append(called_name)
+        
+        return proc
+    
+    def _process_dml_node(self, proc: ProcedureInfo, dml_node: Dict, 
+                         table_node: Optional[Dict], relationship: Optional[Dict],
+                         node_type: str):
+        """DML 노드 처리"""
+        dml_props = dml_node.get('properties', {})
         
         # Statement 정보 생성
+        start_line = dml_props.get('startLine', 0)
+        node_code = dml_props.get('node_code', '')
+        
         stmt_info = StatementInfo(
             line_number=start_line,
-            statement_type=stmt_type,
-            content=statement.strip(),
-            tables=tables
+            statement_type=node_type,
+            content=node_code,
+            tables=[]
         )
-        proc.statements.append(stmt_info)
         
-        # 프로시저의 테이블 정보 업데이트
-        for table in tables:
-            if table not in proc.tables:
-                proc.tables[table] = TableInfo(name=table)
+        # 테이블 정보 추출
+        if table_node and 'Table' in table_node.get('labels', []):
+            table_props = table_node.get('properties', {})
+            table_name = table_props.get('name', '')
             
-            proc.tables[table].operations.add(stmt_type)
-            context = f"Line {start_line}: {stmt_type}"
-            proc.tables[table].contexts.append(context)
+            if table_name:
+                stmt_info.tables.append(table_name)
+                
+                # 프로시저의 테이블 정보 업데이트
+                if table_name not in proc.tables:
+                    proc.tables[table_name] = TableInfo(name=table_name)
+                
+                # 관계 타입에 따라 작업 유형 결정
+                if relationship:
+                    rel_type = relationship.get('type', '')
+                    if rel_type == 'WRITES':
+                        proc.tables[table_name].operations.add(node_type)
+                    elif rel_type == 'FROM':
+                        proc.tables[table_name].operations.add(node_type)
+                
+                context = f"Line {start_line}: {node_type}"
+                proc.tables[table_name].contexts.append(context)
+        
+        proc.statements.append(stmt_info)
     
-    def _extract_tables(self, statement: str, stmt_type: str) -> List[str]:
-        """SQL 문장에서 테이블 추출
+    def _process_temp_table_node(self, proc: ProcedureInfo, temp_table_node: Dict):
+        """CREATE_TEMP_TABLE 노드 처리"""
+        temp_table_props = temp_table_node.get('properties', {})
+        table_name = temp_table_props.get('name', '')
         
-        주의: analysis.py는 LLM을 사용하여 더 정확하게 테이블을 추출하지만,
-        정규식으로는 기본 패턴만 추출 가능.
-        스키마명은 유지하는 것이 analysis.py와 일치 (프롬프트에서 SCHEMA.TABLE_NAME 요구)
-        """
-        tables = set()
+        if table_name:
+            if table_name not in proc.tables:
+                proc.tables[table_name] = TableInfo(name=table_name)
+            
+            proc.tables[table_name].operations.add('CREATE_TEMP_TABLE')
+            start_line = temp_table_props.get('startLine', 0)
+            context = f"Line {start_line}: CREATE_TEMP_TABLE"
+            proc.tables[table_name].contexts.append(context)
+            
+            # Statement 정보도 추가
+            stmt_info = StatementInfo(
+                line_number=start_line,
+                statement_type='CREATE_TEMP_TABLE',
+                content=temp_table_props.get('node_code', ''),
+                tables=[table_name]
+            )
+            proc.statements.append(stmt_info)
+    
+    def _process_variable_node(self, proc: ProcedureInfo, variable_node: Dict):
+        """Variable 노드 처리"""
+        var_props = variable_node.get('properties', {})
+        var_name = var_props.get('name', '')
         
-        for pattern_name, pattern in self.TABLE_PATTERNS.items():
-            matches = re.finditer(pattern, statement, re.IGNORECASE)
-            for match in matches:
-                table_name = match.group(1).strip()
-                
-                # 스키마명 유지 (analysis.py는 SCHEMA.TABLE_NAME 형식 사용)
-                # 단, DB 링크(@)가 포함된 경우는 제외 (analysis.py는 dbLinks에 별도 저장)
-                if '@' in table_name:
-                    continue
-                
-                # 별칭이나 예약어 제외
-                table_name_upper = table_name.upper()
-                if table_name_upper in ['DUAL', 'X', 'Y', 'A', 'B', 'T']:
-                    continue
-                
-                # CTE 별칭 제외 (WITH 절의 임시 결과 집합)
-                # 정규식으로는 완벽히 구분 어려우므로 기본 필터만 적용
-                tables.add(table_name)
-        
-        return sorted(list(tables))
+        if var_name and var_name not in proc.variables:
+            proc.variables.append(var_name)
+    
+    def analyze_procedures(self):
+        """모든 프로시저 분석 (이미 load_data에서 처리됨)"""
+        # load_data에서 이미 모든 분석이 완료되므로 여기서는 정렬만 수행
+        for proc in self.procedures:
+            # 변수, 커서, 호출된 프로시저 정렬
+            proc.variables.sort()
+            proc.cursors.sort()
+            proc.called_procedures.sort()
+            
+            # statements 정렬 (라인 번호 기준)
+            proc.statements.sort(key=lambda x: x.line_number)
     
     def generate_report(self, output_path: str = 'procedure_analysis_report.html'):
         """HTML 레포트 생성"""
@@ -554,6 +456,11 @@ class ProcedureAnalyzer:
         .badge-update {{ background: #ffc107; color: #333; }}
         .badge-delete {{ background: #dc3545; color: white; }}
         .badge-merge {{ background: #6f42c1; color: white; }}
+        .badge-create_temp_table {{ background: #fd7e14; color: white; }}
+        .badge-execute_immediate {{ background: #20c997; color: white; }}
+        .badge-fetch {{ background: #6c757d; color: white; }}
+        .badge-cte {{ background: #e83e8c; color: white; }}
+        .badge-open_cursor {{ background: #6610f2; color: white; }}
         
         .code-block {{
             background: #282c34;
@@ -639,7 +546,7 @@ class ProcedureAnalyzer:
     <div class="container">
         <div class="header">
             <h1>📊 Stored Procedure 분석 레포트</h1>
-            <div class="subtitle">Neo4j 데이터 기반 상세 분석 결과</div>
+            <div class="subtitle">Neo4j 그래프 데이터 기반 상세 분석 결과</div>
         </div>
         
         <div class="summary">
@@ -685,7 +592,7 @@ class ProcedureAnalyzer:
         html += """        </div>
         
         <div class="footer">
-            <p>Generated by Stored Procedure Analyzer | Neo4j Data Analysis Tool</p>
+            <p>Generated by Stored Procedure Analyzer | Neo4j Graph Data Analysis Tool</p>
         </div>
     </div>
 </body>
@@ -740,7 +647,7 @@ class ProcedureAnalyzer:
             for table_name, table_info in sorted(proc.tables.items()):
                 operations_html = ''
                 for op in sorted(table_info.operations):
-                    badge_class = f"badge-{op.lower()}"
+                    badge_class = f"badge-{op.lower().replace('_', '_')}"
                     operations_html += f'<span class="badge {badge_class}">{op}</span>'
                 
                 contexts_html = '<br>'.join(html_escape(ctx) for ctx in table_info.contexts[:5])
@@ -778,7 +685,7 @@ class ProcedureAnalyzer:
                             <tbody>
 """
             for stmt in proc.statements[:20]:  # 최대 20개만 표시
-                badge_class = f"badge-{stmt.statement_type.lower()}"
+                badge_class = f"badge-{stmt.statement_type.lower().replace('_', '_')}"
                 tables_str = ', '.join(stmt.tables) if stmt.tables else '-'
                 
                 # 문장 내용을 100자로 제한
@@ -886,22 +793,19 @@ class ProcedureAnalyzer:
 def main():
     """메인 함수"""
     print("=" * 80)
-    print("Stored Procedure 분석 프로그램")
+    print("Stored Procedure 분석 프로그램 (구조화된 JSON 기반)")
     print("=" * 80)
     print()
     
     # 분석기 초기화
     analyzer = ProcedureAnalyzer('test/data/neo4j_exports/records.json')
     
-    # 데이터 로드
-    print("📂 데이터 로딩 중...")
+    # 데이터 로드 및 분석
+    print("📂 데이터 로딩 및 분석 중...")
     analyzer.load_data()
-    print(f"✓ {len(analyzer.procedures)}개의 프로시저를 로드했습니다.")
-    print()
-    
-    # 프로시저 분석
-    print("🔍 프로시저 분석 중...")
     analyzer.analyze_procedures()
+    print(f"✓ {len(analyzer.procedures)}개의 프로시저를 분석했습니다.")
+    print()
     
     # 분석 결과 요약
     total_tables = set()
@@ -953,4 +857,3 @@ def main():
 
 if __name__ == '__main__':
     main()
-
