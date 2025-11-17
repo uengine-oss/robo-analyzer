@@ -32,3 +32,6 @@ LogComparisonResult.json
 
 # Private Datas
 p_*
+
+# Test data JSON files
+test/data/neo4j_exports/records.json
