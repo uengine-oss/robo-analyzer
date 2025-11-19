@@ -383,6 +383,42 @@ class ServiceOrchestrator:
         except Exception:
             return []
 
+    # ----- Converting 프로세스 -----
+
+    async def convert_project(
+        self,
+        file_names: list,
+        conversion_type: str = 'framework',
+        target_framework: str = 'springboot',
+        target_dbms: str = 'oracle'
+    ) -> AsyncGenerator[bytes, None]:
+        """변환 타입에 따라 적절한 전략을 선택하여 변환을 수행합니다.
+        
+        Args:
+            file_names: 변환할 파일 목록 [(folder_name, file_name), ...]
+            conversion_type: 변환 타입 ('framework' 또는 'dbms')
+            target_framework: 타겟 프레임워크 (기본값: 'springboot')
+            target_dbms: 타겟 DBMS (기본값: 'oracle')
+            
+        Yields:
+            bytes: 스트리밍 응답 데이터
+        """
+        from convert.strategies.strategy_factory import StrategyFactory
+        
+        logging.info("Convert: type=%s, project=%s, files=%d, target=%s",
+                    conversion_type, self.project_name, len(file_names),
+                    target_framework if conversion_type == 'framework' else f"{self.dbms}→{target_dbms}")
+
+        # 전략 생성
+        strategy = StrategyFactory.create_strategy(
+            conversion_type,
+            target_dbms=target_dbms,
+            target_framework=target_framework
+        )
+
+        # 전략 실행
+        async for chunk in strategy.convert(file_names, orchestrator=self):
+            yield chunk
 
     # ----- 파일 작업 -----
 
