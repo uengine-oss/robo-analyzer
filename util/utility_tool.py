@@ -348,3 +348,174 @@ async def extract_used_query_methods(start_line: int, end_line: int,
         err_msg = f"JPA 쿼리 메서드를 추출하는 도중 오류가 발생했습니다: {str(e)}"
         logging.error(err_msg)
         raise UtilProcessingError(err_msg)
+
+
+#==============================================================================
+# Neo4j 프로시저 정보 조회 유틸리티
+#==============================================================================
+
+async def get_procedures_from_file(
+    folder_name: str,
+    file_name: str,
+    user_id: str,
+    project_name: str | None = None
+) -> list[str]:
+    """
+    파일의 모든 프로시저 이름을 Neo4j에서 조회합니다.
+    
+    Args:
+        folder_name: 폴더명
+        file_name: 파일명
+        user_id: 사용자 ID
+        project_name: 프로젝트명 (선택사항, 일관성을 위해 권장)
+        
+    Returns:
+        프로시저 이름 리스트 (startLine 순서대로 정렬)
+    """
+    from understand.neo4j_connection import Neo4jConnection
+    
+    connection = Neo4jConnection()
+    try:
+        # project_name 조건 추가 (있는 경우)
+        project_condition = f", project_name: '{escape_for_cypher(project_name)}'" if project_name else ""
+        
+        query = f"""
+            MATCH (p:PROCEDURE {{
+                folder_name: '{escape_for_cypher(folder_name)}',
+                file_name: '{escape_for_cypher(file_name)}',
+                user_id: '{escape_for_cypher(user_id)}'{project_condition}
+            }})
+            RETURN p.procedure_name AS procedure_name
+            ORDER BY p.startLine
+        """
+        
+        results = await connection.execute_queries([query])
+        if results and len(results) > 0 and len(results[0]) > 0:
+            procedure_names = [
+                r.get('procedure_name') 
+                for r in results[0] 
+                if r and r.get('procedure_name')
+            ]
+            return procedure_names
+        return []
+    finally:
+        await connection.close()
+
+
+#==============================================================================
+# 변환 노드 쿼리 생성 유틸리티
+#==============================================================================
+
+def build_converting_root_query(
+    folder_name: str,
+    file_name: str,
+    procedure_name: str,
+    user_id: str,
+    project_name: str,
+    conversion_type: str,
+    target: str
+) -> str:
+    """CONVERTING 루트 노드 생성 쿼리"""
+    return f"""
+        MATCH (p:PROCEDURE {{
+            folder_name: '{folder_name}',
+            file_name: '{file_name}',
+            procedure_name: '{procedure_name}',
+            user_id: '{user_id}'
+        }})
+        MERGE (conv:CONVERTING {{
+            folder_name: '{folder_name}',
+            file_name: '{file_name}',
+            procedure_name: '{procedure_name}',
+            user_id: '{user_id}',
+            conversion_type: '{conversion_type}',
+            target: '{target}'
+        }})
+        SET conv.project_name = '{project_name}',
+            conv.created_at = datetime()
+        WITH conv, p
+        MERGE (p)-[:HAS_CONVERSION]->(conv)
+    """
+
+
+def build_conversion_block_query(
+    folder_name: str,
+    file_name: str,
+    procedure_name: str,
+    user_id: str,
+    start_line: int,
+    end_line: int,
+    original_code: str,
+    converted_code: str,
+    conversion_type: str,
+    target: str,
+    parent_start_line: int | None = None,
+    parent_end_line: int | None = None,
+    prev_start_line: int | None = None,
+    prev_end_line: int | None = None
+) -> str:
+    """CONVERSION_BLOCK 노드 생성 쿼리 (PARENT_OF, NEXT 관계 포함)"""
+    escaped_original = escape_for_cypher(original_code)
+    escaped_converted = escape_for_cypher(converted_code)
+    
+    query = f"""
+        MATCH (conv:CONVERTING {{
+            folder_name: '{folder_name}',
+            file_name: '{file_name}',
+            procedure_name: '{procedure_name}',
+            user_id: '{user_id}',
+            conversion_type: '{conversion_type}',
+            target: '{target}'
+        }})
+        CREATE (block:CONVERSION_BLOCK {{
+            folder_name: '{folder_name}',
+            file_name: '{file_name}',
+            procedure_name: '{procedure_name}',
+            user_id: '{user_id}',
+            start_line: {start_line},
+            end_line: {end_line},
+            original_code: '{escaped_original}',
+            converted_code: '{escaped_converted}',
+            conversion_type: '{conversion_type}',
+            target: '{target}',
+            created_at: datetime()
+        }})
+        WITH conv, block"""
+    
+    # PARENT_OF 관계 (부모 블록이 있는 경우)
+    if parent_start_line is not None and parent_end_line is not None:
+        query += f"""
+        OPTIONAL MATCH (parent:CONVERSION_BLOCK {{
+            folder_name: '{folder_name}',
+            file_name: '{file_name}',
+            procedure_name: '{procedure_name}',
+            user_id: '{user_id}',
+            start_line: {parent_start_line},
+            end_line: {parent_end_line}
+        }})
+        WITH conv, block, parent
+        WHERE parent IS NOT NULL
+        MERGE (parent)-[:PARENT_OF]->(block)
+        WITH conv, block"""
+    
+    # NEXT 관계 (이전 블록이 있는 경우)
+    if prev_start_line is not None and prev_end_line is not None:
+        query += f"""
+        OPTIONAL MATCH (prev:CONVERSION_BLOCK {{
+            folder_name: '{folder_name}',
+            file_name: '{file_name}',
+            procedure_name: '{procedure_name}',
+            user_id: '{user_id}',
+            start_line: {prev_start_line},
+            end_line: {prev_end_line}
+        }})
+        WITH conv, block, prev
+        WHERE prev IS NOT NULL
+        MERGE (prev)-[:NEXT]->(block)
+        WITH conv, block"""
+    
+    query += """
+        MERGE (conv)-[:HAS_BLOCK]->(block)
+    """
+    
+    return query

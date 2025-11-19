@@ -20,18 +20,18 @@ from convert.strategies.strategy_factory import StrategyFactory
 
 # ==================== 설정 ====================
 
-TEST_USER_ID = "TestSession"
-TEST_PROJECT_NAME = "HOSPITAL_PROJECT"
+TEST_USER_ID = "KO_TestSession"
+TEST_PROJECT_NAME = "HOSPITAL_MANAGEMENT"
 TEST_API_KEY = os.getenv("LLM_API_KEY")
 TEST_DB_NAME = "test"
 TEST_LOCALE = "ko"
-TEST_TARGET_LANG = "java"
 TEST_DBMS = "postgres"
 
 # 변환 설정 (기본값 - 파라미터화된 테스트에서 오버라이드 가능)
-TEST_CONVERSION_TYPE = "framework"
-TEST_TARGET_FRAMEWORK = "springboot"
+TEST_CONVERSION_TYPE = "dbms"
 TEST_TARGET_DBMS = "oracle"
+TEST_TARGET_FRAMEWORK = "springboot"
+TEST_TARGET_LANG = "java"
 
 # 테스트 데이터 경로
 TEST_DATA_DIR = Path(__file__).resolve().parents[2] / "data" / TEST_USER_ID / TEST_PROJECT_NAME
@@ -477,14 +477,20 @@ class TestConvertingPipeline:
         target_dbms = "oracle" if conversion_type == "dbms" else None
         
         print(f"\n{'='*80}")
-        print(f"🚀 통합 테스트: {conversion_type.upper()} 전략 파이프라인")
-        if target_framework:
-            print(f"   타겟 프레임워크: {target_framework}")
-        if target_dbms:
-            print(f"   타겟 DBMS: {target_dbms}")
+        print(f"🧪 테스트: {conversion_type.upper()} 변환 파이프라인")
         print(f"{'='*80}")
-        print(f"📊 설정: USER_ID={TEST_USER_ID}, PROJECT={TEST_PROJECT_NAME}")
-        print(f"🎯 타겟 언어: {TEST_TARGET_LANG}")
+        print(f"📋 변환 설정:")
+        print(f"   - 변환 타입: {conversion_type.upper()}")
+        if conversion_type == "framework":
+            print(f"   - 타겟 프레임워크: {target_framework}")
+            print(f"   - 타겟 언어: {TEST_TARGET_LANG}")
+        elif conversion_type == "dbms":
+            print(f"   - 원본 DBMS: {TEST_DBMS}")
+            print(f"   - 타겟 DBMS: {target_dbms}")
+        print(f"📊 프로젝트 설정:")
+        print(f"   - 사용자 ID: {TEST_USER_ID}")
+        print(f"   - 프로젝트명: {TEST_PROJECT_NAME}")
+        print(f"   - 데이터베이스: {Neo4jConnection.DATABASE_NAME}")
         print(f"{'='*80}\n")
         
         sp_files = []
@@ -498,9 +504,10 @@ class TestConvertingPipeline:
         assert len(sp_files) > 0, f"SP 파일이 없습니다: {src_dir}"
         file_names = sp_files
         
-        print(f"📝 변환할 SP 파일: {len(sp_files)}개")
+        print(f"📁 변환 대상 파일: {len(sp_files)}개")
         for folder_name, file_name in sp_files:
-            print(f"   - {folder_name}/{file_name}")
+            print(f"   ✓ {folder_name}/{file_name}")
+        print()
         
         strategy_kwargs = {"conversion_type": conversion_type}
         if target_framework:
@@ -515,7 +522,7 @@ class TestConvertingPipeline:
         generated_files = {}
         
         try:
-            print("📝 Converting 파이프라인 실행 중...\n")
+            print(f"🚀 {conversion_type.upper()} 변환 시작...\n")
             
             async for chunk in strategy.convert(file_names, orchestrator=orchestrator):
                 events.append(chunk)
@@ -531,32 +538,32 @@ class TestConvertingPipeline:
                 if event_type == 'message':
                     content = data.get('content')
                     step_messages.append(content)
-                    print(f"  📌 {content}")
+                    # 중복 메시지 필터링
+                    if "conversion started" not in content.lower() and "conversion completed" not in content.lower():
+                        print(f"  → {content}")
                 elif event_type == 'data':
                     file_type = data.get('file_type')
                     file_name = data.get('file_name')
                     if file_type == 'project_name':
-                        print(f"  📦 프로젝트: {data.get('project_name')}")
-                        continue
+                        continue  # 프로젝트명은 이미 출력됨
                     if not file_name:
                         continue
                     generated_files.setdefault(file_type, []).append(file_name)
-                    print(f"  ✅ 생성: {file_name} ({file_type})")
+                    print(f"  ✓ 생성: {file_name}")
                 elif event_type == 'status':
                     step = data.get('step')
                     done = data.get('done', False)
                     if done and step:
-                        print(f"  ✔️  Step {step} 완료\n")
+                        print(f"  ✓ Step {step} 완료\n")
                 elif event_type == 'error':
                     content = data.get('content')
-                    print(f"  ❌ ERROR: {content}")
+                    print(f"  ✗ 오류: {content}")
             
             print(f"\n{'='*80}")
-            print("📊 통합 테스트 결과")
+            print(f"📊 {conversion_type.upper()} 변환 결과")
             print(f"{'='*80}")
             
             assert len(events) > 0, "이벤트가 수신되지 않았습니다"
-            print(f"✅ 스트리밍 이벤트: {len(events)}개 수신")
             
             if conversion_type == "framework":
                 assert 'entity_class' in generated_files, "Entity 파일이 생성되지 않았습니다"
@@ -564,26 +571,27 @@ class TestConvertingPipeline:
                 assert 'pom' in generated_files, "pom.xml이 생성되지 않았습니다"
                 assert 'main' in generated_files, "Main 클래스가 생성되지 않았습니다"
                 
-                print(f"✅ Entity: {len(generated_files.get('entity_class', []))}개")
-                print(f"✅ Repository: {len(generated_files.get('repository_class', []))}개")
-                print(f"✅ Command: {len(generated_files.get('command_class', []))}개")
-                print(f"✅ Service: {len(generated_files.get('service_class', []))}개")
-                print(f"✅ Controller: {len(generated_files.get('controller_class', []))}개")
-                print(f"✅ Config: pom.xml, application.properties")
-                print(f"✅ Main: {generated_files.get('main', ['N/A'])[0]}")
+                print(f"생성된 파일:")
+                print(f"  • Entity: {len(generated_files.get('entity_class', []))}개")
+                print(f"  • Repository: {len(generated_files.get('repository_class', []))}개")
+                print(f"  • Command: {len(generated_files.get('command_class', []))}개")
+                print(f"  • Service: {len(generated_files.get('service_class', []))}개")
+                print(f"  • Controller: {len(generated_files.get('controller_class', []))}개")
+                print(f"  • Config: pom.xml, application.properties")
+                print(f"  • Main: {generated_files.get('main', ['N/A'])[0]}")
             
             if conversion_type == "dbms":
                 assert 'converted_sp' in generated_files, "변환된 SP 파일이 생성되지 않았습니다"
                 converted_count = len(generated_files.get('converted_sp', []))
-                print(f"✅ 변환된 SP 파일: {converted_count}개")
+                print(f"변환된 파일:")
+                print(f"  • SP 파일: {converted_count}개")
                 for file_name in generated_files.get('converted_sp', []):
-                    print(f"   - {file_name}")
+                    print(f"    - {file_name}")
             
             assert len(step_messages) > 0, "단계 메시지가 없습니다"
-            print(f"\n✅ 파이프라인 단계: {len(step_messages)}개 메시지")
             
             print(f"\n{'='*80}")
-            print(f"🎉 통합 테스트 성공: {conversion_type.upper()} 전략 정상 작동!")
+            print(f"✓ {conversion_type.upper()} 변환 테스트 성공")
             print(f"{'='*80}\n")
         
         except Exception as e:

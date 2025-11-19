@@ -2,7 +2,10 @@ import logging
 import textwrap
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError
-from util.utility_tool import build_rule_based_path, save_file
+from util.utility_tool import (
+    build_rule_based_path, save_file,
+    build_converting_root_query, build_conversion_block_query
+)
 from util.rule_loader import RuleLoader
 from convert.dbms.create_dbms_skeleton import start_dbms_skeleton
 
@@ -26,7 +29,7 @@ class DbmsConversionGenerator:
         'user_id', 'api_key', 'locale', 'project_name', 'target_dbms', 'skeleton_code',
         'merged_code', 'total_tokens', 'parent_stack', 'top_level_begin_skipped',
         'sp_code_parts', 'sp_start', 'sp_end',
-        'rule_loader'
+        'rule_loader', 'conversion_queries', 'last_block_range'
     )
 
     def __init__(self, traverse_nodes: list, folder_name: str, file_name: str,
@@ -52,6 +55,8 @@ class DbmsConversionGenerator:
         self.sp_code_parts = []
         self.sp_start = None
         self.sp_end = None
+        self.conversion_queries = []
+        self.last_block_range = None  # (start_line, end_line) - NEXT 관계용
         
         # Rule 파일 로더 (target_dbms로 디렉토리 찾음)
         self.rule_loader = RuleLoader(target_lang=target_dbms)
@@ -66,6 +71,18 @@ class DbmsConversionGenerator:
             str: 최종 병합된 코드
         """
         logging.info(f"📋 DBMS 변환 노드 순회 시작: postgres → {self.target_dbms}")
+
+        # CONVERTING 루트 노드 생성 (변환 시작 시 한 번만)
+        root_query = build_converting_root_query(
+            folder_name=self.folder_name,
+            file_name=self.file_name,
+            procedure_name=self.procedure_name,
+            user_id=self.user_id,
+            project_name=self.project_name,
+            conversion_type="dbms",
+            target=self.target_dbms
+        )
+        self.conversion_queries.append(root_query)
 
         # 중복 제거: 같은 라인 범위는 한 번만 처리
         seen_nodes = set()
@@ -185,6 +202,25 @@ class DbmsConversionGenerator:
             api_key=self.api_key
         )
         skeleton = result['code']
+
+        # 큰 노드도 CONVERSION_BLOCK으로 저장
+        original_code = (node.get('node_code') or summarized).strip()
+        block_query = build_conversion_block_query(
+            folder_name=self.folder_name,
+            file_name=self.file_name,
+            procedure_name=self.procedure_name,
+            user_id=self.user_id,
+            start_line=start_line,
+            end_line=end_line,
+            original_code=original_code,
+            converted_code=skeleton,
+            conversion_type="dbms",
+            target=self.target_dbms,
+            prev_start_line=self.last_block_range[0] if self.last_block_range else None,
+            prev_end_line=self.last_block_range[1] if self.last_block_range else None
+        )
+        self.conversion_queries.append(block_query)
+        self.last_block_range = (start_line, end_line)
 
         entry = {
             'start': start_line,
@@ -313,6 +349,30 @@ class DbmsConversionGenerator:
         # 생성된 코드 병합
         generated_code = (result.get('code') or '').strip()
         if generated_code:
+            # 부모 블록 정보 (PARENT_OF 관계용)
+            parent_start = self.parent_stack[-1]['start'] if self.parent_stack else None
+            parent_end = self.parent_stack[-1]['end'] if self.parent_stack else None
+            
+            # CONVERSION_BLOCK 노드 쿼리 생성
+            block_query = build_conversion_block_query(
+                folder_name=self.folder_name,
+                file_name=self.file_name,
+                procedure_name=self.procedure_name,
+                user_id=self.user_id,
+                start_line=self.sp_start,
+                end_line=self.sp_end,
+                original_code=sp_code,
+                converted_code=generated_code,
+                conversion_type="dbms",
+                target=self.target_dbms,
+                parent_start_line=parent_start,
+                parent_end_line=parent_end,
+                prev_start_line=self.last_block_range[0] if self.last_block_range else None,
+                prev_end_line=self.last_block_range[1] if self.last_block_range else None
+            )
+            self.conversion_queries.append(block_query)
+            self.last_block_range = (self.sp_start, self.sp_end)
+            
             if self.parent_stack:
                 self.parent_stack[-1]['children'].append(generated_code)
                 logging.info(
@@ -415,10 +475,7 @@ async def start_dbms_conversion(
     """
     connection = Neo4jConnection()
     
-    logging.info("\n" + "="*80)
-    logging.info(f"⚙️  DBMS 변환: POSTGRES → {target_dbms.upper()}")
-    logging.info("="*80)
-    logging.info(f"📁 파일: {folder_name}/{file_name}")
+    logging.info(f"DBMS 변환 시작: {folder_name}/{file_name} (POSTGRES → {target_dbms.upper()})")
 
     try:
         # Neo4j 쿼리
@@ -494,6 +551,11 @@ async def start_dbms_conversion(
         )
 
         await generator.generate()
+        
+        # 변환 노드 쿼리들을 Neo4j에 한번에 저장
+        if generator.conversion_queries:
+            await connection.execute_queries(generator.conversion_queries)
+            logging.info(f"✅ 변환 노드 저장 완료: CONVERTING 1개, BLOCK {len(generator.conversion_queries)-1}개")
         
         # 파일 저장
         base_name = file_name.rsplit(".", 1)[0]
