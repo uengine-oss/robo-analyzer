@@ -353,13 +353,24 @@ class DbmsConversionGenerator:
             parent_start = self.parent_stack[-1]['start'] if self.parent_stack else None
             parent_end = self.parent_stack[-1]['end'] if self.parent_stack else None
             
-            # 부모가 있으면 PARENT_OF만 생성, NEXT는 생성하지 않음
-            # NEXT는 같은 레벨(부모가 없는 경우)에만 생성
+            # NEXT 관계 생성 조건:
+            # 1. 부모가 없으면 → 같은 레벨 형제 노드 → NEXT 생성
+            # 2. 부모가 있으면 → 같은 부모의 형제 노드인 경우에만 NEXT 생성
+            #    (last_block_range가 부모 범위 내에 있고, 부모 자체가 아닌 경우)
             prev_start = None
             prev_end = None
-            if parent_start is None and parent_end is None and self.last_block_range:
-                prev_start = self.last_block_range[0]
-                prev_end = self.last_block_range[1]
+            if self.last_block_range:
+                if parent_start is None and parent_end is None:
+                    # 부모가 없으면 같은 레벨 형제 → NEXT 생성
+                    prev_start = self.last_block_range[0]
+                    prev_end = self.last_block_range[1]
+                elif (parent_start is not None and parent_end is not None and
+                      parent_start < self.last_block_range[0] and 
+                      self.last_block_range[1] < parent_end):
+                    # 같은 부모의 형제 노드 → NEXT 생성
+                    # (last_block_range가 부모 범위 내에 있고, 부모 자체가 아님)
+                    prev_start = self.last_block_range[0]
+                    prev_end = self.last_block_range[1]
             
             # CONVERSION_BLOCK 노드 쿼리 생성
             block_query = build_conversion_block_query(
