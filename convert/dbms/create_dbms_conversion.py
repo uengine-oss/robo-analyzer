@@ -205,22 +205,12 @@ class DbmsConversionGenerator:
 
         # 큰 노드도 CONVERSION_BLOCK으로 저장
         original_code = (node.get('node_code') or summarized).strip()
-        block_query = build_conversion_block_query(
-            folder_name=self.folder_name,
-            file_name=self.file_name,
-            procedure_name=self.procedure_name,
-            user_id=self.user_id,
+        self._create_and_add_block_query(
             start_line=start_line,
             end_line=end_line,
             original_code=original_code,
-            converted_code=skeleton,
-            conversion_type="dbms",
-            target=self.target_dbms,
-            prev_start_line=self.last_block_range[0] if self.last_block_range else None,
-            prev_end_line=self.last_block_range[1] if self.last_block_range else None
+            converted_code=skeleton
         )
-        self.conversion_queries.append(block_query)
-        self.last_block_range = (start_line, end_line)
 
         entry = {
             'start': start_line,
@@ -349,48 +339,13 @@ class DbmsConversionGenerator:
         # 생성된 코드 병합
         generated_code = (result.get('code') or '').strip()
         if generated_code:
-            # 부모 블록 정보 (PARENT_OF 관계용)
-            parent_start = self.parent_stack[-1]['start'] if self.parent_stack else None
-            parent_end = self.parent_stack[-1]['end'] if self.parent_stack else None
-            
-            # NEXT 관계 생성 조건:
-            # 1. 부모가 없으면 → 같은 레벨 형제 노드 → NEXT 생성
-            # 2. 부모가 있으면 → 같은 부모의 형제 노드인 경우에만 NEXT 생성
-            #    (last_block_range가 부모 범위 내에 있고, 부모 자체가 아닌 경우)
-            prev_start = None
-            prev_end = None
-            if self.last_block_range:
-                if parent_start is None and parent_end is None:
-                    # 부모가 없으면 같은 레벨 형제 → NEXT 생성
-                    prev_start = self.last_block_range[0]
-                    prev_end = self.last_block_range[1]
-                elif (parent_start is not None and parent_end is not None and
-                      parent_start < self.last_block_range[0] and 
-                      self.last_block_range[1] < parent_end):
-                    # 같은 부모의 형제 노드 → NEXT 생성
-                    # (last_block_range가 부모 범위 내에 있고, 부모 자체가 아님)
-                    prev_start = self.last_block_range[0]
-                    prev_end = self.last_block_range[1]
-            
             # CONVERSION_BLOCK 노드 쿼리 생성
-            block_query = build_conversion_block_query(
-                folder_name=self.folder_name,
-                file_name=self.file_name,
-                procedure_name=self.procedure_name,
-                user_id=self.user_id,
+            self._create_and_add_block_query(
                 start_line=self.sp_start,
                 end_line=self.sp_end,
                 original_code=sp_code,
-                converted_code=generated_code,
-                conversion_type="dbms",
-                target=self.target_dbms,
-                parent_start_line=parent_start,
-                parent_end_line=parent_end,
-                prev_start_line=prev_start,
-                prev_end_line=prev_end
+                converted_code=generated_code
             )
-            self.conversion_queries.append(block_query)
-            self.last_block_range = (self.sp_start, self.sp_end)
             
             if self.parent_stack:
                 self.parent_stack[-1]['children'].append(generated_code)
@@ -417,6 +372,68 @@ class DbmsConversionGenerator:
 
         entry = self.parent_stack[-1]
         return entry['code']
+
+    def _get_current_parent_range(self) -> tuple[int | None, int | None]:
+        """현재 부모 범위 반환 (스택의 마지막 항목)"""
+        if not self.parent_stack:
+            return None, None
+        entry = self.parent_stack[-1]
+        return entry['start'], entry['end']
+
+    def _calculate_next_relation(self, parent_start: int | None, parent_end: int | None) -> tuple[int | None, int | None]:
+        """NEXT 관계 계산
+        
+        Args:
+            parent_start: 부모 시작 라인
+            parent_end: 부모 종료 라인
+        
+        Returns:
+            (prev_start, prev_end): 이전 블록 범위 또는 (None, None)
+        """
+        if not self.last_block_range:
+            return None, None
+        
+        if parent_start is None and parent_end is None:
+            # 부모가 없으면 같은 레벨 형제 → NEXT 생성
+            return self.last_block_range[0], self.last_block_range[1]
+        elif (parent_start is not None and parent_end is not None and
+              parent_start < self.last_block_range[0] and 
+              self.last_block_range[1] < parent_end):
+            # 같은 부모의 형제 노드 → NEXT 생성
+            # (last_block_range가 부모 범위 내에 있고, 부모 자체가 아님)
+            return self.last_block_range[0], self.last_block_range[1]
+        
+        return None, None
+
+    def _create_and_add_block_query(
+        self,
+        start_line: int,
+        end_line: int,
+        original_code: str,
+        converted_code: str
+    ) -> None:
+        """CONVERSION_BLOCK 쿼리 생성 및 추가"""
+        parent_start, parent_end = self._get_current_parent_range()
+        prev_start, prev_end = self._calculate_next_relation(parent_start, parent_end)
+        
+        block_query = build_conversion_block_query(
+            folder_name=self.folder_name,
+            file_name=self.file_name,
+            procedure_name=self.procedure_name,
+            user_id=self.user_id,
+            start_line=start_line,
+            end_line=end_line,
+            original_code=original_code,
+            converted_code=converted_code,
+            conversion_type="dbms",
+            target=self.target_dbms,
+            parent_start_line=parent_start,
+            parent_end_line=parent_end,
+            prev_start_line=prev_start,
+            prev_end_line=prev_end
+        )
+        self.conversion_queries.append(block_query)
+        self.last_block_range = (start_line, end_line)
 
     # ----- 마무리 -----
 
