@@ -3,8 +3,7 @@ import textwrap
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError
 from util.utility_tool import (
-    build_rule_based_path, save_file,
-    build_converting_root_query, build_conversion_block_query
+    build_rule_based_path, save_file
 )
 from util.rule_loader import RuleLoader
 from convert.dbms.create_dbms_skeleton import start_dbms_skeleton
@@ -29,7 +28,7 @@ class DbmsConversionGenerator:
         'user_id', 'api_key', 'locale', 'project_name', 'target_dbms', 'skeleton_code',
         'merged_code', 'total_tokens', 'parent_stack', 'top_level_begin_skipped',
         'sp_code_parts', 'sp_start', 'sp_end',
-        'rule_loader', 'conversion_queries', 'last_block_range'
+        'rule_loader'
     )
 
     def __init__(self, traverse_nodes: list, folder_name: str, file_name: str,
@@ -55,8 +54,6 @@ class DbmsConversionGenerator:
         self.sp_code_parts = []
         self.sp_start = None
         self.sp_end = None
-        self.conversion_queries = []
-        self.last_block_range = None  # (start_line, end_line) - NEXT 관계용
         
         # Rule 파일 로더 (target_dbms로 디렉토리 찾음)
         self.rule_loader = RuleLoader(target_lang=target_dbms)
@@ -71,18 +68,6 @@ class DbmsConversionGenerator:
             str: 최종 병합된 코드
         """
         logging.info(f"📋 DBMS 변환 노드 순회 시작: postgres → {self.target_dbms}")
-
-        # CONVERTING 루트 노드 생성 (변환 시작 시 한 번만)
-        root_query = build_converting_root_query(
-            folder_name=self.folder_name,
-            file_name=self.file_name,
-            procedure_name=self.procedure_name,
-            user_id=self.user_id,
-            project_name=self.project_name,
-            conversion_type="dbms",
-            target=self.target_dbms
-        )
-        self.conversion_queries.append(root_query)
 
         # 중복 제거: 같은 라인 범위는 한 번만 처리
         seen_nodes = set()
@@ -202,15 +187,6 @@ class DbmsConversionGenerator:
             api_key=self.api_key
         )
         skeleton = result['code']
-
-        # 큰 노드도 CONVERSION_BLOCK으로 저장
-        original_code = (node.get('node_code') or summarized).strip()
-        self._create_and_add_block_query(
-            start_line=start_line,
-            end_line=end_line,
-            original_code=original_code,
-            converted_code=skeleton
-        )
 
         entry = {
             'start': start_line,
@@ -339,14 +315,6 @@ class DbmsConversionGenerator:
         # 생성된 코드 병합
         generated_code = (result.get('code') or '').strip()
         if generated_code:
-            # CONVERSION_BLOCK 노드 쿼리 생성
-            self._create_and_add_block_query(
-                start_line=self.sp_start,
-                end_line=self.sp_end,
-                original_code=sp_code,
-                converted_code=generated_code
-            )
-            
             if self.parent_stack:
                 self.parent_stack[-1]['children'].append(generated_code)
                 logging.info(
@@ -380,60 +348,6 @@ class DbmsConversionGenerator:
         entry = self.parent_stack[-1]
         return entry['start'], entry['end']
 
-    def _calculate_next_relation(self, parent_start: int | None, parent_end: int | None) -> tuple[int | None, int | None]:
-        """NEXT 관계 계산
-        
-        Args:
-            parent_start: 부모 시작 라인
-            parent_end: 부모 종료 라인
-        
-        Returns:
-            (prev_start, prev_end): 이전 블록 범위 또는 (None, None)
-        """
-        if not self.last_block_range:
-            return None, None
-        
-        if parent_start is None and parent_end is None:
-            # 부모가 없으면 같은 레벨 형제 → NEXT 생성
-            return self.last_block_range[0], self.last_block_range[1]
-        elif (parent_start is not None and parent_end is not None and
-              parent_start < self.last_block_range[0] and 
-              self.last_block_range[1] < parent_end):
-            # 같은 부모의 형제 노드 → NEXT 생성
-            # (last_block_range가 부모 범위 내에 있고, 부모 자체가 아님)
-            return self.last_block_range[0], self.last_block_range[1]
-        
-        return None, None
-
-    def _create_and_add_block_query(
-        self,
-        start_line: int,
-        end_line: int,
-        original_code: str,
-        converted_code: str
-    ) -> None:
-        """CONVERSION_BLOCK 쿼리 생성 및 추가"""
-        parent_start, parent_end = self._get_current_parent_range()
-        prev_start, prev_end = self._calculate_next_relation(parent_start, parent_end)
-        
-        block_query = build_conversion_block_query(
-            folder_name=self.folder_name,
-            file_name=self.file_name,
-            procedure_name=self.procedure_name,
-            user_id=self.user_id,
-            start_line=start_line,
-            end_line=end_line,
-            original_code=original_code,
-            converted_code=converted_code,
-            conversion_type="dbms",
-            target=self.target_dbms,
-            parent_start_line=parent_start,
-            parent_end_line=parent_end,
-            prev_start_line=prev_start,
-            prev_end_line=prev_end
-        )
-        self.conversion_queries.append(block_query)
-        self.last_block_range = (start_line, end_line)
 
     # ----- 마무리 -----
 
@@ -587,11 +501,6 @@ async def start_dbms_conversion(
         )
 
         await generator.generate()
-        
-        # 변환 노드 쿼리들을 Neo4j에 한번에 저장
-        if generator.conversion_queries:
-            await connection.execute_queries(generator.conversion_queries)
-            logging.info(f"✅ 변환 노드 저장 완료: CONVERTING 1개, BLOCK {len(generator.conversion_queries)-1}개")
         
         # 파일 저장
         base_name = file_name.rsplit(".", 1)[0]
