@@ -128,7 +128,7 @@ class DbmsConversionGenerator:
             return
 
         # 노드 타입별 처리
-        is_large_parent = token >= TOKEN_THRESHOLD and has_children and node_type not in DML_TYPES
+        is_large_parent = token >= TOKEN_THRESHOLD and has_children
         is_large_leaf = token >= TOKEN_THRESHOLD and not has_children
 
         if is_large_parent:
