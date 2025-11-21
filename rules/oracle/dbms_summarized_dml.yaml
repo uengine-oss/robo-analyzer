@@ -1,0 +1,139 @@
+name: "PostgreSQL DML Oracle 스켈레톤 생성"
+description: "PostgreSQL 요약 DML 블록을 Oracle 문법으로만 변환하되 자식 placeholder는 그대로 유지"
+version: "2.2"
+
+input_schema:
+  required:
+    - summarized_code
+    - locale
+
+prompt: |
+  당신은 PostgreSQL DML을 Oracle PL/SQL용 DML 스켈레톤으로 변환하는 전문가입니다.
+  입력되는 summarized_code에서 **부모 DML 구조만 Oracle 표준 문법으로 변환**하고,
+  자식 로직을 나타내는 `숫자: ...code...` 형태의 placeholder는 **문자 하나도 변경하지 않고 그대로 유지**해야 합니다.
+
+  summarized_postgresql_dml_code:
+  {{summarized_code}}
+
+  ======================================================================
+  🔥 절대 규칙
+  ======================================================================
+  1. 부모 DML 구조만 Oracle 문법으로 변환
+     - SELECT, INSERT, UPDATE, DELETE, MERGE, WITH, JOIN, ON, WHERE 등 **부모 수준의 SQL을 Oracle 문법으로 정교하게 재작성**합니다.
+     - 모든 의미(컬럼, 조건, 조인 구조)는 PostgreSQL 원본 의미와 동일하게 유지합니다.
+
+  2. 자식 placeholder는 그대로 유지
+     - placeholder 형식: `숫자: ...code...`
+     - 이 텍스트는 어떠한 경우에도 수정하지 않습니다.
+     - placeholder의 개수, 순서, 위치를 그대로 보존합니다.
+     - 괄호, JOIN, ON, WHERE, MERGE USING 서브쿼리 등에 배치하는 것은 가능하지만 placeholder 내부 문자열은 절대 수정 금지입니다.
+
+  3. 출력 형식은 반드시 JSON 하나
+     - 다음 구조만 출력합니다:
+       {
+         "code": "Oracle 변환된 전체 스켈레톤 코드"
+       }
+     - JSON 외의 텍스트, 마크다운, 백틱, 설명 추가 금지.
+
+  ======================================================================
+  🔧 Oracle 문법 상세 규칙 (Parent-Level)
+  ======================================================================
+
+  ----------------------------------------------------------------------
+  1) SELECT / INSERT / UPDATE SET 스타일
+  ----------------------------------------------------------------------
+  - SELECT 컬럼 목록, INSERT 컬럼 목록, VALUES 목록, UPDATE SET 절에는 **앞콤마(leading comma)** 스타일 사용.
+    예:
+      SELECT col1
+           , col2
+           , col3
+        FROM ...
+
+  - 함수 인자, IN (...), CASE WHEN 등은 일반 쉼표 사용.
+
+  ----------------------------------------------------------------------
+  2) JOIN 변환
+  ----------------------------------------------------------------------
+  - LEFT JOIN  → LEFT OUTER JOIN
+  - RIGHT JOIN → RIGHT OUTER JOIN
+  - FULL JOIN  → FULL OUTER JOIN
+  - `FROM a, b WHERE a.id = b.id` 구조는 가능하면 명시적 JOIN으로 변환합니다.
+  - 서브쿼리 또는 테이블 alias 지정 시 AS 금지:
+      (SELECT ...) t
+
+  ----------------------------------------------------------------------
+  3) UPDATE ... FROM / DELETE ... USING → MERGE 변환
+  ----------------------------------------------------------------------
+  PostgreSQL의 UPDATE 또는 DELETE에 FROM/USING이 포함된 구조는 Oracle에서는 MERGE로 변환합니다.
+
+  UPDATE 예)
+    MERGE INTO tgt tgt
+    USING (
+           120: ...code...
+    ) src
+       ON (tgt.id = src.id)
+    WHEN MATCHED THEN
+      UPDATE SET tgt.col1 = ...
+               , tgt.col2 = ...;
+
+  DELETE 예)
+    MERGE INTO tgt tgt
+    USING (
+           200: ...code...
+    ) src
+       ON (tgt.id = src.id)
+    WHEN MATCHED THEN
+      DELETE;
+
+  ----------------------------------------------------------------------
+  4) WITH 절(CTE) 변환
+  ----------------------------------------------------------------------
+  - summarized_code에서 WITH 절이 부모 레벨에 있으면 CTE 내부는 placeholder 그대로 유지합니다.
+  - SELECT, FROM, JOIN만 Oracle 스타일로 재배치합니다.
+
+    예)
+      SELECT *
+        FROM (
+             20: ...code...
+      ) base
+        JOIN (
+             10: ...code...
+      ) params
+          ON base.id = params.id;
+
+  ----------------------------------------------------------------------
+  5) 서브쿼리 및 MERGE USING 절
+  ----------------------------------------------------------------------
+  - 모든 서브쿼리는 `( ... ) alias` 형태로 구성.
+  - summarized_code에서 서브쿼리 부분에 placeholder가 있으면 다음과 같이 감싸기만 합니다:
+
+      (
+         123: ...code...
+      ) src
+
+  - alias명은 부모 SQL 문맥을 유지하도록 선정.
+
+  ----------------------------------------------------------------------
+  6) 문장 종료 세미콜론
+  ----------------------------------------------------------------------
+  - MERGE, INSERT, UPDATE, DELETE, SELECT INTO 등 독립 문장은 반드시 세미콜론으로 끝냅니다.
+  - 서브쿼리 내부 SELECT에는 세미콜론을 넣지 않습니다.
+
+  ======================================================================
+  🔍 최종 검증 체크리스트
+  ======================================================================
+  ✔ placeholder(`숫자: ...code...`)가 단 하나의 글자도 변경 없이 그대로 있는가?  
+  ✔ placeholder 순서·위치가 summarized_code와 동일한가?  
+  ✔ 부모 SQL이 Oracle 표준(앞콤마, OUTER JOIN, MERGE 등)으로 정확히 전환되었는가?  
+  ✔ UPDATE ... FROM / DELETE ... USING이 MERGE로 전환되었는가?  
+  ✔ 모든 서브쿼리에 괄호 + alias가 있는가?  
+  ✔ alias에 AS를 사용하지 않았는가?  
+  ✔ 독립 DML 문 끝에 세미콜론이 있는가?  
+  ✔ 출력은 반드시 JSON {"code": "..."} 인가?
+
+  ======================================================================
+  🔥 출력 형식
+  ======================================================================
+  {
+    "code": "Oracle 변환된 전체 스켈레톤 코드"
+  }

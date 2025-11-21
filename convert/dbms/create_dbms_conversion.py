@@ -1,4 +1,5 @@
 import logging
+import re
 import textwrap
 from understand.neo4j_connection import Neo4jConnection
 from util.exception import ConvertingError
@@ -60,6 +61,12 @@ class DbmsConversionGenerator:
 
     # ----- 공개 메서드 -----
 
+    @staticmethod
+    def _resolve_node_type(node_labels: list | None, node: dict) -> str:
+        raw_type = node_labels[0] if node_labels else node.get('name', 'UNKNOWN')
+        raw_type = str(raw_type)
+        return raw_type.split('[')[0] if '[' in raw_type else raw_type
+
     async def generate(self) -> str:
         """
         전체 노드를 순회하며 타겟 DBMS 코드 생성
@@ -92,7 +99,7 @@ class DbmsConversionGenerator:
         """단일 노드 처리"""
         node = record['n']
         node_labels = record.get('nodeLabels', [])
-        node_type = node_labels[0] if node_labels else node.get('name', 'UNKNOWN')
+        node_type = self._resolve_node_type(node_labels, node)
         has_children = bool(node.get('has_children', False))
         token = int(node.get('token', 0) or 0)
         start_line = int(node.get('startLine', 0) or 0)
@@ -100,7 +107,7 @@ class DbmsConversionGenerator:
         relationship = record['r'][1] if record.get('r') else 'NEXT'
 
         # 노드 처리 로그
-        readable_type = node_type.split('[')[0] if '[' in str(node_type) else str(node_type)
+        readable_type = node_type
         logging.info(
             "➡️  노드 감지 | 타입=%s | 라인=%s~%s | 토큰=%s | 관계=%s | 자식=%s | stack_depth=%s",
             readable_type,
@@ -143,7 +150,7 @@ class DbmsConversionGenerator:
                 token,
                 len(self.parent_stack)
             )
-            await self._handle_large_node(node, start_line, end_line, token)
+            await self._handle_large_node(node, node_labels, start_line, end_line, token)
         else:
             if is_large_leaf:
                 if self.sp_code_parts:
@@ -170,16 +177,26 @@ class DbmsConversionGenerator:
 
     # ----- 대용량 노드 처리 -----
 
-    async def _handle_large_node(self, node: dict, start_line: int, end_line: int, token: int) -> None:
+    async def _handle_large_node(
+        self,
+        node: dict,
+        node_labels: list,
+        start_line: int,
+        end_line: int,
+        token: int
+    ) -> None:
         """대용량 노드(자식 있음, 토큰≥1000) 처리"""
         summarized = (node.get('summarized_code') or '').strip()
         if not summarized:
             logging.info("      ⛔ 요약 코드 없음 → 스킵")
             return
 
+        node_type = self._resolve_node_type(node_labels, node)
+        is_dml_node = str(node_type).upper() in DML_TYPES
+
         # LLM으로 스켈레톤 생성 (Rule 파일 사용)
         result = self.rule_loader.execute(
-            role_name='dbms_summarized',
+            role_name='dbms_summarized_dml' if is_dml_node else 'dbms_summarized',
             inputs={
                 'summarized_code': summarized,
                 'locale': self.locale
@@ -192,7 +209,8 @@ class DbmsConversionGenerator:
             'start': start_line,
             'end': end_line,
             'code': skeleton,
-            'children': []
+            'children': [],
+            'is_dml': is_dml_node
         }
         self.parent_stack.append(entry)
         logging.info(
@@ -251,17 +269,23 @@ class DbmsConversionGenerator:
         )
 
         code = entry['code']
-        child_block = "\n".join(entry['children']).strip()
+        children = entry.get('children', [])
+        is_dml_parent = entry.get('is_dml', False)
 
-        if CODE_PLACEHOLDER in code:
-            if child_block:
+        if is_dml_parent:
+            code = self._merge_dml_children(code, children)
+        else:
+            child_block = "\n".join(children).strip() if children else ""
+
+            if CODE_PLACEHOLDER in code:
+                if child_block:
+                    indented = textwrap.indent(child_block, '    ')
+                    code = code.replace(CODE_PLACEHOLDER, f"\n{indented}\n", 1)
+                else:
+                    code = code.replace(CODE_PLACEHOLDER, "", 1)
+            elif child_block:
                 indented = textwrap.indent(child_block, '    ')
-                code = code.replace(CODE_PLACEHOLDER, f"\n{indented}\n", 1)
-            else:
-                code = code.replace(CODE_PLACEHOLDER, "", 1)
-        elif child_block:
-            indented = textwrap.indent(child_block, '    ')
-            code = f"{code}\n{indented}"
+                code = f"{code}\n{indented}"
 
         code = code.strip()
 
@@ -313,25 +337,117 @@ class DbmsConversionGenerator:
         )
 
         # 생성된 코드 병합
+        child_start = self.sp_start
+        child_end = self.sp_end
         generated_code = (result.get('code') or '').strip()
         if generated_code:
-            if self.parent_stack:
-                self.parent_stack[-1]['children'].append(generated_code)
-                logging.info(
-                    "      ➕ 현재 부모(children) 추가 | 부모 라인=%s~%s | child_len=%s",
-                    self.parent_stack[-1]['start'],
-                    self.parent_stack[-1]['end'],
-                    len(self.parent_stack[-1]['children'])
-                )
-            else:
-                self.merged_code += f"\n{generated_code}"
-                logging.info("      ➕ 최종 코드에 변환 결과 추가")
+            self._append_generated_code(generated_code, child_start, child_end)
 
         # 상태 초기화
         self.total_tokens = int(0)
         self.sp_code_parts.clear()
         self.sp_start = None
         self.sp_end = None
+
+    def _append_generated_code(self, generated_code: str, start_line: int | None, end_line: int | None) -> None:
+        """생성된 코드를 현재 부모 또는 최종 코드에 추가"""
+        if not generated_code:
+            return
+
+        if self.parent_stack:
+            parent_entry = self.parent_stack[-1]
+            if parent_entry.get('is_dml'):
+                parent_entry['children'].append({
+                    'code': generated_code,
+                    'start': start_line,
+                    'end': end_line
+                })
+            else:
+                parent_entry['children'].append(generated_code)
+
+            logging.info(
+                "      ➕ 현재 부모(children) 추가 | 부모 라인=%s~%s | child_len=%s",
+                parent_entry['start'],
+                parent_entry['end'],
+                len(parent_entry['children'])
+            )
+            return
+
+        self.merged_code += f"\n{generated_code}"
+        logging.info("      ➕ 최종 코드에 변환 결과 추가")
+
+    def _merge_dml_children(self, code: str, children: list) -> str:
+        """DML 스켈레톤 placeholder에 자식 코드를 주입"""
+        pattern = re.compile(
+            r'(?P<indent>^[ \t]*)(?P<label>(?P<start>\d+)(?:~(?P<end>\d+))?):\s*\.\.\.\s*code\s*\.\.\.',
+            re.IGNORECASE | re.MULTILINE
+        )
+
+        structured_children = []
+        for child in children or []:
+            if isinstance(child, dict):
+                structured_children.append({
+                    'code': child.get('code', ''),
+                    'start': child.get('start'),
+                    'end': child.get('end')
+                })
+            else:
+                structured_children.append({
+                    'code': str(child),
+                    'start': None,
+                    'end': None
+                })
+
+        structured_children.sort(
+            key=lambda item: (
+                item.get('start') or 0,
+                item.get('end') if item.get('end') is not None else (item.get('start') or 0)
+            )
+        )
+
+        def _replacement(match: re.Match) -> str:
+            indent = match.group('indent') or ''
+            start = int(match.group('start'))
+            end = int(match.group('end')) if match.group('end') else None
+            child = self._pop_child_for_range(structured_children, start, end)
+            if not child:
+                return indent
+
+            child_code = (child.get('code') or '').strip()
+            if not child_code:
+                return indent
+
+            return textwrap.indent(child_code, indent)
+
+        merged_code = pattern.sub(_replacement, code)
+        # 남아있는 placeholder는 제거
+        merged_code = pattern.sub('', merged_code)
+
+        if structured_children:
+            residual = "\n".join(
+                (child.get('code') or '').strip()
+                for child in structured_children
+                if child.get('code')
+            ).strip()
+            if residual:
+                merged_code = f"{merged_code.rstrip()}\n{residual}"
+
+        return merged_code
+
+    @staticmethod
+    def _pop_child_for_range(children: list, start: int, end: int | None):
+        """placeholder line 범위와 일치하는 자식 코드를 반환"""
+        for idx, child in enumerate(children):
+            c_start = child.get('start')
+            c_end = child.get('end')
+            if c_start == start and (c_end == end or (end is None and (c_end is None or c_end == c_start))):
+                return children.pop(idx)
+
+        for idx, child in enumerate(children):
+            if child.get('start') == start:
+                return children.pop(idx)
+
+        return children.pop(0) if children else None
 
     def _build_parent_context(self) -> str:
         """현재 부모 스켈레톤 컨텍스트 구성"""
