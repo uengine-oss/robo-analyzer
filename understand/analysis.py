@@ -145,7 +145,7 @@ class StatementNode:
                 result_lines.append(f"{line_no}: {text}")
                 line_index += 1
 
-            result_lines.append(f"{child.start_line}: ... code ...")
+            result_lines.append(f"{child.start_line}: ...code...")
 
             while line_index < total_lines and self.lines[line_index][0] <= child.end_line:
                 line_index += 1
