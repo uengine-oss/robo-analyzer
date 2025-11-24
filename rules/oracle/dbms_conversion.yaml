@@ -1,6 +1,6 @@
 name: "PostgreSQL → Oracle PL/SQL 변환"
-description: "PostgreSQL Stored Procedure를 Oracle PL/SQL로 문법만 변환"
-version: "7.2"
+description: "PostgreSQL을 Oracle PL/SQL로 실행 결과 동일성 보장 변환"
+version: "8.0"
 
 path: "../dbms/{project_name}/{folder_name}"
 
@@ -15,392 +15,750 @@ input_schema:
 
 prompt: |
   ======================================================================
-  절대 규칙 (최우선)
+  🎯 핵심 목표 (최우선 순위)
   ======================================================================
-  - Oracle 컴파일 오류 방지가 최우선
-  - 실제 Oracle PL/SQL 문법에 맞게 전환하는 게 최종 목표
-  - 로직, 변수명, 테이블명 절대 변경 금지
-  - 동일한 입력값을 사용했을 때 PostgreSQL과 Oracle에서의 실행 결과가 반드시 일치해야 함
-  - Parent Context는 참고용이며 변환 결과에 포함하지 않음
-  - 원본 PostgreSQL 코드 대비 불필요하게 라인 수가 증가하지 않도록 함
-  - 불필요한 줄바꿈, 공백, 주석 추가 금지
+  1. **실행 결과 동일성 보장**: 동일한 입력에 대해 PostgreSQL과 Oracle에서 100% 동일한 출력 생성
+  2. **오라클 컴파일 성공**: Oracle 12c 이상에서 오류 없이 컴파일되는 문법적으로 완벽한 PL/SQL 코드 생성
+  3. **의미론적 동등성**: 스타일이나 코드 구조가 아닌, 실행 시 동작과 결과가 완전히 동일해야 함
+
+  ⚠️ 코드 스타일, 변수명, 줄바꿈 등은 실행 결과와 무관하므로 자유롭게 조정 가능
+  ⚠️ 로직 변경 금지 - 단, Oracle PL/SQL 문법에 맞게 표현 방식은 완전히 변경 가능
 
   ======================================================================
   입력 데이터
   ======================================================================
-  PostgreSQL SP 코드: {{code}}
+  PostgreSQL 코드: {{code}}
   Parent Context (참고용): {{parent_code}}
 
   ======================================================================
-  🔥 함수/프로시저 호출 인자 처리 (절대 규칙)
+  📚 변환 기준: Oracle 공식 문법 (Oracle Database 12c+)
   ======================================================================
-  **1. 인자 개수 절대 보존**
-  - Oracle 변환 코드에서도 원본 PostgreSQL 함수/프로시저의 인자 개수를 100% 동일하게 유지
-  - Oracle 변환 시 인자 개수 절대 변경 금지
-  - 추가 빈 문자열('') 인자 생성은 절대 금지
+  본 변환은 Oracle Database 공식 문서 기준을 따릅니다:
+  - Oracle Database PL/SQL Language Reference
+  - Oracle Database SQL Language Reference
+  - Oracle Database PL/SQL Packages and Types Reference
 
-  **2. 인자 개수 보존 방법**
-  - 원본 호출부를 **그대로 복사**한 후, 문법만 Oracle에 맞게 수정
-  - 매개변수 목록(괄호 안 내용)은 **절대 수정하지 않고** 그대로 유지
-  - 쉼표(,) 개수와 괄호 안의 토큰 수가 원본과 동일한지 항상 보존
-
-  **3. 올바른 변환 방식**
-  -- ✅ 원본 매개변수 목록을 그대로 복사 후 문법만 변경
-  원본: posplot.logg_set_loginsert(v_seq, v_start_date, ..., '');
-  변환: posplot.logg_set_loginsert(v_seq, v_start_date, ..., '');  -- 매개변수 목록 동일
-
-  -- ❌ 절대 금지: 매개변수 추가/생성
-  변환: posplot.logg_set_loginsert(v_seq, v_start_date, ..., '', '', '', ...);  -- 인자 추가 금지
-  반드시 원본과 인자 매개변수 개수가 일치해야하며, 추가 빈 문자열('') 인자 생성은 절대 금지
+  **변환 원칙**
+  - Oracle에서 권장하는 최신 문법 사용 (12c 이상)
+  - 각 구문은 Oracle 공식 예제 스타일을 따름
+  - 레거시 문법보다 현대적 Oracle PL/SQL 관행 우선
 
   ======================================================================
-  🔥 SQL 스타일 규칙 (앞콤마 규칙)
+  🔄 1. 데이터 타입 변환 (의미론적 동등성 보장)
   ======================================================================
-  **⚠️ 앞콤마(Leading Comma)를 적용할 위치만 엄격히 제한**
-
-  **✅ 앞콤마 적용 대상**
-  - SELECT 절 컬럼 목록
-  - INSERT 절 컬럼 목록
-  - VALUES 절 값 목록
-  - UPDATE ... SET 절 컬럼 목록
-
-  **❌ 앞콤마 적용 제외**
-  - 함수/프로시저 호출 파라미터 목록
-  - WHERE 절 IN (...) 목록
-  - CASE WHEN ... THEN ... 목록
-  - 단순 값 나열, 리터럴 나열
-
-  **올바른 예시**
-  -- ✅ SELECT 절 (앞콤마)
-  SELECT col1
-       , col2
-       , col3
-    FROM my_table;
-
-  -- ✅ INSERT 절 (앞콤마)
-  INSERT INTO table_name (
-      col1
-    , col2
-    , col3
-  ) VALUES (
-      value1
-    , value2
-    , value3
-  );
-
-  -- ✅ UPDATE 절 (앞콤마)
-  UPDATE my_table
-     SET col1 = val1
-       , col2 = val2
-   WHERE id = 100;
-
-  -- ❌ 함수 호출 (일반 콤마 사용)
-  my_procedure(param1, param2, param3);
-  SELECT DECODE(col, val1, result1, val2, result2, default_val)
-    FROM dual;
-
-  ======================================================================
-  🔄 WITH 절(CTE) → 서브쿼리 완전 변환 (Oracle 호환성)
-  ======================================================================
-  **🔥 1. 기본 원칙**
-  - 모든 WITH 절(CTE)은 FROM 절의 서브쿼리로 완전히 변환
-  - PL/SQL 블록 내부에서 CTE 사용 시, Oracle 구문 오류를 피하기 위해 서브쿼리로 재구성
-  - CTE 간 의존성은 중첩 서브쿼리 + JOIN 구조로 해결
-
-  **🔥 2. 변환 패턴 예시**
-
-  [PostgreSQL 원본]
-  WITH params AS (
-       SELECT p_month_cd::varchar AS pr_month_cd, ...
-     )
-     , B_usage AS (
-       SELECT ...
-         FROM table1 t1
-         JOIN table2 t2 ON ...
-     )
-     , A_price AS (
-       SELECT ...
-         FROM table3 t3
-         LEFT JOIN B_usage bu ON ...
-     )
-  INSERT INTO target
-  SELECT ...
-    FROM A_price ap
-    JOIN params p ON ap.key = p.key;
-
-  [Oracle 변환]
-  INSERT INTO target
-  SELECT ...
-    FROM (
-         SELECT ...
-           FROM (
-                SELECT ...
-                  FROM table3 t3
-           ) a
-           LEFT OUTER JOIN (
-                SELECT ...
-                  FROM table1 t1
-                  JOIN table2 t2 ON ...
-           ) b
-             ON a.col = b.col
-     ) A_price
-    JOIN (
-         SELECT CAST(p_month_cd AS VARCHAR2(20)) AS pr_month_cd
-              , ...
-           FROM dual
-     ) params
-      ON A_price.key = params.key;
-
-  **🔥 3. CTE 의존성 처리**
-  - 서로 의존하는 CTE는 **안쪽부터 바깥쪽으로** 중첩 서브쿼리로 감싸기
-  - 의존성이 없는 CTE는 각각 별도의 서브쿼리로 만들고 메인 SELECT의 FROM 절에서 결합 (공통 키가 있으면 JOIN, 없으면 CROSS JOIN 사용)
-  - 각 서브쿼리의 별칭(alias)은 가급적 CTE 명과 동일하게 유지
-
-  **🔥 4. 변수만 SELECT하는 CTE**
-  - 변수만 반환하는 경우 반드시 DUAL 사용
-  예:
-    WITH params AS (
-      SELECT p_month_cd::varchar AS pr_month_cd
-    )
-  → Oracle:
-    SELECT CAST(p_month_cd AS VARCHAR2(20)) AS pr_month_cd
-      FROM dual;
-
-  **🔥 5. CTE 변환 시 주의할 점**
-  - CTE의 SELECT가 실제로 한 행만 반환해야 한다면, WHERE 조건 또는 LIMIT(ROWNUM)도 그대로 반영
-  - CTE 안에 또 다른 서브쿼리가 있을 경우, 괄호를 정확히 닫고 alias를 반드시 부여
-  - RIGHT JOIN은 순서를 바꾼 뒤 LEFT OUTER JOIN으로 변환
+  
+  **1.1 문자열 타입**
+  PostgreSQL → Oracle (최대 길이 고려)
+  - VARCHAR(n) → VARCHAR2(n)
+  - TEXT → CLOB 또는 VARCHAR2(4000) (길이에 따라)
+  - CHAR(n) → CHAR(n)
+  - CHARACTER VARYING(n) → VARCHAR2(n)
+  
+  **1.2 숫자 타입**
+  - INTEGER / INT / INT4 → NUMBER(10) 또는 INTEGER
+  - BIGINT / INT8 → NUMBER(19) 또는 INTEGER
+  - SMALLINT / INT2 → NUMBER(5) 또는 SMALLINT
+  - NUMERIC(p,s) → NUMBER(p,s)
+  - DECIMAL(p,s) → NUMBER(p,s)
+  - REAL / FLOAT4 → BINARY_FLOAT
+  - DOUBLE PRECISION / FLOAT8 → BINARY_DOUBLE
+  - SERIAL → NUMBER(10) (시퀀스 별도 처리)
+  - BIGSERIAL → NUMBER(19) (시퀀스 별도 처리)
+  
+  **1.3 날짜/시간 타입**
+  - TIMESTAMP → TIMESTAMP
+  - TIMESTAMP WITH TIME ZONE → TIMESTAMP WITH TIME ZONE
+  - TIMESTAMP WITHOUT TIME ZONE → TIMESTAMP
+  - DATE → DATE
+  - TIME → DATE (Oracle은 TIME 타입 없음, DATE로 표현)
+  - INTERVAL → INTERVAL DAY TO SECOND 또는 INTERVAL YEAR TO MONTH
+  
+  **1.4 불린 타입**
+  PostgreSQL의 BOOLEAN은 Oracle에 없으므로:
+  - BOOLEAN → NUMBER(1) 또는 VARCHAR2(1)
+  - TRUE → 1 또는 'Y'
+  - FALSE → 0 또는 'N'
+  - IS TRUE → = 1 또는 = 'Y'
+  - IS FALSE → = 0 또는 = 'N'
+  
+  **1.5 배열 타입**
+  PostgreSQL 배열 → Oracle Collection Type
+  - INTEGER[] → 사용자 정의 TYPE (예: TYPE num_array IS TABLE OF NUMBER)
+  - TEXT[] → TYPE varchar_array IS TABLE OF VARCHAR2(4000)
+  
+  **1.6 JSON 타입**
+  - JSON / JSONB → CLOB (12c+에서 JSON 함수 사용)
 
   ======================================================================
-  🧱 서브쿼리 구성 주의사항 (종합)
+  🔧 2. 함수 변환 (Oracle 공식 함수 매핑)
   ======================================================================
-  - 모든 SELECT 서브쿼리는 괄호로 감싸고 **반드시 alias**를 부여해야 함  
-    예: (SELECT col1 FROM tab) sub
-  - FROM 절에서 서브쿼리를 사용할 때 alias가 없으면 Oracle에서 컴파일 오류 발생
-  - Oracle에서는 테이블 또는 서브쿼리 별칭을 지정할 때 `AS` 키워드를 사용하지 않으므로, alias 정의 시 `AS`를 붙이지 말 것
-  - 서브쿼리 안에 또 다른 서브쿼리가 있을 경우, 괄호의 짝이 맞는지(여는 괄호/닫는 괄호 개수)를 반드시 검증
-  - IN, EXISTS 서브쿼리도 `SELECT ... FROM ...`이 완전한 구문인지 확인
-  - SELECT INTO, INSERT ... SELECT, MERGE USING 내의 서브쿼리에서 모두 동일한 규칙을 일관되게 적용
-
-  ======================================================================
-  📝 DML 구문 처리 (PL/SQL 필수 규칙)
-  ======================================================================
-  **🔥 1. 세미콜론(;) 필수**
-  - 모든 INSERT, UPDATE, DELETE, SELECT INTO 문 끝에는 반드시 `;` 추가
-  - SELECT INTO는 PL/SQL 문장이므로 항상 세미콜론으로 종료
-  - 서브쿼리가 끝난 직후 바로 다른 PL/SQL 문(DBMS_OUTPUT, IF, LOOP 등)이 이어지는 경우 세미콜론 누락 주의
-
-  -- 잘못된 예시
-  INSERT INTO table1 (...)
-  SELECT ...
-    FROM some_table
-   WHERE ...       -- ← 세미콜론 없음
-  DBMS_OUTPUT.PUT_LINE('완료');
-
-  -- 올바른 예시
-  INSERT INTO table1 (...)
-  SELECT ...
-    FROM some_table
-   WHERE ...;
-  DBMS_OUTPUT.PUT_LINE('완료');
-
-  **🔥 2. SELECT INTO 규칙**
-  - `SELECT ... INTO 변수1, 변수2 ... FROM ... WHERE ...;`
-  - INTO 키워드 위치를 PostgreSQL과 다르게 Oracle 규칙에 맞게 조정
-  - 결과가 1건이 아닐 가능성이 있으면 예외 처리(TOO_MANY_ROWS, NO_DATA_FOUND) 필요할 수 있으나,
-    이 프롬프트에서는 로직 변경 없이 문법만 조정
-
-  ======================================================================
-  🔄 MERGE 문 처리 (전체 규칙, 컴파일 오류 방지용)
-  ======================================================================
-  **🔥 1. USING 절 서브쿼리 괄호 구조 (ORA-00907 방지)**
-  - USING 절은 반드시 `USING ( SELECT ... FROM ... ) alias` 구조로 작성
-  - 제일 바깥 SELECT 블록을 여는 괄호와 닫는 괄호가 1:1로 맞는지 검증
-  - 닫는 괄호 `)` 바로 뒤에 alias를 작성: `) source_alias`  (AS 키워드 사용 금지)
-
-  **🔥 1-1. 괄호 검증 체크**
-  1. USING ( ... ) 의 여는/닫는 괄호 개수가 동일한지 확인
-  2. 내부에 또 다른 서브쿼리 `(SELECT ... FROM (...))`가 있을 경우, 각 서브쿼리 단위로 괄호 쌍 검증
-  3. NVL, DECODE, NULLIF, CASE 등 함수 내부 괄호도 전체 개수 불일치가 없는지 확인
-
-  **🔥 2. ON 절 규칙 (ORA-00933 방지)**
-  - MERGE INTO ... USING (...) alias **ON (조건)** 형태로 반드시 괄호 사용
-  - ON 절 전체 조건식을 하나의 괄호 `( ... )`로 감싸야 함
-  - 여러 조건은 괄호 안에서 `AND` / `OR`로 연결
-  - 안정성을 위해 맨 앞에 `1=1`을 둘 수 있으나, 한 번만 사용
-    예:
-      ON (
-          1=1
-          AND t.key = s.key
-          AND t.status = 'Y'
-      )
-
-  **🔥 3. USING 절 FROM 구성**
-  - 가능하면 ANSI JOIN 문법 사용:
-    FROM tab1 t1
-    JOIN tab2 t2 ON t1.id = t2.id
-  - 콤마(,) 나열과 JOIN을 섞어서 사용하지 않도록 함
-  - 서브쿼리 + JOIN 혼합 시, 각 서브쿼리에 alias 필수
-
-  **🔥 4. PostgreSQL UPDATE ... FROM → MERGE 변환**
-  [PostgreSQL]
-    UPDATE target_table tx
-       SET col1 = vx.new_col1
-         , col2 = vx.new_col2
-      FROM ( -- 복잡한 서브쿼리 ) vx
-     WHERE tx.key = vx.key;
-
-  [Oracle MERGE]
-    MERGE INTO target_table tx
-    USING (
-        -- 복잡한 서브쿼리 (괄호/alias 모두 정확히)
-    ) vx
-       ON (
-           tx.key = vx.key
-       )
-     WHEN MATCHED THEN
-       UPDATE SET tx.col1 = vx.new_col1
-                , tx.col2 = vx.new_col2;
-
-  **🔥 5. MERGE 전체 예시 (규칙 모두 반영)**
-
-    MERGE INTO target_table t
-    USING (
-        SELECT col1
-             , col2
-             , col3
-          FROM (
-               SELECT s1.col1
-                    , s1.col2
-                    , s2.col3
-                 FROM source_table s1
-                 JOIN (
-                      SELECT id
-                           , col3
-                        FROM other_table
-                       WHERE status = 'ACTIVE'
-                  ) s2
-                   ON s1.id = s2.id
-          ) inner_query
-         WHERE inner_query.col1 IS NOT NULL
-    ) source_alias
-       ON (
-           1=1
-           AND t.key    = source_alias.col1
-           AND t.status = 'ACTIVE'
-       )
-     WHEN MATCHED THEN
-       UPDATE SET t.col1 = source_alias.col1
-                , t.col2 = source_alias.col2
-     WHEN NOT MATCHED THEN
-       INSERT (col1, col2, col3)
-       VALUES (source_alias.col1
-             , source_alias.col2
-             , source_alias.col3);
-
-  ======================================================================
-  🔧 함수 및 연산자 변환
-  ======================================================================
-  **1. 문자열 함수**
+  
+  **2.1 문자열 함수**
+  - SUBSTRING(str FROM start FOR length) → SUBSTR(str, start, length)
   - SUBSTRING(str, start, length) → SUBSTR(str, start, length)
   - LEFT(str, n) → SUBSTR(str, 1, n)
   - RIGHT(str, n) → SUBSTR(str, -n)
-  - POSITION(sub IN str) → INSTR(str, sub)
-  - ILIKE → UPPER(col) LIKE UPPER(pattern)
-
-  **2. 날짜/시간 함수**
+  - POSITION(substr IN str) → INSTR(str, substr)
+  - LENGTH(str) → LENGTH(str) (동일)
+  - CHAR_LENGTH(str) → LENGTH(str)
+  - LOWER(str) → LOWER(str) (동일)
+  - UPPER(str) → UPPER(str) (동일)
+  - TRIM(str) → TRIM(str) (동일)
+  - LTRIM(str) → LTRIM(str) (동일)
+  - RTRIM(str) → RTRIM(str) (동일)
+  - CONCAT(str1, str2, ...) → str1 || str2 || ... 또는 CONCAT(str1, str2)
+  - REPLACE(str, from, to) → REPLACE(str, from, to) (동일)
+  - SPLIT_PART(str, delim, n) → REGEXP_SUBSTR(str, '[^'||delim||']+', 1, n)
+  - REGEXP_REPLACE(str, pattern, replacement) → REGEXP_REPLACE(str, pattern, replacement)
+  - string || string → string || string (동일, Oracle 표준)
+  - str ILIKE pattern → UPPER(str) LIKE UPPER(pattern)
+  - str LIKE pattern → str LIKE pattern (동일)
+  
+  **2.2 수학 함수**
+  - ABS(n) → ABS(n) (동일)
+  - CEIL(n) / CEILING(n) → CEIL(n)
+  - FLOOR(n) → FLOOR(n) (동일)
+  - ROUND(n, d) → ROUND(n, d) (동일)
+  - TRUNC(n, d) → TRUNC(n, d) (동일)
+  - MOD(n, m) → MOD(n, m) (동일)
+  - POWER(n, m) → POWER(n, m) (동일)
+  - SQRT(n) → SQRT(n) (동일)
+  - EXP(n) → EXP(n) (동일)
+  - LN(n) → LN(n) (동일)
+  - LOG(n) → LOG(10, n)
+  - RANDOM() → DBMS_RANDOM.VALUE
+  - GREATEST(v1, v2, ...) → GREATEST(v1, v2, ...) (동일)
+  - LEAST(v1, v2, ...) → LEAST(v1, v2, ...) (동일)
+  
+  **2.3 날짜/시간 함수 (실행 결과 동일 보장)**
   - NOW() → SYSDATE
   - CURRENT_TIMESTAMP → SYSTIMESTAMP
-  - CURRENT_DATE → SYSDATE
-  - date_part('year', date) → EXTRACT(YEAR FROM date)
-  - date_part('month', date) → EXTRACT(MONTH FROM date)
-  - date_part('day', date) → EXTRACT(DAY FROM date)
-  - AGE(date1, date2) → (date1 - date2)  -- 날짜 차이
-
-  **3. 시퀀스**
-  - nextval('seq_name') → seq_name.NEXTVAL
-  - currval('seq_name') → seq_name.CURRVAL
-
-  ======================================================================
-  🏗️ DDL 및 동적 SQL 처리
-  ======================================================================
-  - PL/SQL 블록 내부에서 DDL(DROP, CREATE, ALTER, TRUNCATE 등)을 직접 실행하지 말 것
-  - 반드시 EXECUTE IMMEDIATE로 감싸서 동적 SQL로 실행
-
-  -- 잘못된 예시
-  DROP TABLE temp_table;
-  CREATE TABLE new_table AS SELECT ...;
-
-  -- 올바른 예시
-  EXECUTE IMMEDIATE 'DROP TABLE temp_table';
-  EXECUTE IMMEDIATE 'CREATE TABLE new_table AS SELECT ...';
-
-  ======================================================================
-  🚨 예외 처리 및 출력
-  ======================================================================
-  - RAISE NOTICE 'msg' → DBMS_OUTPUT.PUT_LINE('msg');
-  - RAISE EXCEPTION 'msg' → RAISE_APPLICATION_ERROR(-20001, 'msg');
-  - RAISE NOTICE 'Value: %', var → DBMS_OUTPUT.PUT_LINE('Value: ' || var);
-
-  ======================================================================
-  🔄 프로시저 호출 및 스키마 처리
-  ======================================================================
-  - PostgreSQL의 CALL 구문은 Oracle PL/SQL에서 사용하지 않음
-  - CALL procedure_name(args) → procedure_name(args);
-  - CALL schema.procedure_name(args) → schema.procedure_name(args);
-
-  ======================================================================
-  🔍 괄호 및 CASE 검증 (필수 체크)
-  ======================================================================
-  **검증 대상**
-  - NVL, DECODE, NULLIF, COALESCE
-  - CASE ~ WHEN ~ THEN ~ ELSE ~ END
-  - 서브쿼리: (SELECT ... FROM ...)
-  - 함수 호출: func(arg1, arg2, ...)
-
-  **검증 절차**
-  1. 전체 코드에서 여는 괄호 `(` 개수와 닫는 괄호 `)` 개수가 동일한지 확인
-  2. 각 함수별 인자 개수가 문법에 맞는지 확인 (예: NULLIF는 2개 인자)
-  3. CASE마다 반드시 END가 존재하는지 확인
-  4. SELECT/INSERT/UPDATE 절에만 앞콤마를 적용하고, 함수 파라미터에서는 일반 콤마 사용
-
-  **수정 예시**
-  -- 잘못된 예시
-  ROUND(DECODE(qty, 0, amt, amt * mod_qty / NULLIF(qty, 0),), 5)
-
-  -- 올바른 예시
-  ROUND(DECODE(qty, 0, amt, amt * mod_qty / NULLIF(qty, 0)), 5);
+  - CURRENT_DATE → TRUNC(SYSDATE)
+  - CURRENT_TIME → TO_CHAR(SYSDATE, 'HH24:MI:SS')
+  - EXTRACT(field FROM source) → EXTRACT(field FROM source) (동일)
+  - DATE_PART('year', date) → EXTRACT(YEAR FROM date)
+  - DATE_PART('month', date) → EXTRACT(MONTH FROM date)
+  - DATE_PART('day', date) → EXTRACT(DAY FROM date)
+  - DATE_PART('hour', timestamp) → EXTRACT(HOUR FROM timestamp)
+  - DATE_TRUNC('day', timestamp) → TRUNC(timestamp)
+  - DATE_TRUNC('month', timestamp) → TRUNC(timestamp, 'MM')
+  - DATE_TRUNC('year', timestamp) → TRUNC(timestamp, 'YYYY')
+  - AGE(timestamp1, timestamp2) → (timestamp1 - timestamp2)
+  - date + INTERVAL 'n days' → date + n
+  - date + INTERVAL 'n months' → ADD_MONTHS(date, n)
+  - date + INTERVAL 'n years' → ADD_MONTHS(date, n*12)
+  - date - INTERVAL 'n days' → date - n
+  - TO_CHAR(date, format) → TO_CHAR(date, format) (포맷 문자열 변환 필요)
+  - TO_DATE(str, format) → TO_DATE(str, format) (포맷 문자열 변환 필요)
+  - TO_TIMESTAMP(str, format) → TO_TIMESTAMP(str, format)
+  
+  **날짜 포맷 변환**
+  PostgreSQL → Oracle
+  - 'YYYY-MM-DD' → 'YYYY-MM-DD' (동일)
+  - 'YYYY-MM-DD HH24:MI:SS' → 'YYYY-MM-DD HH24:MI:SS' (동일)
+  - 'Mon' → 'Mon' (동일)
+  - 'Day' → 'Day' (동일)
+  
+  **2.4 집계 함수**
+  - COUNT(*) → COUNT(*) (동일)
+  - COUNT(column) → COUNT(column) (동일)
+  - SUM(column) → SUM(column) (동일)
+  - AVG(column) → AVG(column) (동일)
+  - MIN(column) → MIN(column) (동일)
+  - MAX(column) → MAX(column) (동일)
+  - STRING_AGG(column, delimiter) → LISTAGG(column, delimiter) WITHIN GROUP (ORDER BY ...)
+  - ARRAY_AGG(column) → COLLECT(column) (12c+) 또는 사용자정의 타입
+  
+  **2.5 조건 함수 (실행 결과 동일성 핵심)**
+  - COALESCE(v1, v2, ...) → COALESCE(v1, v2, ...) (동일)
+  - NULLIF(v1, v2) → NULLIF(v1, v2) (동일)
+  - CASE WHEN ... THEN ... ELSE ... END → CASE WHEN ... THEN ... ELSE ... END (동일)
+  - DECODE는 Oracle 고유 함수, 필요시 사용 가능
+  
+  **2.6 시퀀스**
+  - nextval('sequence_name') → sequence_name.NEXTVAL
+  - currval('sequence_name') → sequence_name.CURRVAL
+  - setval('sequence_name', value) → ALTER SEQUENCE sequence_name RESTART START WITH value (DDL)
+  
+  **2.7 타입 캐스팅 (의미론적 동등성)**
+  PostgreSQL의 :: 연산자 → Oracle CAST 또는 TO_* 함수
+  - value::INTEGER → CAST(value AS NUMBER) 또는 TO_NUMBER(value)
+  - value::VARCHAR → CAST(value AS VARCHAR2(...)) 또는 TO_CHAR(value)
+  - value::DATE → CAST(value AS DATE) 또는 TO_DATE(value, format)
+  - value::TIMESTAMP → CAST(value AS TIMESTAMP) 또는 TO_TIMESTAMP(value, format)
+  - value::NUMERIC(p,s) → CAST(value AS NUMBER(p,s))
+  
+  **Oracle CAST 함수 사용 우선**
+  - CAST(expr AS type)는 Oracle 표준 문법
 
   ======================================================================
-  🔗 JOIN 구문 표준화
+  🔄 3. DML 구문 변환 (실행 결과 동일 보장)
   ======================================================================
-  - LEFT JOIN  → LEFT OUTER JOIN
-  - RIGHT JOIN → RIGHT OUTER JOIN (또는 테이블 순서를 바꿔 LEFT OUTER JOIN)
-  - FULL JOIN  → FULL OUTER JOIN
-  - CROSS JOIN은 그대로 CROSS JOIN 사용
-  - 오래된 스타일의 조인(`FROM a, b WHERE a.id = b.id`)은 가능하면
-    `FROM a JOIN b ON a.id = b.id` 형태로 명시적인 JOIN으로 변경
+  
+  **3.1 SELECT 구문**
+  
+  **LIMIT / OFFSET → FETCH FIRST (Oracle 12c+)**
+  PostgreSQL:
+    SELECT * FROM table LIMIT 10 OFFSET 5;
+  
+  Oracle (12c+):
+    SELECT * FROM table
+    ORDER BY rowid  -- 일관된 결과를 위해 정렬 필요
+    OFFSET 5 ROWS FETCH FIRST 10 ROWS ONLY;
+  
+  **FOR UPDATE**
+  - FOR UPDATE → FOR UPDATE (동일)
+  - FOR UPDATE NOWAIT → FOR UPDATE NOWAIT (동일)
+  - FOR UPDATE SKIP LOCKED → FOR UPDATE SKIP LOCKED (12c+)
+  
+  **DISTINCT ON (PostgreSQL 고유)**
+  PostgreSQL:
+    SELECT DISTINCT ON (column1) column1, column2 FROM table;
+  
+  Oracle (ROW_NUMBER 사용):
+    SELECT column1, column2
+    FROM (
+        SELECT column1, column2,
+               ROW_NUMBER() OVER (PARTITION BY column1 ORDER BY column1) AS rn
+        FROM table
+    )
+    WHERE rn = 1;
+  
+  **3.2 INSERT 구문**
+  
+  **RETURNING 절 (Oracle의 RETURNING INTO)**
+  PostgreSQL:
+    INSERT INTO table (col1, col2) VALUES (val1, val2) RETURNING id;
+  
+  Oracle (PL/SQL 내부):
+    INSERT INTO table (col1, col2) VALUES (val1, val2)
+    RETURNING id INTO v_id;
+  
+  **ON CONFLICT (PostgreSQL) → MERGE (Oracle)**
+  PostgreSQL:
+    INSERT INTO table (id, name, value)
+    VALUES (1, 'test', 100)
+    ON CONFLICT (id) DO UPDATE SET value = EXCLUDED.value;
+  
+  Oracle:
+    MERGE INTO table t
+    USING (SELECT 1 AS id, 'test' AS name, 100 AS value FROM dual) s
+    ON (t.id = s.id)
+    WHEN MATCHED THEN
+        UPDATE SET t.value = s.value
+    WHEN NOT MATCHED THEN
+        INSERT (id, name, value)
+        VALUES (s.id, s.name, s.value);
+  
+  **3.3 UPDATE 구문**
+  
+  **UPDATE ... FROM (PostgreSQL) → MERGE 또는 서브쿼리 (Oracle)**
+  
+  PostgreSQL:
+    UPDATE target t
+    SET col1 = s.new_col1,
+        col2 = s.new_col2
+    FROM source_table s
+    WHERE t.id = s.id;
+  
+  Oracle (MERGE 사용, 실행 결과 동일):
+    MERGE INTO target t
+    USING source_table s
+    ON (t.id = s.id)
+    WHEN MATCHED THEN
+        UPDATE SET t.col1 = s.new_col1,
+                   t.col2 = s.new_col2;
+  
+  또는 서브쿼리 사용:
+    UPDATE target t
+    SET (col1, col2) = (
+        SELECT s.new_col1, s.new_col2
+        FROM source_table s
+        WHERE s.id = t.id
+    )
+    WHERE EXISTS (
+        SELECT 1 FROM source_table s WHERE s.id = t.id
+    );
+  
+  **3.4 DELETE 구문**
+  
+  **USING 절 (PostgreSQL)**
+  PostgreSQL:
+    DELETE FROM target t
+    USING source_table s
+    WHERE t.id = s.id;
+  
+  Oracle:
+    DELETE FROM target t
+    WHERE EXISTS (
+        SELECT 1 FROM source_table s WHERE s.id = t.id
+    );
+  
+  **3.5 WITH 절 (CTE, Common Table Expression)**
+  
+  **기본 원칙**
+  - Oracle 12c 이상에서 WITH 절 지원
+  - PL/SQL 블록 내부에서도 사용 가능 (12c+)
+  - 복잡한 의존성이 있는 경우 서브쿼리로 변환 고려
+  
+  **단순 CTE (유지 가능)**
+  PostgreSQL/Oracle 동일:
+    WITH temp AS (
+        SELECT id, name FROM table WHERE status = 'ACTIVE'
+    )
+    SELECT * FROM temp;
+  
+  **재귀 CTE**
+  PostgreSQL/Oracle 동일 (CONNECT BY 대신 재귀 CTE 사용 권장):
+    WITH RECURSIVE cte AS (
+        SELECT id, parent_id, name, 1 AS level
+        FROM table
+        WHERE parent_id IS NULL
+        UNION ALL
+        SELECT t.id, t.parent_id, t.name, c.level + 1
+        FROM table t
+        JOIN cte c ON t.parent_id = c.id
+    )
+    SELECT * FROM cte;
+  
+  **복잡한 CTE (서브쿼리 변환 고려)**
+  실행 결과 동일성 보장이 어려운 경우, 서브쿼리로 변환하여 명확한 실행 순서 보장
 
   ======================================================================
-  ✅ 변환 시 최종 체크리스트 (컴파일 오류 방지용)
+  🏗️ 4. PL/SQL 구문 변환 (컴파일 성공 보장)
   ======================================================================
-  1. 모든 DML/SELECT INTO/DDL(동적 SQL 제외) 문 끝에 세미콜론(;)이 있는가?
-  2. 모든 서브쿼리에 alias가 있는가?
-  3. MERGE USING 절의 괄호 구조가 완전한가? 닫는 괄호 뒤에 alias가 있는가?
-  4. MERGE ON 절이 반드시 `ON ( ... )` 형태인가?
-  5. 함수/프로시저 인자 개수가 원본 PostgreSQL과 100% 일치하는가?
-  6. WITH/CTE가 모두 FROM 절 서브쿼리 구조로 올바르게 변환되었는가?
-  7. NVL, DECODE, NULLIF, CASE 등 모든 괄호와 END 짝이 맞는가?
-  8. CALL 키워드가 제거되고, 프로시저는 `schema.proc(args);` 형태로 호출되는가?
-  9. SELECT, INSERT, UPDATE 문의 컬럼 및 값 목록에 앞콤마 스타일을 적용하였는가?
-  10. 함수 호출 파라미터 목록과 CASE 구문, WHERE절 IN(...) 리스트에는 앞콤마를 사용하지 않고 일반 쉼표를 유지하였는가?
-  11. 서브쿼리 및 테이블 별칭 지정 시 `AS` 키워드를 사용하지 않았는가?
+  
+  **4.1 변수 선언**
+  
+  PostgreSQL:
+    DECLARE
+        v_count INTEGER;
+        v_name VARCHAR(100);
+  
+  Oracle:
+    DECLARE
+        v_count NUMBER(10);
+        v_name VARCHAR2(100);
+  
+  **%TYPE 및 %ROWTYPE (동일)**
+  - v_id table.column%TYPE; (동일)
+  - v_row table%ROWTYPE; (동일)
+  
+  **4.2 제어 구조**
+  
+  **IF 문 (동일)**
+    IF condition THEN
+        ...
+    ELSIF condition THEN
+        ...
+    ELSE
+        ...
+    END IF;
+  
+  **LOOP 문**
+  PostgreSQL/Oracle 동일:
+    LOOP
+        EXIT WHEN condition;
+        ...
+    END LOOP;
+  
+  **WHILE 문 (동일)**
+    WHILE condition LOOP
+        ...
+    END LOOP;
+  
+  **FOR 문 (동일)**
+    FOR i IN 1..10 LOOP
+        ...
+    END LOOP;
+  
+  **FOR ... IN 커서**
+    FOR rec IN (SELECT * FROM table) LOOP
+        ...
+    END LOOP;
+  
+  **4.3 예외 처리**
+  
+  **기본 구조 (동일)**
+    BEGIN
+        ...
+    EXCEPTION
+        WHEN NO_DATA_FOUND THEN
+            ...
+        WHEN OTHERS THEN
+            ...
+    END;
+  
+  **PostgreSQL 예외 → Oracle 예외**
+  - RAISE EXCEPTION 'message' → RAISE_APPLICATION_ERROR(-20001, 'message')
+  - RAISE NOTICE 'message' → DBMS_OUTPUT.PUT_LINE('message')
+  - RAISE WARNING 'message' → DBMS_OUTPUT.PUT_LINE('WARNING: message')
+  - RAISE INFO 'message' → DBMS_OUTPUT.PUT_LINE('INFO: message')
+  
+  **문자열 포맷팅**
+  PostgreSQL:
+    RAISE NOTICE 'Value: %, Count: %', var1, var2;
+  
+  Oracle:
+    DBMS_OUTPUT.PUT_LINE('Value: ' || var1 || ', Count: ' || var2);
+  
+  **4.4 커서**
+  
+  **명시적 커서 (동일 구조)**
+  PostgreSQL/Oracle:
+    DECLARE
+        CURSOR c_emp IS SELECT * FROM employees;
+        v_emp c_emp%ROWTYPE;
+    BEGIN
+        OPEN c_emp;
+        LOOP
+            FETCH c_emp INTO v_emp;
+            EXIT WHEN c_emp%NOTFOUND;
+            ...
+        END LOOP;
+        CLOSE c_emp;
+    END;
+  
+  **FOR 커서 (권장, 자동 관리)**
+    FOR rec IN (SELECT * FROM employees) LOOP
+        ...
+    END LOOP;
+  
+  **4.5 동적 SQL**
+  
+  **EXECUTE (PostgreSQL) → EXECUTE IMMEDIATE (Oracle)**
+  
+  PostgreSQL:
+    EXECUTE 'SELECT COUNT(*) FROM ' || table_name INTO v_count;
+  
+  Oracle:
+    EXECUTE IMMEDIATE 'SELECT COUNT(*) FROM ' || table_name INTO v_count;
+  
+  **동적 SQL with RETURNING**
+  Oracle:
+    EXECUTE IMMEDIATE 'INSERT INTO table VALUES (:1) RETURNING id INTO :2'
+        USING value RETURNING INTO v_id;
+  
+  **4.6 프로시저/함수 호출**
+  
+  **CALL 제거 (Oracle에서는 직접 호출)**
+  PostgreSQL:
+    CALL procedure_name(arg1, arg2);
+  
+  Oracle:
+    procedure_name(arg1, arg2);
+  
+  또는 EXECUTE로:
+    EXECUTE procedure_name(arg1, arg2);
+  
+  **함수 호출 (동일)**
+    v_result := function_name(arg1, arg2);
+  
+  **4.7 트랜잭션 제어**
+  
+  - COMMIT; (동일)
+  - ROLLBACK; (동일)
+  - SAVEPOINT name; (동일)
+  - ROLLBACK TO SAVEPOINT name; (동일)
+  
+  **자율 트랜잭션 (Oracle PRAGMA)**
+    PRAGMA AUTONOMOUS_TRANSACTION;
 
   ======================================================================
-  출력 형식
+  🔍 5. JOIN 및 서브쿼리 (Oracle 표준 문법)
   ======================================================================
-  아래 JSON 형식으로만 응답할 것:
+  
+  **5.1 JOIN 구문**
+  
+  Oracle은 ANSI JOIN과 전통적인 (+) 연산자 모두 지원하나, ANSI JOIN 권장:
+  
+  **INNER JOIN (동일)**
+    FROM table1 t1
+    INNER JOIN table2 t2 ON t1.id = t2.id
+  
+  **LEFT OUTER JOIN (동일)**
+    FROM table1 t1
+    LEFT OUTER JOIN table2 t2 ON t1.id = t2.id
+  
+  **RIGHT OUTER JOIN (동일)**
+    FROM table1 t1
+    RIGHT OUTER JOIN table2 t2 ON t1.id = t2.id
+  
+  또는 순서 변경 후 LEFT JOIN:
+    FROM table2 t2
+    LEFT OUTER JOIN table1 t1 ON t1.id = t2.id
+  
+  **FULL OUTER JOIN (동일)**
+    FROM table1 t1
+    FULL OUTER JOIN table2 t2 ON t1.id = t2.id
+  
+  **CROSS JOIN (동일)**
+    FROM table1 t1
+    CROSS JOIN table2 t2
+  
+  **5.2 서브쿼리**
+  
+  **스칼라 서브쿼리 (동일)**
+    SELECT (SELECT COUNT(*) FROM table2) AS cnt FROM table1;
+  
+  **IN 서브쿼리 (동일)**
+    WHERE column IN (SELECT id FROM table);
+  
+  **EXISTS 서브쿼리 (동일, 성능 권장)**
+    WHERE EXISTS (SELECT 1 FROM table2 WHERE table2.id = table1.id);
+  
+  **서브쿼리 별칭 (AS 키워드 생략)**
+  PostgreSQL:
+    FROM (SELECT * FROM table) AS sub
+  
+  Oracle (AS 생략):
+    FROM (SELECT * FROM table) sub
+  
+  **중요: Oracle에서 FROM 절 서브쿼리는 반드시 별칭 필요**
+    FROM (SELECT * FROM table) sub  -- sub 별칭 필수
+  
+  **5.3 LATERAL JOIN (Oracle 12c+: CROSS APPLY / OUTER APPLY)**
+  
+  PostgreSQL:
+    FROM table1 t1,
+    LATERAL (SELECT * FROM table2 WHERE table2.id = t1.id) t2
+  
+  Oracle:
+    FROM table1 t1
+    CROSS APPLY (SELECT * FROM table2 WHERE table2.id = t1.id) t2
+  
+  또는 LEFT LATERAL:
+    FROM table1 t1
+    OUTER APPLY (SELECT * FROM table2 WHERE table2.id = t1.id) t2
+
+  ======================================================================
+  🎨 6. 코드 스타일 (Oracle 권장 사항, 실행 결과와 무관)
+  ======================================================================
+  
+  **6.1 들여쓰기 및 가독성**
+  - 4칸 공백 들여쓰기 사용
+  - SQL 키워드는 대문자 (SELECT, FROM, WHERE, INSERT, UPDATE, DELETE 등)
+  - PL/SQL 키워드는 대문자 (BEGIN, END, IF, LOOP, DECLARE 등)
+  - 테이블명, 컬럼명, 변수명은 소문자 또는 원본 유지
+  
+  **6.2 SELECT 문 컬럼 정렬 (선호 스타일)**
+  
+  **선택 1: 선두 쉼표 (Leading Comma)**
+    SELECT col1
+         , col2
+         , col3
+      FROM table;
+  
+  **선택 2: 후행 쉼표 (Trailing Comma)**
+    SELECT col1,
+           col2,
+           col3
+      FROM table;
+  
+  ⚠️ 둘 다 허용, 일관성 유지가 중요
+  
+  **6.3 INSERT 문**
+    INSERT INTO table_name (
+        col1,
+        col2,
+        col3
+    ) VALUES (
+        val1,
+        val2,
+        val3
+    );
+  
+  **6.4 UPDATE 문**
+    UPDATE table_name
+       SET col1 = val1,
+           col2 = val2,
+           col3 = val3
+     WHERE condition;
+  
+  **6.5 함수 호출 인자**
+  함수/프로시저 호출 시에는 후행 쉼표 사용 (선두 쉼표 사용 안 함):
+    function_name(arg1, arg2, arg3);
+    DECODE(col, val1, result1, val2, result2, default);
+  
+  **6.6 세미콜론 (;)**
+  - 모든 PL/SQL 문장 끝에 세미콜론 필수
+  - SELECT, INSERT, UPDATE, DELETE, MERGE 모두 세미콜론으로 종료
+  - EXECUTE IMMEDIATE도 세미콜론으로 종료
+  
+  예시:
+    INSERT INTO table VALUES (1, 'test');
+    v_count := 10;
+    DBMS_OUTPUT.PUT_LINE('Done');
+
+  ======================================================================
+  🔒 7. 실행 결과 동일성 검증 핵심 사항
+  ======================================================================
+  
+  **7.1 NULL 처리 동일성**
+  - NULL과의 비교: PostgreSQL과 Oracle 모두 NULL = NULL은 FALSE
+  - NULL 정렬: ORDER BY에서 NULL 위치 명시 가능
+    - NULLS FIRST / NULLS LAST (PostgreSQL/Oracle 동일)
+  
+  **7.2 문자열 연결**
+  - PostgreSQL: 'a' || 'b' → 'ab'
+  - Oracle: 'a' || 'b' → 'ab' (동일)
+  - NULL 연결: 'a' || NULL || 'b'
+    - PostgreSQL: 'ab'
+    - Oracle: 'ab' (동일, NULL은 빈 문자열처럼 동작)
+  
+  **7.3 나눗셈 (Division by Zero)**
+  PostgreSQL:
+    SELECT 10 / 0;  -- 오류 발생
+  
+  Oracle:
+    SELECT 10 / 0 FROM dual;  -- 오류 발생
+  
+  둘 다 오류 발생, NULLIF 또는 CASE로 보호:
+    SELECT 10 / NULLIF(denominator, 0) FROM ...;
+  
+  **7.4 날짜 연산 동일성**
+  날짜 + 숫자:
+  - PostgreSQL: date + 1 (1일 추가)
+  - Oracle: date + 1 (1일 추가, 동일)
+  
+  날짜 차이:
+  - PostgreSQL: date1 - date2 → INTERVAL
+  - Oracle: date1 - date2 → NUMBER (일 수)
+  
+  차이가 있으므로, 일 수 계산 시:
+    EXTRACT(DAY FROM (date1 - date2)) 또는 TRUNC(date1 - date2)
+  
+  **7.5 정렬 순서 (ORDER BY)**
+  - 동일한 정렬 결과를 보장하려면 ORDER BY 절에 고유 컬럼 포함
+  - NULLS FIRST / NULLS LAST 명시
+  
+  예시:
+    ORDER BY column1 NULLS FIRST, id;
+  
+  **7.6 집계 함수와 NULL**
+  - COUNT(*): 모든 행 카운트 (PostgreSQL/Oracle 동일)
+  - COUNT(column): NULL 제외 카운트 (동일)
+  - SUM(column): NULL 무시 (동일)
+  - AVG(column): NULL 무시 (동일)
+  
+  **7.7 트랜잭션 격리 수준**
+  - PostgreSQL 기본: READ COMMITTED
+  - Oracle 기본: READ COMMITTED
+  - 동일한 격리 수준에서 동일한 결과 보장
+
+  ======================================================================
+  🧪 8. 특수 구문 변환 (실행 결과 동일 보장)
+  ======================================================================
+  
+  **8.1 MERGE 문 (Oracle 공식 문법)**
+  
+  **기본 구조**
+    MERGE INTO target_table t
+    USING source_table s
+    ON (t.id = s.id)
+    WHEN MATCHED THEN
+        UPDATE SET t.col1 = s.col1,
+                   t.col2 = s.col2
+    WHEN NOT MATCHED THEN
+        INSERT (id, col1, col2)
+        VALUES (s.id, s.col1, s.col2);
+  
+  **USING 절에 서브쿼리**
+    MERGE INTO target_table t
+    USING (
+        SELECT id, col1, col2
+          FROM source_table
+         WHERE status = 'ACTIVE'
+    ) s
+    ON (t.id = s.id)
+    WHEN MATCHED THEN
+        UPDATE SET t.col1 = s.col1;
+  
+  **중요 사항**
+  - USING 절 서브쿼리는 괄호로 감싸고 반드시 별칭 부여
+  - ON 절은 괄호로 감쌈: ON (조건)
+  - 서브쿼리 별칭에 AS 키워드 사용 안 함
+  
+  **8.2 RETURNING 절 (Oracle)**
+  
+  INSERT/UPDATE/DELETE 후 값 반환:
+    INSERT INTO table (col1, col2)
+    VALUES (val1, val2)
+    RETURNING id, created_at INTO v_id, v_created;
+  
+  **8.3 BULK COLLECT (Oracle 대량 처리)**
+  
+  대량 데이터 처리 시 성능 향상:
+    SELECT column BULK COLLECT INTO array_variable
+      FROM table
+     WHERE condition;
+  
+  **8.4 FORALL (Oracle 대량 DML)**
+  
+    FORALL i IN array_variable.FIRST..array_variable.LAST
+        INSERT INTO table VALUES (array_variable(i));
+  
+  **8.5 TABLE 함수 (Oracle Collection을 테이블처럼 사용)**
+  
+    SELECT * FROM TABLE(collection_variable);
+
+  ======================================================================
+  ✅ 9. 변환 체크리스트 (컴파일 및 실행 결과 보장)
+  ======================================================================
+  
+  **9.1 문법 체크 (컴파일 성공)**
+  ☐ 모든 데이터 타입이 Oracle에 맞게 변환되었는가?
+  ☐ 모든 함수가 Oracle 함수로 정확히 매핑되었는가?
+  ☐ 모든 :: 캐스팅이 CAST 또는 TO_* 함수로 변환되었는가?
+  ☐ CALL 키워드가 제거되었는가?
+  ☐ RAISE EXCEPTION이 RAISE_APPLICATION_ERROR로 변환되었는가?
+  ☐ RAISE NOTICE가 DBMS_OUTPUT.PUT_LINE으로 변환되었는가?
+  ☐ 모든 PL/SQL 문장이 세미콜론으로 종료되는가?
+  ☐ 서브쿼리에 별칭이 있는가? (AS 키워드 제거)
+  ☐ MERGE 문의 USING 절이 올바른 괄호 구조인가?
+  ☐ MERGE 문의 ON 절이 괄호로 감싸져 있는가?
+  ☐ UPDATE ... FROM이 MERGE 또는 서브쿼리로 변환되었는가?
+  ☐ LIMIT/OFFSET이 FETCH FIRST로 변환되었는가?
+  ☐ WITH 절(CTE)이 Oracle 12c+ 문법에 맞는가?
+  ☐ 괄호 짝이 모두 맞는가? (여는 괄호 == 닫는 괄호)
+  
+  **9.2 실행 결과 동일성 체크**
+  ☐ NULL 처리가 동일한가?
+  ☐ 날짜 연산 결과가 동일한가?
+  ☐ 문자열 연결 결과가 동일한가?
+  ☐ 집계 함수 결과가 동일한가?
+  ☐ 정렬 순서가 명확히 정의되었는가? (ORDER BY with NULLS FIRST/LAST)
+  ☐ 타입 변환이 데이터 손실 없이 이루어졌는가?
+  ☐ 나눗셈에서 0으로 나누는 경우가 동일하게 처리되는가?
+  ☐ 트랜잭션 경계가 동일한가? (COMMIT/ROLLBACK 위치)
+  ☐ 예외 발생 조건이 동일한가?
+  
+  **9.3 성능 고려사항 (선택적)**
+  ☐ EXISTS를 사용할 수 있는 곳에서 IN 대신 EXISTS를 사용했는가?
+  ☐ 불필요한 서브쿼리가 없는가?
+  ☐ BULK COLLECT/FORALL을 사용할 수 있는 대량 처리가 있는가?
+
+  ======================================================================
+  📤 출력 형식
+  ======================================================================
+  변환된 Oracle PL/SQL 코드를 아래 JSON 형식으로 반환:
 
   {
-    "code": "변환된 Oracle PL/SQL SP 전체 코드 문자열"
+    "code": "변환된 Oracle PL/SQL 코드 전체"
   }
+
+  **주의사항**
+  - "code" 필드에는 오직 실행 가능한 Oracle PL/SQL 코드만 포함
+  - 주석, 설명, 마크다운 없음
+  - JSON 형식 준수 (문자열 이스케이프 처리)
+  - 코드는 Oracle Database 12c 이상에서 컴파일 가능해야 함
+
+  ======================================================================
+  🎯 최종 확인 (출력 전)
+  ======================================================================
+  1. 코드가 Oracle에서 컴파일되는가?
+  2. 동일한 입력에 대해 PostgreSQL과 Oracle의 출력이 100% 일치하는가?
+  3. 모든 함수, 타입, 구문이 정확히 변환되었는가?
+  4. 괄호, 세미콜론, 별칭 등 문법 요소가 완벽한가?
+  
+  위 4가지가 모두 충족되어야 출력 가능합니다.
