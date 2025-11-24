@@ -304,13 +304,29 @@ class DbmsConversionGenerator:
         code = code.strip()
 
         if self.parent_stack:
-            self.parent_stack[-1]['children'].append(code)
-            logging.info(
-                "      🔁 상위 부모 children에 merge | 상위 라인=%s~%s | stack=%s",
-                self.parent_stack[-1]['start'],
-                self.parent_stack[-1]['end'],
-                len(self.parent_stack)
-            )
+            parent_entry = self.parent_stack[-1]
+            if parent_entry.get('is_dml'):
+                parent_entry['children'].append({
+                    'code': code,
+                    'start': entry.get('start'),
+                    'end': entry.get('end')
+                })
+                logging.info(
+                    "      🔁 상위 DML 부모 children에 dict merge | 부모 라인=%s~%s | child=%s~%s | stack=%s",
+                    parent_entry['start'],
+                    parent_entry['end'],
+                    entry.get('start'),
+                    entry.get('end'),
+                    len(self.parent_stack)
+                )
+            else:
+                parent_entry['children'].append(code)
+                logging.info(
+                    "      🔁 상위 부모 children에 merge | 상위 라인=%s~%s | stack=%s",
+                    parent_entry['start'],
+                    parent_entry['end'],
+                    len(self.parent_stack)
+                )
         else:
             self.merged_code += f"\n{code}"
             logging.info("      🧩 최상위 코드에 병합 완료")
