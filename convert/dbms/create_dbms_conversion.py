@@ -742,7 +742,7 @@ async def start_dbms_conversion(
               WITH p
               MATCH (p)-[:PARENT_OF]->(c)
               WHERE NOT c:DECLARE AND NOT c:Table AND NOT c:SPEC
-                AND c.token < 700
+                AND c.token < 1000
               WITH c, labels(c) AS cLabels, coalesce(toInteger(c.startLine), 0) AS sortKey
               RETURN c AS n, cLabels AS nodeLabels, NULL AS r, NULL AS m, sortKey
               
@@ -751,13 +751,13 @@ async def start_dbms_conversion(
               WITH p
               MATCH (p)-[:PARENT_OF]->(c)
               WHERE NOT c:DECLARE AND NOT c:Table AND NOT c:SPEC
-                AND coalesce(toInteger(c.token), 0) >= 700
+                AND coalesce(toInteger(c.token), 0) >= 1000
               WITH c
               MATCH path = (c)-[:PARENT_OF*0..]->(n)
               WHERE NOT n:DECLARE AND NOT n:Table AND NOT n:SPEC
               WITH n, path, nodes(path) AS pathNodes
               WHERE ALL(i IN range(0, size(pathNodes)-2) 
-                        WHERE coalesce(toInteger(pathNodes[i].token), 0) >= 700)
+                        WHERE coalesce(toInteger(pathNodes[i].token), 0) >= 1000)
               OPTIONAL MATCH (n)-[r]->(m {{
                 folder_name: '{folder_name}', file_name: '{file_name}', user_id: '{user_id}'
               }})
