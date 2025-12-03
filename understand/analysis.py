@@ -21,7 +21,7 @@ from prompt.understand_variables_prompt import understand_variables
 from prompt.understand_dml_table_prompt import understand_dml_tables
 from prompt.understand_table_summary_prompt import summarize_table_metadata
 from util.exception import LLMCallError, ProcessAnalyzeCodeError, UnderstandingError
-from util.utility_tool import calculate_code_token, escape_for_cypher, parse_table_identifier
+from util.utility_tool import calculate_code_token, escape_for_cypher, parse_table_identifier, log_process
 
 
 # ==================== 상수 정의 ====================
@@ -103,13 +103,7 @@ class StatementNode:
                 child_summary = child.summary.strip()
                 summary_line = f"{child.start_line}~{child.end_line}: {child_summary}"
             else:
-                logging.info(
-                    "[수집] 자식 요약 없음, 원문 유지 (부모 %s~%s → 자식 %s~%s)",
-                    self.start_line,
-                    self.end_line,
-                    child.start_line,
-                    child.end_line,
-                )
+                log_process("UNDERSTAND", "COLLECT", f"⚠️ 부모 {self.start_line}~{self.end_line}의 자식 {child.start_line}~{child.end_line} 요약 없음 - 원문 보관")
                 summary_line = '\n'.join(
                     f"{line_no}: {text}"
                     for line_no, text in child.lines
@@ -313,7 +307,7 @@ class StatementCollector:
                     end_line=end_line,
                 )
                 proc_name_log = name_candidate or procedure_key
-                logging.info("[수집] 프로시저 선언: %s (라인 %s~%s)", proc_name_log, start_line, end_line)
+                log_process("UNDERSTAND", "COLLECT", f"📋 프로시저 선언 발견: {proc_name_log} (라인 {start_line}~{end_line})")
 
         for child in children:
             child_node = self._visit(child, procedure_key, procedure_type, schema_name)
@@ -354,14 +348,7 @@ class StatementCollector:
             statement_node.completion_event.set()
 
         self.nodes.append(statement_node)
-        logging.info(
-            "[수집] %s 노드 처리 (라인 %s~%s, 토큰 %s, 자식 %s개)",
-            node_type,
-            start_line,
-            end_line,
-            token,
-            len(child_nodes),
-        )
+        log_process("UNDERSTAND", "COLLECT", f"✅ {node_type} 노드 수집 완료: 라인 {start_line}~{end_line}, 토큰 {token}, 자식 {len(child_nodes)}개")
         return statement_node
 
 
@@ -388,25 +375,13 @@ class BatchPlanner:
                 # 부모 노드는 자식 요약이 모두 준비된 상태에서 단독으로 LLM에 전달합니다.
                 if current_nodes:
                     # 현재까지 누적된 리프 배치를 먼저 확정합니다.
-                    logging.info(
-                        "[배치] #%s 리프 %s개 확정 (토큰 %s/%s)",
-                        batch_id,
-                        len(current_nodes),
-                        current_tokens,
-                        self.token_limit,
-                    )
+                    log_process("UNDERSTAND", "BATCH", f"📦 배치 #{batch_id} 확정: 리프 노드 {len(current_nodes)}개 (토큰 {current_tokens}/{self.token_limit})")
                     batches.append(self._create_batch(batch_id, current_nodes))
                     batch_id += 1
                     current_nodes = []
                     current_tokens = 0
 
-                logging.info(
-                    "[배치] #%s 부모 노드 단독 실행 (라인 %s~%s, 토큰 %s)",
-                    batch_id,
-                    node.start_line,
-                    node.end_line,
-                    node.token,
-                )
+                log_process("UNDERSTAND", "BATCH", f"📦 배치 #{batch_id} 확정: 부모 노드 단독 실행 (라인 {node.start_line}~{node.end_line}, 토큰 {node.token})")
                 batches.append(self._create_batch(batch_id, [node]))
                 batch_id += 1
                 continue
@@ -414,12 +389,7 @@ class BatchPlanner:
             # 현재 배치가 토큰 한도를 초과한다면 쌓인 리프 노드들을 먼저 실행합니다.
             if current_nodes and current_tokens + node.token > self.token_limit:
                 # 토큰 한도를 초과하기 직전 배치를 확정합니다.
-                logging.info(
-                    "[배치] #%s 토큰 한도 도달, 먼저 실행 (누적 %s/%s)",
-                    batch_id,
-                    current_tokens,
-                    self.token_limit,
-                )
+                log_process("UNDERSTAND", "BATCH", f"📦 배치 #{batch_id} 확정: 토큰 한도 도달로 선 실행 (누적 {current_tokens}/{self.token_limit})")
                 batches.append(self._create_batch(batch_id, current_nodes))
                 batch_id += 1
                 current_nodes = []
@@ -430,13 +400,7 @@ class BatchPlanner:
 
         if current_nodes:
             # 남아 있는 노드가 있으면 마무리 배치로 추가합니다.
-            logging.info(
-                "[배치] #%s 마지막 리프 %s개 확정 (토큰 %s/%s)",
-                batch_id,
-                len(current_nodes),
-                current_tokens,
-                self.token_limit,
-            )
+            log_process("UNDERSTAND", "BATCH", f"📦 배치 #{batch_id} 확정: 마지막 리프 노드 {len(current_nodes)}개 (토큰 {current_tokens}/{self.token_limit})")
             batches.append(self._create_batch(batch_id, current_nodes))
 
         return batches
@@ -590,18 +554,10 @@ class ApplyManager:
 
         for node, analysis in summary_nodes:
             if not analysis:
-                logging.info(
-                    "[적용] 요약 없음, 건너뜀 (라인 %s~%s)",
-                    node.start_line,
-                    node.end_line,
-                )
+                log_process("UNDERSTAND", "APPLY", f"⚠️ LLM이 {node.start_line}~{node.end_line} 구간에 요약을 반환하지 않음 - 건너뜀")
                 node.completion_event.set()
                 continue
-            logging.info(
-                "[적용] 요약 반영 (라인 %s~%s)",
-                node.start_line,
-                node.end_line,
-            )
+            log_process("UNDERSTAND", "APPLY", f"✅ {node.start_line}~{node.end_line} 구간 요약을 Neo4j 그래프에 반영")
             # LLM 결과를 Neo4j 쿼리로 변환하고 내부 요약 저장소를 갱신합니다.
             cypher_queries.extend(self._build_node_queries(node, analysis))
             self._update_summary_store(node, analysis)
@@ -617,18 +573,9 @@ class ApplyManager:
             cypher_queries.extend(self._build_table_queries(result.batch, result.table_result))
 
         if cypher_queries:
-            logging.info(
-                "[적용] %s 쿼리 전송 (%s개)",
-                self.folder_file,
-                len(cypher_queries),
-            )
+            log_process("UNDERSTAND", "APPLY", f"📤 {self.folder_file}에 Cypher 쿼리 {len(cypher_queries)}건 전송")
         await self._send_queries(cypher_queries, result.batch.progress_line)
-        logging.info(
-            "[적용] 배치 #%s 완료 (노드 %s개, 테이블 %s)",
-            result.batch.batch_id,
-            len(result.batch.nodes),
-            '있음' if result.table_result else '없음',
-        )
+        log_process("UNDERSTAND", "APPLY", f"✅ 배치 #{result.batch.batch_id} 적용 완료: 노드 {len(result.batch.nodes)}개, 테이블 분석 {'있음' if result.table_result else '없음'}")
 
     def _build_node_queries(self, node: StatementNode, analysis: Dict[str, Any]) -> List[str]:
         """일반 노드 요약 결과를 Neo4j 쿼리 리스트로 변환합니다."""
@@ -941,7 +888,7 @@ class ApplyManager:
         try:
             summary_result = await asyncio.to_thread(understand_summary, summaries, self.api_key, self.locale)
         except Exception as exc:  # pragma: no cover - defensive
-            logging.error("프로시저 요약 생성 중 오류: %s", exc)
+            log_process("UNDERSTAND", "SUMMARY", f"❌ {info.procedure_name} 프로시저 요약 생성 중 오류 발생", logging.ERROR, exc)
             return
 
         summary_value = summary_result.get('summary') if isinstance(summary_result, dict) else None
@@ -954,11 +901,7 @@ class ApplyManager:
             f"SET n.summary = {summary_json}"
         )
         await self._send_queries([query], info.end_line)
-        logging.info(
-            "[적용] 프로시저 요약 완료: %s (%s)",
-            info.procedure_name,
-            self.folder_file,
-        )
+        log_process("UNDERSTAND", "SUMMARY", f"✅ {info.procedure_name} 프로시저 요약을 Neo4j에 반영 완료 ({self.folder_file})")
 
     async def _finalize_remaining_procedures(self):
         """아직 요약이 남아 있는 프로시저가 있다면 마지막으로 처리합니다."""
@@ -979,7 +922,7 @@ class ApplyManager:
             response = await self.receive_queue.get()
             if response.get('type') == 'process_completed':
                 break
-        logging.info("[적용] %s Neo4j 저장 완료", self.folder_name)
+        log_process("UNDERSTAND", "APPLY", f"✅ {self.folder_name}에 대한 Neo4j 반영 완료")
 
     def _build_table_merge(self, table_name: str, schema: Optional[str]) -> str:
         schema_value = schema or ''
@@ -1286,11 +1229,7 @@ class Analyzer:
         proc_labels = sorted({node.procedure_name or "" for node in targets})
         if proc_labels:
             label_text = ', '.join(label for label in proc_labels if label) or '익명 프로시저'
-            logging.info(
-                "[변수] 변수 분석 시작: %s (%s)",
-                label_text,
-                self.folder_file,
-            )
+            log_process("UNDERSTAND", "VAR", f"🔍 변수 선언 분석 시작: {label_text} ({self.folder_file})")
 
         semaphore = asyncio.Semaphore(VARIABLE_CONCURRENCY)
 
@@ -1305,7 +1244,7 @@ class Analyzer:
                         self.locale,
                     )
                 except Exception as exc:  # pragma: no cover - defensive logging
-                    logging.error("변수 선언 분석 중 오류: %s", exc)
+                    log_process("UNDERSTAND", "VAR", f"❌ {node.node_type} ({node.start_line}~{node.end_line}) 변수 분석 중 오류 발생", logging.ERROR, exc)
                     return
 
                 queries = self._build_variable_queries(node, result)
@@ -1315,11 +1254,7 @@ class Analyzer:
 
         await asyncio.gather(*(worker(node) for node in targets))
         if proc_labels:
-            logging.info(
-                "[변수] 변수 분석 완료: %s (%s)",
-                label_text,
-                self.folder_file,
-            )
+            log_process("UNDERSTAND", "VAR", f"✅ 변수 선언 분석 완료: {label_text} ({self.folder_file})")
 
     def _build_variable_queries(self, node: StatementNode, analysis: Dict[str, Any]) -> List[str]:
         """변수 분석 결과를 Neo4j 쿼리로 변환합니다."""
@@ -1390,7 +1325,7 @@ class Analyzer:
 
     async def run(self):
         """파일 단위 Understanding 파이프라인을 실행합니다."""
-        logging.info("[진행] %s 분석 시작 (총 %s줄)", self.folder_file, self.last_line)
+        log_process("UNDERSTAND", "START", f"🚀 {self.folder_file} 분석 시작 (총 {self.last_line}줄)")
         try:
             collector = StatementCollector(self.antlr_data, self.file_content, self.folder_name, self.file_name)
             # 1) AST를 평탄화하여 StatementNode 목록을 얻습니다.
@@ -1431,12 +1366,7 @@ class Analyzer:
                 # 부모 노드가 포함된 배치라면 자식 완료를 기다립니다.
                 await self._wait_for_dependencies(batch)
                 async with semaphore:
-                    logging.info(
-                        "[LLM] 배치 #%s 요청 (노드 %s개, %s)",
-                        batch.batch_id,
-                        len(batch.nodes),
-                        self.folder_file,
-                    )
+                    log_process("UNDERSTAND", "LLM", f"🤖 배치 #{batch.batch_id} LLM 요청: 노드 {len(batch.nodes)}개 ({self.folder_file})")
                     # LLM 호출은 일반 요약과 테이블 요약을 동시에 요청합니다.
                     general, table = await invoker.invoke(batch)
                 await apply_manager.submit(batch, general, table)
@@ -1445,16 +1375,16 @@ class Analyzer:
             # 모든 배치 제출이 끝나면 요약/테이블 설명 후처리를 마무리합니다.
             await apply_manager.finalize()
 
-            logging.info("[진행] %s 분석 완료", self.folder_file)
+            log_process("UNDERSTAND", "DONE", f"✅ {self.folder_file} 분석 완료")
             await self.send_queue.put({"type": "end_analysis"})
 
         except (UnderstandingError, LLMCallError) as exc:
-            logging.error("Understanding 오류: %s", exc)
+            log_process("UNDERSTAND", "ERROR", "❌ Understanding 파이프라인에서 예외 발생", logging.ERROR, exc)
             await self.send_queue.put({'type': 'error', 'message': str(exc)})
             raise
         except Exception as exc:
             err_msg = f"Understanding 과정에서 오류가 발생했습니다: {exc}"
-            logging.exception(err_msg)
+            log_process("UNDERSTAND", "ERROR", f"❌ {err_msg}", logging.ERROR, exc)
             await self.send_queue.put({'type': 'error', 'message': err_msg})
             raise ProcessAnalyzeCodeError(err_msg)
 
@@ -1468,10 +1398,6 @@ class Analyzer:
                     # 자식 노드의 completion_event를 모아 비동기적으로 대기합니다.
                     waiters.append(child.completion_event.wait())
         if waiters:
-            logging.info(
-                "[대기] 배치 #%s 자식 요약 대기 (%s개)",
-                batch.batch_id,
-                len(waiters),
-            )
+            log_process("UNDERSTAND", "WAIT", f"⏳ 배치 #{batch.batch_id}가 부모 분석 시작 전 자식 {len(waiters)}개 요약 완료 대기")
             await asyncio.gather(*waiters)
 

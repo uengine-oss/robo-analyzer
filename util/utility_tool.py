@@ -16,6 +16,20 @@ from typing import Optional, Dict, List, Tuple, Any, Union
 
 from util.exception import UtilProcessingError
 
+
+def log_process(context: str, stage: str, message: str, level: int = logging.INFO, exc: Exception | None = None) -> None:
+    """
+    공통 파이프라인 로그 출력 헬퍼.
+    - context: 'DBMS', 'UNDERSTAND' 등 서비스 이름
+    - stage: 논리적 단계 이름
+    - message: 사용자 친화적 설명
+    - level: logging 모듈 레벨
+    - exc: 예외 객체 전달 시 스택 트레이스까지 출력
+    """
+    ctx = (context or "APP").upper()
+    stage_text = (stage or "STAGE").upper()
+    logging.log(level, f"[{ctx}:{stage_text}] {message}", exc_info=exc)
+
 # tiktoken 인코더 초기화
 ENCODER = tiktoken.get_encoding("cl100k_base")
 
