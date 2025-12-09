@@ -19,6 +19,7 @@ from prompt.understand_variables_prompt import resolve_table_variable_type
 from prompt.understand_column_prompt import understand_column_roles
 from understand.neo4j_connection import Neo4jConnection
 from understand.analysis import Analyzer
+from understand.strategy.dbms_strategy import DbmsUnderstandingStrategy
 from util.exception import FileProcessingError
 from util.utility_tool import parse_table_identifier, emit_message, emit_data, emit_error, escape_for_cypher, parse_json_maybe
 from util.llm_client import get_llm
@@ -36,7 +37,17 @@ class ServiceOrchestrator:
     Understanding과 Converting 전체 프로세스를 관리하는 오케스트레이터 클래스
     """
 
-    def __init__(self, user_id: str, api_key: str, locale: str, project_name: str, dbms: str, target_lang: str = 'java', update_mode: str = 'merge'):
+    def __init__(
+        self,
+        user_id: str,
+        api_key: str,
+        locale: str,
+        project_name: str,
+        dbms: str,
+        target_lang: str = 'java',
+        update_mode: str = 'merge',
+        analysis_strategy: str = 'dbms',
+    ):
         """
         ServiceOrchestrator 초기화
         
@@ -55,6 +66,7 @@ class ServiceOrchestrator:
         self.dbms = dbms
         self.target_lang = target_lang
         self.update_mode = update_mode if update_mode in ('skip', 'merge') else 'merge'
+        self.analysis_strategy = (analysis_strategy or 'dbms').lower()
         self.project_name_cap = project_name.capitalize() if project_name else ''
         
         # 디렉토리 경로 설정
@@ -173,6 +185,7 @@ class ServiceOrchestrator:
             locale=self.locale,
             dbms=self.dbms,
             project_name=self.project_name,
+            strategy=self._select_understanding_strategy(),
         )
         analysis_task = asyncio.create_task(analyzer.run())
 
@@ -192,8 +205,10 @@ class ServiceOrchestrator:
                 break
 
             if result_type == 'error':
-                logging.info(f"Understanding Failed for {file_name}")
-                break
+                error_message = analysis_result.get('message', f'Understanding failed for {file_name}')
+                logging.error(f"Understanding Failed for {file_name}: {error_message}")
+                yield emit_error(error_message)
+                return
 
             # 중간 진행 상황 전송
             next_analysis_line = analysis_result['line_number']
@@ -203,6 +218,14 @@ class ServiceOrchestrator:
             await events_to_analyzer.put({'type': 'process_completed'})
 
         await analysis_task
+
+    def _select_understanding_strategy(self):
+        """요청된 analysis_strategy에 따라 Understanding 전략을 선택."""
+        name = (self.analysis_strategy or 'dbms').lower()
+        if name in ('dbms', 'sp', 'rdbms'):
+            return DbmsUnderstandingStrategy()
+        # framework 전략은 아직 미구현이므로 명시적으로 차단
+        raise HTTPException(status_code=400, detail=f"지원하지 않는 분석 전략입니다: {name}")
 
     async def _postprocess_file(self, connection: Neo4jConnection, folder_name: str, 
                                 file_name: str, file_pairs: list) -> None:

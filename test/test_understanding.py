@@ -40,6 +40,7 @@ TEST_API_KEY = os.getenv("LLM_API_KEY")
 TEST_DB_NAME = _env("TEST_DB_NAME", "test")
 TEST_LOCALE = _env("TEST_LOCALE", "ko")
 TEST_DBMS = _env("TEST_DBMS", "postgres")
+TEST_ANALYSIS_STRATEGY = _env("TEST_ANALYSIS_STRATEGY", "dbms").lower()
 
 DEFAULT_DATA_DIR = PROJECT_ROOT.parent / "data" / TEST_USER_ID / TEST_PROJECT_NAME
 TEST_DATA_DIR = Path(os.getenv(DATA_DIR_ENV_KEY, str(DEFAULT_DATA_DIR))).expanduser()
@@ -75,6 +76,7 @@ def _create_orchestrator() -> ServiceOrchestrator:
         locale=TEST_LOCALE,
         project_name=TEST_PROJECT_NAME,
         dbms=TEST_DBMS,
+        analysis_strategy=TEST_ANALYSIS_STRATEGY,
     )
 
 

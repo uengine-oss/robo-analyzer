@@ -47,11 +47,12 @@ def _locale(request: Request) -> str:
     return request.headers.get('Accept-Language', 'ko')
 
 
-def _extract_payload(file_data: dict) -> tuple[str, str, list[tuple[str, str]], str]:
-    """요청 JSON에서 projectName, dbms, (systemName, fileName) 리스트, targetLang을 추출"""
+def _extract_payload(file_data: dict) -> tuple[str, str, list[tuple[str, str]], str, str]:
+    """요청 JSON에서 projectName, dbms, (systemName, fileName) 리스트, targetLang, analysisStrategy를 추출"""
     project_name = file_data.get('projectName')
     dbms = (file_data.get('dbms') or 'postgres').strip().lower()
     target_lang = (file_data.get('targetLang') or 'java').strip().lower()
+    analysis_strategy = (file_data.get('analysisStrategy') or 'dbms').strip().lower()
     
     if not project_name:
         raise HTTPException(status_code=400, detail="projectName이 없습니다.")
@@ -66,7 +67,7 @@ def _extract_payload(file_data: dict) -> tuple[str, str, list[tuple[str, str]], 
     if not files:
         raise HTTPException(status_code=400, detail="시스템 또는 파일 정보가 없습니다.")
     
-    return project_name, dbms, files, target_lang
+    return project_name, dbms, files, target_lang, analysis_strategy
 
 
 #-------------------------------------------------------------------------#
@@ -78,11 +79,19 @@ async def understand_data(request: Request):
     from util.utility_tool import stream_with_error_boundary
     file_data = await request.json()
     user_id, api_key = await _resolve_user_and_api_key(request, missing_env_status=401)
-    project_name, dbms, file_names, target_lang = _extract_payload(file_data)
+    project_name, dbms, file_names, target_lang, analysis_strategy = _extract_payload(file_data)
 
     logging.info("User ID: %s, Project: %s, DBMS: %s, Target: %s, Files: %d", user_id, project_name, dbms, target_lang, len(file_names))
 
-    orchestrator = ServiceOrchestrator(user_id, api_key, _locale(request), project_name, dbms, target_lang)
+    orchestrator = ServiceOrchestrator(
+        user_id=user_id,
+        api_key=api_key,
+        locale=_locale(request),
+        project_name=project_name,
+        dbms=dbms,
+        target_lang=target_lang,
+        analysis_strategy=analysis_strategy,
+    )
     await orchestrator.validate_api_key()
 
     return StreamingResponse(stream_with_error_boundary(orchestrator.understand_project(file_names)))
@@ -136,7 +145,7 @@ async def convert_project(request: Request):
     from util.utility_tool import stream_with_error_boundary
     file_data = await request.json()
     user_id, api_key = await _resolve_user_and_api_key(request, missing_env_status=400)
-    project_name, dbms, file_names, target_lang = _extract_payload(file_data)
+    project_name, dbms, file_names, target_lang, _analysis_strategy = _extract_payload(file_data)
 
     # 변환 옵션 추출
     conversion_type = file_data.get('conversionType', 'framework')

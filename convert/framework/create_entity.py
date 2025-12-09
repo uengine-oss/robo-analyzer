@@ -61,13 +61,19 @@ class EntityGenerator:
             table_rows = (await connection.execute_queries([f"""
                 MATCH (t:Table {{user_id: '{self.user_id}', project_name: '{self.project_name}'}})
                 OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column {{user_id: '{self.user_id}', project_name: '{self.project_name}'}})
-                WITH t, collect({{
+                WITH t, collect(c) AS column_nodes
+                WITH t, [c IN column_nodes WHERE c IS NOT NULL | {{
                     name: c.name,
                     dtype: coalesce(c.dtype, ''),
-                    nullable: toBoolean(c.nullable),
+                    nullable: CASE 
+                        WHEN c.nullable IS NULL THEN true
+                        WHEN toLower(toString(c.nullable)) = 'true' THEN true
+                        WHEN toLower(toString(c.nullable)) = 'false' THEN false
+                        ELSE true
+                    END,
                     comment: coalesce(c.description, ''),
-                    pk: coalesce(c.pk_constraint,'') <> ''
-                }}) AS columns
+                    pk: coalesce(c.pk_constraint, '') <> ''
+                }}] AS columns
                 RETURN coalesce(t.schema,'') AS schema, t.name AS name, columns
                 ORDER BY name
             """]))[0]
