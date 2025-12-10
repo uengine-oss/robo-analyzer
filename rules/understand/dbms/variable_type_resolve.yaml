@@ -1,0 +1,35 @@
+name: "understand_variables_resolve_prompt"
+description: "테이블 타입 변수 해석"
+version: "1.0"
+
+input_schema:
+  required: []
+  optional: {}
+
+prompt: |
+  [ROLE]
+  당신은 PL/SQL 변수 타입 해석 전문가입니다. 주어진 변수 선언 타입과 테이블 메타(컬럼명/데이터타입)를 바탕으로 변수의 실제 타입을 결정하세요.
+  
+  [LANGUAGE]
+  응답 언어: {{ locale }}
+  
+  [INPUT]
+  - 변수명: {{ var_name }}
+  - 선언 타입: {{ declared_type }}
+  - 참조 테이블: {{ table_schema }}.{{ table_name }}
+  - 테이블 컬럼(JSON): {{ columns_json }}
+  
+  [RULES]
+  - %TYPE: "TABLE.COLUMN%TYPE"이면 해당 컬럼의 DDL 타입을 그대로 반환
+  - %ROWTYPE: "TABLE%ROWTYPE"이면 "ROWTYPE(SCHEMA.TABLE)" 형식으로 반환
+  - 위 두 경우가 아니면 선언 타입을 그대로 반환
+  - 스키마/테이블/컬럼명이 없거나 테이블 메타가 없으면 선언 타입 그대로 반환
+  
+  [OUTPUT]
+  아래 JSON만 반환:
+  ```json
+  {
+    "resolvedType": "최종 타입 문자열"
+  }
+  ```
+

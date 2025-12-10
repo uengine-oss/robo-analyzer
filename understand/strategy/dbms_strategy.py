@@ -5,10 +5,12 @@ import json
 import logging
 from typing import Any, Dict, List, Optional, Tuple
 
-from prompt.understand_prompt import understand_code
-from prompt.understand_dml_table_prompt import understand_dml_tables
-from prompt.understand_table_summary_prompt import summarize_table_metadata
-from prompt.understand_summarized_prompt import understand_summary
+from understand.rules import (
+    understand_code,
+    understand_dml_tables,
+    summarize_table_metadata,
+    understand_summary,
+)
 from util.utility_tool import escape_for_cypher, parse_table_identifier, log_process
 
 # DBMS 전용 상수 (전략 내부에 보관)
@@ -824,7 +826,7 @@ class DbmsUnderstandingStrategy:
 
     async def process_variables(self, analyzer, nodes):
         """DBMS 변수 선언 처리를 수행합니다."""
-        from prompt.understand_variables_prompt import understand_variables  # 지연 import
+        from understand.rules import understand_variables  # 지연 import
 
         targets = [node for node in nodes if node.node_type in analyzer.variable_declaration_types]
         if not targets:

@@ -15,7 +15,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
-from prompt.understand_prompt import understand_code
+from understand.rules import understand_code
 from util.exception import LLMCallError, ProcessAnalyzeCodeError, UnderstandingError
 from util.utility_tool import calculate_code_token, escape_for_cypher, log_process
 from understand.strategy.base_strategy import UnderstandingStrategy
@@ -372,13 +372,13 @@ class BatchPlanner:
                 # 부모 노드는 자식 요약이 모두 준비된 상태에서 단독으로 LLM에 전달합니다.
                 if current_nodes:
                     # 현재까지 누적된 리프 배치를 먼저 확정합니다.
-                    log_process("UNDERSTAND", "BATCH", f"📦 배치 #{batch_id} 확정: 리프 노드 {len(current_nodes)}개 (토큰 {current_tokens}/{self.token_limit})")
+                    log_process("UNDERSTAND", "BATCH", f"📦 [leaf] 배치 #{batch_id} 확정: 리프 노드 {len(current_nodes)}개 (토큰 {current_tokens}/{self.token_limit})")
                     batches.append(self._create_batch(batch_id, current_nodes))
                     batch_id += 1
                     current_nodes = []
                     current_tokens = 0
 
-                log_process("UNDERSTAND", "BATCH", f"📦 배치 #{batch_id} 확정: 부모 노드 단독 실행 (라인 {node.start_line}~{node.end_line}, 토큰 {node.token})")
+                log_process("UNDERSTAND", "BATCH", f"📦 [parent] 배치 #{batch_id} 확정: 부모 노드 단독 실행 (라인 {node.start_line}~{node.end_line}, 토큰 {node.token})")
                 batches.append(self._create_batch(batch_id, [node]))
                 batch_id += 1
                 continue
@@ -386,7 +386,7 @@ class BatchPlanner:
             # 현재 배치가 토큰 한도를 초과한다면 쌓인 리프 노드들을 먼저 실행합니다.
             if current_nodes and current_tokens + node.token > self.token_limit:
                 # 토큰 한도를 초과하기 직전 배치를 확정합니다.
-                log_process("UNDERSTAND", "BATCH", f"📦 배치 #{batch_id} 확정: 토큰 한도 도달로 선 실행 (누적 {current_tokens}/{self.token_limit})")
+                log_process("UNDERSTAND", "BATCH", f"📦 [leaf] 배치 #{batch_id} 확정: 토큰 한도 도달로 선 실행 (누적 {current_tokens}/{self.token_limit})")
                 batches.append(self._create_batch(batch_id, current_nodes))
                 batch_id += 1
                 current_nodes = []
@@ -397,7 +397,7 @@ class BatchPlanner:
 
         if current_nodes:
             # 남아 있는 노드가 있으면 마무리 배치로 추가합니다.
-            log_process("UNDERSTAND", "BATCH", f"📦 배치 #{batch_id} 확정: 마지막 리프 노드 {len(current_nodes)}개 (토큰 {current_tokens}/{self.token_limit})")
+            log_process("UNDERSTAND", "BATCH", f"📦 [leaf] 배치 #{batch_id} 확정: 마지막 리프 노드 {len(current_nodes)}개 (토큰 {current_tokens}/{self.token_limit})")
             batches.append(self._create_batch(batch_id, current_nodes))
 
         return batches
@@ -661,8 +661,9 @@ class Analyzer:
             async def worker(batch: AnalysisBatch):
                 # 부모 노드가 포함된 배치라면 자식 완료를 기다립니다.
                 await self._wait_for_dependencies(batch)
+                batch_kind = "parent" if any(n.has_children for n in batch.nodes) else "leaf"
                 async with semaphore:
-                    log_process("UNDERSTAND", "LLM", f"🤖 배치 #{batch.batch_id} LLM 요청: 노드 {len(batch.nodes)}개 ({self.folder_file})")
+                    log_process("UNDERSTAND", "LLM", f"🤖 [{batch_kind}] 배치 #{batch.batch_id} LLM 요청: 노드 {len(batch.nodes)}개 ({self.folder_file})")
                     # LLM 호출은 일반 요약과 테이블 요약을 동시에 요청합니다.
                     general, table = await self.strategy.invoke_batch(batch)
                 await self.strategy.apply_batch(batch, general, table)
@@ -694,6 +695,6 @@ class Analyzer:
                     # 자식 노드의 completion_event를 모아 비동기적으로 대기합니다.
                     waiters.append(child.completion_event.wait())
         if waiters:
-            log_process("UNDERSTAND", "WAIT", f"⏳ 배치 #{batch.batch_id}가 부모 분석 시작 전 자식 {len(waiters)}개 요약 완료 대기")
+            log_process("UNDERSTAND", "WAIT", f"⏳ [parent] 배치 #{batch.batch_id}: 자식 {len(waiters)}개 요약 완료 대기")
             await asyncio.gather(*waiters)
 

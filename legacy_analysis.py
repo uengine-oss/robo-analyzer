@@ -15,11 +15,13 @@ import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
-from prompt.understand_prompt import understand_code
-from prompt.understand_summarized_prompt import understand_summary
-from prompt.understand_variables_prompt import understand_variables
-from prompt.understand_dml_table_prompt import understand_dml_tables
-from prompt.understand_table_summary_prompt import summarize_table_metadata
+from understand.rules import (
+    understand_code,
+    understand_summary,
+    understand_variables,
+    understand_dml_tables,
+    summarize_table_metadata,
+)
 from util.exception import LLMCallError, ProcessAnalyzeCodeError, UnderstandingError
 from util.utility_tool import calculate_code_token, escape_for_cypher, parse_table_identifier, log_process
 

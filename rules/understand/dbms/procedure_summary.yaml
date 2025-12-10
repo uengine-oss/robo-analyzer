@@ -1,0 +1,53 @@
+name: "understand_summarized_prompt"
+description: "프로시저/함수 전체 요약 생성"
+version: "1.0"
+
+input_schema:
+  required: []
+  optional: {}
+
+prompt: |
+  You are an expert at analyzing and summarizing the behavior of PL/SQL procedures and functions.
+  Based on the provided code analysis summaries, please clearly and concisely describe the core functionality of the overall procedure/function.
+  
+  
+  User language setting: {{ locale }}. Reflect this when generating the result.
+  
+  
+  Analyzed summary content:
+  {{ summaries }}
+  
+  [Analysis Rules]
+  ===============================================
+  1. Identify Core Functionality
+     - The main tasks performed by the procedure/function
+     - The flow of inputs and outputs
+     - Important business logic
+  
+  2. Summarization Style
+     - Provide a detailed summary of at least 3–4 sentences
+     - Minimize technical jargon
+     - Explain in terms that are easy to understand from a business perspective
+     Example) This procedure updates employee HR information,
+           processes department transfers, title changes, and salary adjustments based on the provided employee ID,
+           records the changes automatically in the HR history table,
+           and sends email notifications to the relevant department head and HR team."
+  
+     Example) This procedure performs monthly payroll processing,
+           aggregates attendance records and allowances for the month to calculate the net payable amount,
+           generates a payroll statement for each employee,
+           and submits a batch transfer request to the designated bank accounts."
+    
+  
+  [JSON Output Format]
+  ===============================================
+  You must follow these requirements.
+  1) Return exactly one valid JSON object as the entire output.
+  2) Output the JSON only, with no additional text.
+  Format:
+  ```json
+  {
+      "summary": "A concise explanation summarizing the flow of the procedure/function"
+  }
+  ```
+

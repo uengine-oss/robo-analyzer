@@ -14,9 +14,7 @@ import os
 from typing import Any, AsyncGenerator
 from fastapi import HTTPException
 
-from prompt.understand_ddl import understand_ddl
-from prompt.understand_variables_prompt import resolve_table_variable_type
-from prompt.understand_column_prompt import understand_column_roles
+from understand.rules import understand_ddl, resolve_table_variable_type, understand_column_roles
 from understand.neo4j_connection import Neo4jConnection
 from understand.analysis import Analyzer
 from understand.strategy.dbms_strategy import DbmsUnderstandingStrategy
