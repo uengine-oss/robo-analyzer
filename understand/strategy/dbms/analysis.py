@@ -15,13 +15,7 @@ import os
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
-from understand.rules import (
-    understand_code,
-    understand_summary,
-    understand_variables,
-    understand_dml_tables,
-    summarize_table_metadata,
-)
+from util.rule_loader import RuleLoader
 from util.exception import LLMCallError, ProcessAnalyzeCodeError, UnderstandingError
 from util.utility_tool import calculate_code_token, escape_for_cypher, parse_table_identifier, log_process
 
@@ -46,6 +40,64 @@ VARIABLE_CONCURRENCY = int(os.getenv('VARIABLE_CONCURRENCY', '5'))
 LINE_NUMBER_PATTERN = re.compile(r"^\d+\s*:")
 MAX_BATCH_TOKEN = 1000
 MAX_CONCURRENCY = int(os.getenv('MAX_CONCURRENCY', '5'))
+
+
+# ===== RuleLoader 헬퍼 =====
+def _rule_loader() -> RuleLoader:
+    return RuleLoader(target_lang="dbms", domain="understand")
+
+
+def understand_code(code: str, ranges: list, count: int, api_key: str, locale: str) -> Dict[str, Any]:
+    return _rule_loader().execute(
+        "analysis",
+        {"code": code, "ranges": ranges, "count": count, "locale": locale},
+        api_key,
+    )
+
+
+def understand_dml_tables(code: str, ranges: list, api_key: str, locale: str) -> Dict[str, Any]:
+    return _rule_loader().execute(
+        "dml",
+        {"code": code, "ranges": ranges, "locale": locale},
+        api_key,
+    )
+
+
+def understand_summary(summaries: dict, api_key: str, locale: str) -> Dict[str, Any]:
+    return _rule_loader().execute(
+        "procedure_summary",
+        {"summaries": summaries, "locale": locale},
+        api_key,
+    )
+
+
+def summarize_table_metadata(
+    table_name: str,
+    table_sentences: list,
+    column_sentences: dict,
+    column_metadata: dict,
+    api_key: str,
+    locale: str,
+) -> Dict[str, Any]:
+    return _rule_loader().execute(
+        "table_summary",
+        {
+            "table_name": table_name,
+            "table_sentences": table_sentences,
+            "column_sentences": column_sentences,
+            "column_metadata": column_metadata,
+            "locale": locale,
+        },
+        api_key,
+    )
+
+
+def understand_variables(declaration_code: str, api_key: str, locale: str) -> Dict[str, Any]:
+    return _rule_loader().execute(
+        "variables",
+        {"declaration_code": declaration_code, "locale": locale},
+        api_key,
+    )
 
 
 # ==================== 데이터 클래스 ====================
@@ -669,12 +721,6 @@ class ApplyManager:
             (node.start_line, node.end_line): node for node in batch.nodes
         }
         normalized_ranges: List[Dict[str, Any]] = list(table_result.get('ranges', []))
-        for legacy_entry in table_result.get('tables', []):
-            normalized_ranges.append({
-                "startLine": legacy_entry.get('startLine'),
-                "endLine": legacy_entry.get('endLine'),
-                "tables": [legacy_entry],
-            })
 
         # range 결과를 순회하며 각 구간의 메타데이터를 적용합니다.
         for range_entry in normalized_ranges:
@@ -769,7 +815,7 @@ class ApplyManager:
                     col_description = escape_for_cypher(raw_column_desc)
                     nullable_flag = 'true' if column.get('nullable', True) else 'false'
                     escaped_column_name = escape_for_cypher(column_name)
-                    
+
                     if schema_part:
                         # 스키마가 있으면 fqn으로 MERGE (기존 방식)
                         fqn = '.'.join(filter(None, [schema_part, name_part, column_name])).lower()
@@ -1038,8 +1084,7 @@ class ApplyManager:
             )
 
         # detailDescription(사람이 읽을 수 있는 텍스트) 적용
-        # - 호환성: detailDescriptionText 키도 함께 지원
-        detail_text = result.get('detailDescription') or result.get('detailDescriptionText') or ''
+        detail_text = result.get('detailDescription') or ''
         if isinstance(detail_text, str) and detail_text.strip():
             queries.append(
                 f"MATCH (t:Table {{{table_props}}})\nSET t.detailDescription = '{escape_for_cypher(detail_text.strip())}'"
@@ -1304,7 +1349,6 @@ class Analyzer:
                 f"MATCH (p:{node.node_type} {{{node_match}}})\n"
                 f"MERGE (p)-[:SCOPE]->(v)\n"
                 f"WITH v\n"
-                # 폴더 노드와 Variable 노드 사이에도 CONTAINS 관계를 만든다.
                 f"MERGE (folder:SYSTEM {{{folder_props}}})\n"
                 f"MERGE (folder)-[:CONTAINS]->(v)"
             )

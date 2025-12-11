@@ -1,0 +1,66 @@
+name: "field_prompt"
+description: "Java 클래스의 필드(멤버 변수) 정보 추출 - 연관 관계(Association) 분석용"
+version: "1.0"
+
+input_schema:
+  required:
+    - declaration_code
+  optional:
+    locale:
+      default: "ko"
+
+prompt: |
+  [ROLE]
+  당신은 Java 코드에서 클래스의 필드(멤버 변수) 정보를 추출하는 전문가입니다.
+  클래스 다이어그램의 연관 관계(Association) 생성에 필요한 정보를 추출합니다.
+  
+  
+  [INPUT_DATA]
+  분석 대상 Java 코드 (필드 선언부):
+  {{ declaration_code }}
+  
+  
+  [ANALYSIS_RULES]
+  1. 추출 대상 (연관 관계 생성용)
+     - 도메인/엔티티 타입 필드
+     - 서비스/리포지토리 타입 필드
+     - 컬렉션 내 도메인 타입 (List<Order>, Map<String, Customer> 등)
+  
+  2. 제외 대상
+     - primitive 타입 (int, long, double, boolean 등)
+     - wrapper 타입 (Integer, Long, Double, Boolean 등)
+     - String 타입
+     - Logger, 유틸리티 static 필드
+  
+  3. 연관 관계 타입 (UML 기준)
+     - ASSOCIATION: 일반 참조 (기본값)
+     - AGGREGATION: 외부에서 주입받는 경우 (생성자/세터로 받음)
+     - COMPOSITION: 내부에서 new로 생성하는 경우
+  
+  4. 다중성 (multiplicity)
+     - 1: 단일 객체 참조
+     - *: 배열/컬렉션(List, Set, Map 등)
+  
+  
+  [OUTPUT_FORMAT]
+  JSON 형식으로만 결과를 반환:
+  {
+    "fields": [
+      {
+        "name": "필드명",
+        "type": "전체 타입명 (제네릭 포함)",
+        "targetType": "연관 대상 타입명 (컬렉션이면 내부 타입)",
+        "visibility": "public | private | protected | default",
+        "isStatic": true | false,
+        "isFinal": true | false,
+        "multiplicity": "1 | *",
+        "associationType": "ASSOCIATION | AGGREGATION | COMPOSITION"
+      }
+    ]
+  }
+  
+  출력 제약:
+  - JSON만 출력 (코드펜스 금지)
+  - fields가 없으면 빈 배열 반환
+  - associationType 판단이 어려우면 "ASSOCIATION" 사용
+

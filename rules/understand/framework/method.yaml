@@ -1,0 +1,76 @@
+name: "method_prompt"
+description: "Java 메서드의 시그니처 분석 - 파라미터/반환 타입 추출 및 의존 관계 식별"
+version: "1.0"
+
+input_schema:
+  required:
+    - declaration_code
+  optional:
+    locale:
+      default: "ko"
+
+prompt: |
+  [ROLE]
+  당신은 Java 메서드의 시그니처를 분석하는 전문가입니다.
+  메서드의 파라미터 타입과 반환 타입을 추출하여 클래스 다이어그램의 의존 관계(Dependency) 식별에 필요한 정보를 제공합니다.
+  
+  
+  [INPUT_DATA]
+  분석 대상 Java 메서드 코드 (시그니처 + 자식 요약된 본문):
+  {{ declaration_code }}
+  
+  
+  [ANALYSIS_RULES]
+  1. 메서드 시그니처 분석
+     - 메서드명
+     - 반환 타입 (void 포함)
+     - 파라미터 목록 (이름, 타입)
+     - 접근 제어자 (public, private, protected, default)
+     - static 여부
+  
+  2. 의존 관계 대상 타입 추출
+     - 파라미터 타입 중 사용자 정의 클래스
+     - 반환 타입이 사용자 정의 클래스인 경우
+     - 제네릭 내부 타입도 추출 (List<Order> → Order)
+  
+  3. 제외 대상 (의존 관계 생성 안 함)
+     - primitive 타입 (int, long, double, boolean 등)
+     - wrapper 타입 (Integer, Long, Double, Boolean 등)
+     - String 타입
+     - void
+  
+  4. 메서드 종류 판별
+     - getter: getXxx(), isXxx() 형태이고 파라미터 없음
+     - setter: setXxx() 형태이고 파라미터 1개
+     - constructor: 클래스명과 동일
+     - normal: 일반 메서드
+  
+  
+  [OUTPUT_FORMAT]
+  JSON 형식으로만 결과를 반환:
+  {
+    "methodName": "메서드명",
+    "returnType": "반환 타입 (void 포함)",
+    "visibility": "public | private | protected | default",
+    "isStatic": true | false,
+    "methodKind": "getter | setter | constructor | normal",
+    "parameters": [
+      {
+        "name": "파라미터명",
+        "type": "파라미터 타입"
+      }
+    ],
+    "dependencies": [
+      {
+        "targetType": "의존 대상 클래스명",
+        "usage": "parameter | return"
+      }
+    ]
+  }
+  
+  출력 제약:
+  - JSON만 출력 (코드펜스 금지)
+  - parameters, dependencies가 없으면 빈 배열 반환
+  - primitive/wrapper/String/void는 dependencies에 포함하지 않음
+
+
