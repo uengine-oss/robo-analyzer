@@ -12,7 +12,7 @@ input_schema:
 prompt: |
   [ROLE]
   당신은 Java 코드에서 클래스의 필드(멤버 변수) 정보를 추출하는 전문가입니다.
-  클래스 다이어그램의 연관 관계(Association) 생성에 필요한 정보를 추출합니다.
+  클래스 다이어그램에 표시할 필드 정보와 연관 관계(Association) 생성에 필요한 정보를 추출합니다.
   
   
   [INPUT_DATA]
@@ -21,18 +21,13 @@ prompt: |
   
   
   [ANALYSIS_RULES]
-  1. 추출 대상 (연관 관계 생성용)
-     - 도메인/엔티티 타입 필드
-     - 서비스/리포지토리 타입 필드
-     - 컬렉션 내 도메인 타입 (List<Order>, Map<String, Customer> 등)
+  1. 모든 필드의 기본 정보 추출 (field_name, field_type, visibility 등)
   
-  2. 제외 대상
-     - primitive 타입 (int, long, double, boolean 등)
-     - wrapper 타입 (Integer, Long, Double, Boolean 등)
-     - String 타입
-     - Logger, 유틸리티 static 필드
+  2. target_class 규칙 (연관 관계 대상만 설정, 그 외 null):
+     - 설정 대상: 도메인/엔티티 타입, 서비스/리포지토리 타입, 컬렉션 내 도메인 타입
+     - null로 설정: primitive 타입, wrapper 타입, String, Logger, 유틸리티 static 필드
   
-  3. 연관 관계 타입 (UML 기준)
+  3. 연관 관계 타입 (target_class가 있을 때만)
      - ASSOCIATION: 일반 참조 (기본값)
      - AGGREGATION: 외부에서 주입받는 경우 (생성자/세터로 받음)
      - COMPOSITION: 내부에서 new로 생성하는 경우
@@ -49,18 +44,18 @@ prompt: |
       {
         "field_name": "필드명",
         "field_type": "전체 타입명 (제네릭 포함)",
-        "target_class": "연관 대상 타입명 (컬렉션이면 내부 타입)",
+        "target_class": "연관 대상 타입명 또는 null",
         "visibility": "public | private | protected | default",
         "is_static": true | false,
         "is_final": true | false,
         "multiplicity": "1 | *",
-        "association_type": "ASSOCIATION | AGGREGATION | COMPOSITION"
+        "association_type": "ASSOCIATION | AGGREGATION | COMPOSITION | null"
       }
     ]
   }
   
   출력 제약:
   - JSON만 출력 (코드펜스 금지)
-  - fields가 없으면 빈 배열 반환
-  - associationType 판단이 어려우면 "ASSOCIATION" 사용
+  - 모든 필드 정보 반환 (primitive/String 포함)
+  - target_class가 null이면 association_type도 null
 

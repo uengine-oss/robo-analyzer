@@ -529,13 +529,6 @@ class ApplyManager:
             )
             log_process("UNDERSTAND", "APPLY", f"✅ {node.start_line}~{node.end_line} 구간 요약 반영")
 
-            # 변수 사용 마킹
-            for var_name in analysis.get("variables", []) or []:
-                queries.append(
-                    f"MATCH (v:Variable {{name: '{escape_for_cypher(var_name)}', {self.node_base_props}}})\n"
-                    f"SET v.`{node.start_line}_{node.end_line}` = 'Used'"
-                )
-
             # 메서드 호출 관계
             # 타겟 노드: DBMS 패턴 - OPTIONAL MATCH로 기존 노드 찾고, 없으면 CREATE
             for call_name in analysis.get("calls", []) or []:
@@ -595,6 +588,15 @@ class ApplyManager:
                         f"  AND NOT (src)-[:ASSOCIATION|AGGREGATION|COMPOSITION]->(dst)\n"
                         f"MERGE (src)-[:DEPENDENCY {{usage: 'local', source_member: '{node.node_type}[{node.start_line}]'}}]->(dst)"
                     )
+
+            # 지역변수 노드 생성
+            for var_name in analysis.get("variables", []) or []:
+                escaped_var = escape_for_cypher(var_name)
+                if not escaped_var:
+                    continue
+                queries.append(
+                    f"MERGE (v:VARIABLE {{name: '{escaped_var}', startLine: {node.start_line}, {self.node_base_props}}})"
+                )
 
             self._update_class_store(node, analysis)
             node.completion_event.set()
@@ -1084,7 +1086,8 @@ class FrameworkAnalyzer:
         for field_info in fields:
             field_name = escape_for_cypher(field_info.get("field_name") or "")
             field_type = escape_for_cypher(field_info.get("field_type") or "")
-            target_class = escape_for_cypher(field_info.get("target_class") or field_type)
+            target_class_raw = field_info.get("target_class")
+            target_class = escape_for_cypher(target_class_raw) if target_class_raw else None
             visibility = escape_for_cypher(field_info.get("visibility") or "private")
             is_static = "true" if field_info.get("is_static") else "false"
             is_final = "true" if field_info.get("is_final") else "false"
@@ -1094,20 +1097,13 @@ class FrameworkAnalyzer:
             if not field_name:
                 continue
 
-            # FIELD 노드 속성 업데이트 + Variable 노드 생성
+            # FIELD 노드 속성 업데이트
             # target_class가 있으면 클래스 타입 필드 (연관 관계 대상)
             target_class_set = f", f.target_class = '{target_class}'" if target_class else ""
             queries.append(
                 f"MATCH (f:FIELD {{startLine: {node.start_line}, {self.node_base_props}}})\n"
                 f"SET f.name = '{field_name}', f.field_type = '{field_type}', "
-                f"f.visibility = '{visibility}', f.is_static = {is_static}, f.is_final = {is_final}{target_class_set}\n"
-                f"MERGE (v:Variable {{name: '{field_name}', {self.node_base_props}}})\n"
-                f"SET v.field_type = '{field_type}', v.visibility = '{visibility}', "
-                f"v.is_static = {is_static}, v.is_final = {is_final}\n"
-                f"MERGE (f)-[:DECLARES]->(v)\n"
-                f"WITH v\n"
-                f"MERGE (folder:SYSTEM {{{self.folder_props}}})\n"
-                f"MERGE (folder)-[:CONTAINS]->(v)"
+                f"f.visibility = '{visibility}', f.is_static = {is_static}, f.is_final = {is_final}{target_class_set}"
             )
 
             # 연관 관계 생성 (ASSOCIATION, AGGREGATION, COMPOSITION)
