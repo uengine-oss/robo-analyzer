@@ -45,15 +45,24 @@ prompt: |
      - constructor: 클래스명과 동일
      - normal: 일반 메서드
   
+  5. 필드 할당 패턴 분석 (연관 관계 세분화용)
+     value_source 판단 기준:
+     - "parameter": 필드에 메서드 파라미터를 할당 (외부 주입 → Aggregation)
+       예: this.engine = engine; (engine이 파라미터)
+     - "new": 필드에 new로 생성된 객체를 할당 (내부 생성 → Composition)
+       예1: this.engine = new Engine();
+       예2: Engine e = new Engine(); this.engine = e; (로컬변수가 new로 생성됨)
+     - 위 패턴이 발견되면 field_assignments에 기록
+  
   
   [OUTPUT_FORMAT]
   JSON 형식으로만 결과를 반환:
   {
-    "methodName": "메서드명",
-    "returnType": "반환 타입 (void 포함)",
+    "method_name": "메서드명",
+    "return_type": "반환 타입 (void 포함)",
     "visibility": "public | private | protected | default",
-    "isStatic": true | false,
-    "methodKind": "getter | setter | constructor | normal",
+    "is_static": true | false,
+    "method_type": "getter | setter | constructor | normal",
     "parameters": [
       {
         "name": "파라미터명",
@@ -62,15 +71,21 @@ prompt: |
     ],
     "dependencies": [
       {
-        "targetType": "의존 대상 클래스명",
+        "target_class": "의존 대상 클래스명",
         "usage": "parameter | return"
+      }
+    ],
+    "field_assignments": [
+      {
+        "field_name": "할당되는 필드명",
+        "value_source": "parameter | new"
       }
     ]
   }
   
   출력 제약:
   - JSON만 출력 (코드펜스 금지)
-  - parameters, dependencies가 없으면 빈 배열 반환
+  - parameters, dependencies, field_assignments가 없으면 빈 배열 반환
   - primitive/wrapper/String/void는 dependencies에 포함하지 않음
 
 

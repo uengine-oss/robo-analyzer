@@ -47,14 +47,14 @@ prompt: |
   {
     "fields": [
       {
-        "name": "필드명",
-        "type": "전체 타입명 (제네릭 포함)",
-        "targetType": "연관 대상 타입명 (컬렉션이면 내부 타입)",
+        "field_name": "필드명",
+        "field_type": "전체 타입명 (제네릭 포함)",
+        "target_class": "연관 대상 타입명 (컬렉션이면 내부 타입)",
         "visibility": "public | private | protected | default",
-        "isStatic": true | false,
-        "isFinal": true | false,
+        "is_static": true | false,
+        "is_final": true | false,
         "multiplicity": "1 | *",
-        "associationType": "ASSOCIATION | AGGREGATION | COMPOSITION"
+        "association_type": "ASSOCIATION | AGGREGATION | COMPOSITION"
       }
     ]
   }

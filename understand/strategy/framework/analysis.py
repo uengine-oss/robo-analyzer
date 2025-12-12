@@ -16,7 +16,6 @@ Neo4j 그래프로 구축합니다. DBMS 분석 파이프라인과 동일한 구
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 import os
 import re
@@ -173,6 +172,29 @@ class StatementNode:
             idx += 1
         return "\n".join(result)
 
+    def get_code_with_assigns_only(self) -> str:
+        """메서드 시그니처 + ASSIGN/NEW_INSTANCE 자식만 포함된 코드 (중첩 포함)."""
+        if not self.children:
+            return self.get_raw_code()
+
+        target_types = {"ASSIGN", "NEW_INSTANCE"}
+
+        def find_targets(node: "StatementNode") -> List["StatementNode"]:
+            """재귀적으로 ASSIGN, NEW_INSTANCE 자식을 찾습니다."""
+            targets = []
+            for child in node.children:
+                if child.node_type in target_types:
+                    targets.append(child)
+                targets.extend(find_targets(child))
+            return targets
+
+        result = [f"{self.lines[0][0]}: {self.lines[0][1]}"]  # 시그니처
+        for target in sorted(find_targets(self), key=lambda n: n.start_line):
+            for ln, text in target.lines:
+                result.append(f"{ln}: {text}")
+        result.append(f"{self.lines[-1][0]}: {self.lines[-1][1]}")  # 닫는 괄호
+        return "\n".join(result)
+
 
 @dataclass(slots=True)
 class ClassInfo:
@@ -297,8 +319,8 @@ class StatementCollector:
             if cn:
                 child_nodes.append(cn)
 
-        # 분석 가능 여부 판단
-        analyzable = node_type not in NON_ANALYSIS_TYPES and node_type not in CLASS_TYPES
+        # 분석 가능 여부 판단 (FIELD는 선행 처리에서 ASSOCIATION으로 처리됨)
+        analyzable = node_type not in NON_ANALYSIS_TYPES and node_type not in CLASS_TYPES and node_type not in FIELD_TYPES
         token = calculate_code_token(code)
 
         self._node_id += 1
@@ -515,6 +537,7 @@ class ApplyManager:
                 )
 
             # 메서드 호출 관계
+            # 타겟 노드: DBMS 패턴 - OPTIONAL MATCH로 기존 노드 찾고, 없으면 CREATE
             for call_name in analysis.get("calls", []) or []:
                 escaped_call = escape_for_cypher(call_name)
                 if "." in call_name:
@@ -523,7 +546,20 @@ class ApplyManager:
                     method_name = escape_for_cypher(parts[1])
                     queries.append(
                         f"MATCH (c:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
-                        f"MERGE (t:Type {{name: '{target_type}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})\n"
+                        f"OPTIONAL MATCH (existing)\n"
+                        f"WHERE (existing:CLASS OR existing:INTERFACE)\n"
+                        f"  AND toLower(existing.class_name) = toLower('{target_type}')\n"
+                        f"  AND existing.user_id = '{self.user_id}'\n"
+                        f"  AND existing.project_name = '{self.project_name}'\n"
+                        f"WITH c, existing\n"
+                        f"FOREACH(_ IN CASE WHEN existing IS NULL THEN [1] ELSE [] END |\n"
+                        f"    CREATE (:CLASS:INTERFACE {{class_name: '{target_type}', name: '{target_type}', user_id: '{self.user_id}', project_name: '{self.project_name}'}}))\n"
+                        f"WITH c\n"
+                        f"MATCH (t)\n"
+                        f"WHERE (t:CLASS OR t:INTERFACE)\n"
+                        f"  AND toLower(t.class_name) = toLower('{target_type}')\n"
+                        f"  AND t.user_id = '{self.user_id}'\n"
+                        f"  AND t.project_name = '{self.project_name}'\n"
                         f"MERGE (c)-[:CALLS {{method: '{method_name}'}}]->(t)"
                     )
                 else:
@@ -533,18 +569,31 @@ class ApplyManager:
                         f"MERGE (c)-[:CALLS]->(m)"
                     )
 
-            # 로컬 변수 의존 관계 (DEPENDENCY) - 클래스 다이어그램용
+            # 로컬 변수 의존 관계 (DEPENDENCY) - 연관 관계가 없을 때만
             for dep_type in analysis.get("localDependencies", []) or []:
                 escaped_dep = escape_for_cypher(dep_type)
                 if not escaped_dep:
                     continue
-                # 소속 클래스에서 타겟 클래스로 DEPENDENCY 관계 생성
+                # 소속 클래스에서 타겟 클래스로 DEPENDENCY 관계 생성 (연관 관계가 없을 때만)
                 if node.class_kind and node.parent:
                     queries.append(
                         f"MATCH (src:{node.class_kind} {{startLine: {node.parent.start_line}, {self.node_base_props}}})\n"
-                        f"MERGE (dst:CLASS:INTERFACE {{class_name: '{escaped_dep}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})\n"
-                        f"ON CREATE SET dst.type = 'CLASS', dst.name = '{escaped_dep}'\n"
-                        f"MERGE (src)-[:DEPENDENCY {{usage: 'local', viaMemberName: '{node.node_type}[{node.start_line}]'}}]->(dst)"
+                        f"OPTIONAL MATCH (existing)\n"
+                        f"WHERE (existing:CLASS OR existing:INTERFACE)\n"
+                        f"  AND toLower(existing.class_name) = toLower('{escaped_dep}')\n"
+                        f"  AND existing.user_id = '{self.user_id}'\n"
+                        f"  AND existing.project_name = '{self.project_name}'\n"
+                        f"WITH src, existing\n"
+                        f"FOREACH(_ IN CASE WHEN existing IS NULL THEN [1] ELSE [] END |\n"
+                        f"    CREATE (:CLASS:INTERFACE {{class_name: '{escaped_dep}', name: '{escaped_dep}', user_id: '{self.user_id}', project_name: '{self.project_name}'}}))\n"
+                        f"WITH src\n"
+                        f"MATCH (dst)\n"
+                        f"WHERE (dst:CLASS OR dst:INTERFACE)\n"
+                        f"  AND toLower(dst.class_name) = toLower('{escaped_dep}')\n"
+                        f"  AND dst.user_id = '{self.user_id}'\n"
+                        f"  AND dst.project_name = '{self.project_name}'\n"
+                        f"  AND NOT (src)-[:ASSOCIATION|AGGREGATION|COMPOSITION]->(dst)\n"
+                        f"MERGE (src)-[:DEPENDENCY {{usage: 'local', source_member: '{node.node_type}[{node.start_line}]'}}]->(dst)"
                     )
 
             self._update_class_store(node, analysis)
@@ -820,13 +869,26 @@ class FrameworkAnalyzer:
 
         base_set_str = ", ".join(base_set)
         
-        # CLASS/INTERFACE 노드: class_name 기준으로 MERGE (임시 노드가 있으면 업데이트, 없으면 생성)
+        # CLASS/INTERFACE 노드: DBMS 패턴 - OPTIONAL MATCH로 기존 노드 찾고, 없으면 CREATE
         if label in CLASS_TYPES and node.class_name:
             escaped_class_name = escape_for_cypher(node.class_name)
             other_label = "INTERFACE" if label == "CLASS" else "CLASS"
-            # class_name, user_id, project_name을 키로 MERGE하여 임시 노드와 병합
+            # 기존 노드 찾기 (CLASS 또는 INTERFACE 레이블 중 하나라도 있으면 매칭) - 대소문자 무시
             queries.append(
-                f"MERGE (n:CLASS:INTERFACE {{class_name: '{escaped_class_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})\n"
+                f"OPTIONAL MATCH (existing)\n"
+                f"WHERE (existing:CLASS OR existing:INTERFACE)\n"
+                f"  AND toLower(existing.class_name) = toLower('{escaped_class_name}')\n"
+                f"  AND existing.user_id = '{self.user_id}'\n"
+                f"  AND existing.project_name = '{self.project_name}'\n"
+                f"WITH existing\n"
+                f"FOREACH(_ IN CASE WHEN existing IS NULL THEN [1] ELSE [] END |\n"
+                f"    CREATE (:CLASS:INTERFACE {{class_name: '{escaped_class_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}}))\n"
+                f"WITH 1 as dummy\n"
+                f"MATCH (n)\n"
+                f"WHERE (n:CLASS OR n:INTERFACE)\n"
+                f"  AND toLower(n.class_name) = toLower('{escaped_class_name}')\n"
+                f"  AND n.user_id = '{self.user_id}'\n"
+                f"  AND n.project_name = '{self.project_name}'\n"
                 f"SET n:{label}, n.startLine = {node.start_line}, n.folder_name = '{self.folder_name}', n.file_name = '{self.file_name}', {base_set_str}\n"
                 f"REMOVE n:{other_label}\n"
                 f"WITH n\n"
@@ -903,12 +965,14 @@ class FrameworkAnalyzer:
 
         log_process("UNDERSTAND", "PREPROCESS", f"🔍 선행 처리 시작: 상속/구현 {len(inheritance_nodes)}개, 필드 {len(field_nodes)}개, 메서드 {len(method_nodes)}개")
 
-        # 세 작업을 병렬로 실행
+        # 1단계: 상속/구현 + 필드 병렬 처리 (ASSOCIATION 생성)
         await asyncio.gather(
             self._process_inheritance_nodes(inheritance_nodes),
             self._process_field_nodes(field_nodes, nodes),
-            self._process_method_nodes(method_nodes),
         )
+
+        # 2단계: 메서드 처리 (ASSOCIATION → AGGREGATION/COMPOSITION 변경)
+        await self._process_method_nodes(method_nodes)
 
         log_process("UNDERSTAND", "PREPROCESS", f"✅ 선행 처리 완료")
 
@@ -959,11 +1023,23 @@ class FrameworkAnalyzer:
             # 소스 클래스 노드 매칭
             src_match = f"MATCH (src:{node.class_kind or 'CLASS'} {{startLine: {node.parent.start_line if node.parent else node.start_line}, {self.node_base_props}}})"
 
-            # 타겟 노드: class_name으로 매칭, 없으면 CLASS:INTERFACE 두 레이블로 임시 생성 (DBMS CALL 패턴)
+            # 타겟 노드: DBMS 패턴 - OPTIONAL MATCH로 기존 노드 찾고, 없으면 CREATE (대소문자 무시)
             queries.append(
                 f"{src_match}\n"
-                f"MERGE (dst:CLASS:INTERFACE {{class_name: '{to_type}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})\n"
-                f"ON CREATE SET dst.type = '{to_type_kind}', dst.name = '{to_type}'\n"
+                f"OPTIONAL MATCH (existing)\n"
+                f"WHERE (existing:CLASS OR existing:INTERFACE)\n"
+                f"  AND toLower(existing.class_name) = toLower('{to_type}')\n"
+                f"  AND existing.user_id = '{self.user_id}'\n"
+                f"  AND existing.project_name = '{self.project_name}'\n"
+                f"WITH src, existing\n"
+                f"FOREACH(_ IN CASE WHEN existing IS NULL THEN [1] ELSE [] END |\n"
+                f"    CREATE (:CLASS:INTERFACE {{class_name: '{to_type}', name: '{to_type}', user_id: '{self.user_id}', project_name: '{self.project_name}'}}))\n"
+                f"WITH src\n"
+                f"MATCH (dst)\n"
+                f"WHERE (dst:CLASS OR dst:INTERFACE)\n"
+                f"  AND toLower(dst.class_name) = toLower('{to_type}')\n"
+                f"  AND dst.user_id = '{self.user_id}'\n"
+                f"  AND dst.project_name = '{self.project_name}'\n"
                 f"MERGE (src)-[:{rel_type}]->(dst)"
             )
 
@@ -1006,25 +1082,28 @@ class FrameworkAnalyzer:
         fields = analysis.get("fields") or []
 
         for field_info in fields:
-            field_name = escape_for_cypher(field_info.get("name") or "")
-            field_type = escape_for_cypher(field_info.get("type") or "")
-            target_type = escape_for_cypher(field_info.get("targetType") or field_type)
+            field_name = escape_for_cypher(field_info.get("field_name") or "")
+            field_type = escape_for_cypher(field_info.get("field_type") or "")
+            target_class = escape_for_cypher(field_info.get("target_class") or field_type)
             visibility = escape_for_cypher(field_info.get("visibility") or "private")
-            is_static = "true" if field_info.get("isStatic") else "false"
-            is_final = "true" if field_info.get("isFinal") else "false"
+            is_static = "true" if field_info.get("is_static") else "false"
+            is_final = "true" if field_info.get("is_final") else "false"
             multiplicity = escape_for_cypher(field_info.get("multiplicity") or "1")
-            association_type = field_info.get("associationType") or "ASSOCIATION"
+            association_type = field_info.get("association_type") or "ASSOCIATION"
 
             if not field_name:
                 continue
 
-            # Variable 노드 생성
+            # FIELD 노드 속성 업데이트 + Variable 노드 생성
+            # target_class가 있으면 클래스 타입 필드 (연관 관계 대상)
+            target_class_set = f", f.target_class = '{target_class}'" if target_class else ""
             queries.append(
-                f"MERGE (v:Variable {{name: '{field_name}', {self.node_base_props}}})\n"
-                f"SET v.type = '{field_type}', v.visibility = '{visibility}', "
-                f"v.isStatic = {is_static}, v.isFinal = {is_final}\n"
-                f"WITH v\n"
                 f"MATCH (f:FIELD {{startLine: {node.start_line}, {self.node_base_props}}})\n"
+                f"SET f.name = '{field_name}', f.field_type = '{field_type}', "
+                f"f.visibility = '{visibility}', f.is_static = {is_static}, f.is_final = {is_final}{target_class_set}\n"
+                f"MERGE (v:Variable {{name: '{field_name}', {self.node_base_props}}})\n"
+                f"SET v.field_type = '{field_type}', v.visibility = '{visibility}', "
+                f"v.is_static = {is_static}, v.is_final = {is_final}\n"
                 f"MERGE (f)-[:DECLARES]->(v)\n"
                 f"WITH v\n"
                 f"MERGE (folder:SYSTEM {{{self.folder_props}}})\n"
@@ -1032,14 +1111,26 @@ class FrameworkAnalyzer:
             )
 
             # 연관 관계 생성 (ASSOCIATION, AGGREGATION, COMPOSITION)
-            # 타겟 노드: class_name으로 매칭, 없으면 CLASS:INTERFACE 두 레이블로 임시 생성 (DBMS CALL 패턴)
-            if target_type:
+            # 타겟 노드: DBMS 패턴 - OPTIONAL MATCH로 기존 노드 찾고, 없으면 CREATE (대소문자 무시)
+            if target_class:
                 src_match = f"MATCH (src:{node.class_kind or 'CLASS'} {{startLine: {node.parent.start_line if node.parent else node.start_line}, {self.node_base_props}}})"
                 queries.append(
                     f"{src_match}\n"
-                    f"MERGE (dst:CLASS:INTERFACE {{class_name: '{target_type}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})\n"
-                    f"ON CREATE SET dst.type = 'CLASS', dst.name = '{target_type}'\n"
-                    f"MERGE (src)-[:{association_type} {{viaMemberName: '{field_name}', multiplicity: '{multiplicity}'}}]->(dst)"
+                    f"OPTIONAL MATCH (existing)\n"
+                    f"WHERE (existing:CLASS OR existing:INTERFACE)\n"
+                    f"  AND toLower(existing.class_name) = toLower('{target_class}')\n"
+                    f"  AND existing.user_id = '{self.user_id}'\n"
+                    f"  AND existing.project_name = '{self.project_name}'\n"
+                    f"WITH src, existing\n"
+                    f"FOREACH(_ IN CASE WHEN existing IS NULL THEN [1] ELSE [] END |\n"
+                    f"    CREATE (:CLASS:INTERFACE {{class_name: '{target_class}', name: '{target_class}', user_id: '{self.user_id}', project_name: '{self.project_name}'}}))\n"
+                    f"WITH src\n"
+                    f"MATCH (dst)\n"
+                    f"WHERE (dst:CLASS OR dst:INTERFACE)\n"
+                    f"  AND toLower(dst.class_name) = toLower('{target_class}')\n"
+                    f"  AND dst.user_id = '{self.user_id}'\n"
+                    f"  AND dst.project_name = '{self.project_name}'\n"
+                    f"MERGE (src)-[:{association_type} {{source_member: '{field_name}', multiplicity: '{multiplicity}'}}]->(dst)"
                 )
 
         return queries
@@ -1055,8 +1146,8 @@ class FrameworkAnalyzer:
         async def worker(node: StatementNode):
             async with semaphore:
                 try:
-                    # 자식 요약된 버전 (placeholder) 전달 - 메서드 시그니처만 보이게
-                    code_for_analysis = node.get_placeholder_code() if node.has_children else node.get_raw_code()
+                    # 메서드 시그니처 + ASSIGN 구문만 포함된 코드 전달
+                    code_for_analysis = node.get_code_with_assigns_only() if node.has_children else node.get_raw_code()
                     result = await asyncio.to_thread(
                         understand_method,
                         code_for_analysis,
@@ -1081,11 +1172,11 @@ class FrameworkAnalyzer:
 
         queries: List[str] = []
         
-        method_name = escape_for_cypher(analysis.get("methodName") or "")
-        return_type = escape_for_cypher(analysis.get("returnType") or "void")
+        method_name = escape_for_cypher(analysis.get("method_name") or "")
+        return_type = escape_for_cypher(analysis.get("return_type") or "void")
         visibility = escape_for_cypher(analysis.get("visibility") or "public")
-        is_static = "true" if analysis.get("isStatic") else "false"
-        method_kind = escape_for_cypher(analysis.get("methodKind") or "normal")
+        is_static = "true" if analysis.get("is_static") else "false"
+        method_kind = escape_for_cypher(analysis.get("method_type") or "normal")
         parameters = analysis.get("parameters") or []
         dependencies = analysis.get("dependencies") or []
 
@@ -1094,7 +1185,7 @@ class FrameworkAnalyzer:
             f"MATCH (m:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
             f"SET m.methodName = '{method_name}', m.returnType = '{return_type}', "
             f"m.visibility = '{visibility}', m.isStatic = {is_static}, "
-            f"m.methodKind = '{method_kind}'"
+            f"m.method_type = '{method_kind}'"
         )
 
         # 각 파라미터를 개별 Parameter 노드로 저장
@@ -1110,10 +1201,10 @@ class FrameworkAnalyzer:
                 f"MERGE (m)-[:HAS_PARAMETER]->(p)"
             )
 
-        # 의존 관계 생성 (DEPENDENCY)
-        # 타겟 노드: class_name으로 매칭, 없으면 CLASS:INTERFACE 두 레이블로 임시 생성
+        # 의존 관계 생성 (DEPENDENCY) - 연관 관계가 없을 때만
+        # 타겟 노드: DBMS 패턴 - OPTIONAL MATCH로 기존 노드 찾고, 없으면 CREATE
         for dep in dependencies:
-            target_type = escape_for_cypher(dep.get("targetType") or "")
+            target_type = escape_for_cypher(dep.get("target_class") or "")
             usage = escape_for_cypher(dep.get("usage") or "parameter")
 
             if not target_type:
@@ -1122,9 +1213,46 @@ class FrameworkAnalyzer:
             src_match = f"MATCH (src:{node.class_kind or 'CLASS'} {{startLine: {node.parent.start_line if node.parent else node.start_line}, {self.node_base_props}}})"
             queries.append(
                 f"{src_match}\n"
-                f"MERGE (dst:CLASS:INTERFACE {{class_name: '{target_type}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})\n"
-                f"ON CREATE SET dst.type = 'CLASS', dst.name = '{target_type}'\n"
-                f"MERGE (src)-[:DEPENDENCY {{usage: '{usage}', viaMemberName: '{method_name}'}}]->(dst)"
+                f"OPTIONAL MATCH (existing)\n"
+                f"WHERE (existing:CLASS OR existing:INTERFACE)\n"
+                f"  AND toLower(existing.class_name) = toLower('{target_type}')\n"
+                f"  AND existing.user_id = '{self.user_id}'\n"
+                f"  AND existing.project_name = '{self.project_name}'\n"
+                f"WITH src, existing\n"
+                f"FOREACH(_ IN CASE WHEN existing IS NULL THEN [1] ELSE [] END |\n"
+                f"    CREATE (:CLASS:INTERFACE {{class_name: '{target_type}', name: '{target_type}', user_id: '{self.user_id}', project_name: '{self.project_name}'}}))\n"
+                f"WITH src\n"
+                f"MATCH (dst)\n"
+                f"WHERE (dst:CLASS OR dst:INTERFACE)\n"
+                f"  AND toLower(dst.class_name) = toLower('{target_type}')\n"
+                f"  AND dst.user_id = '{self.user_id}'\n"
+                f"  AND dst.project_name = '{self.project_name}'\n"
+                f"  AND NOT (src)-[:ASSOCIATION|AGGREGATION|COMPOSITION]->(dst)\n"
+                f"MERGE (src)-[:DEPENDENCY {{usage: '{usage}', source_member: '{method_name}'}}]->(dst)"
+            )
+
+        # 필드 할당 패턴에 따른 연관 관계 세분화 (ASSOCIATION → AGGREGATION/COMPOSITION)
+        field_assignments = analysis.get("field_assignments") or []
+        src_start_line = node.parent.start_line if node.parent else node.start_line
+        for assign in field_assignments:
+            field_name = escape_for_cypher(assign.get("field_name") or "")
+            value_source = assign.get("value_source") or ""
+
+            if not field_name or not value_source:
+                continue
+
+            # value_source에 따른 관계 타입 결정
+            new_rel_type = "AGGREGATION" if value_source == "parameter" else "COMPOSITION"
+
+            # FIELD 노드의 target_class이 있으면 (클래스 타입 필드) 기존 ASSOCIATION을 변경
+            queries.append(
+                f"MATCH (field:FIELD {{name: '{field_name}', {self.node_base_props}}})\n"
+                f"WHERE field.target_class IS NOT NULL\n"
+                f"MATCH (src:{node.class_kind or 'CLASS'} {{startLine: {src_start_line}, {self.node_base_props}}})"
+                f"-[r:ASSOCIATION {{source_member: '{field_name}'}}]->(dst)\n"
+                f"WITH src, dst, COALESCE(r.multiplicity, '1') AS mult, r\n"
+                f"DELETE r\n"
+                f"MERGE (src)-[:{new_rel_type} {{source_member: '{field_name}', multiplicity: mult}}]->(dst)"
             )
 
         return queries
