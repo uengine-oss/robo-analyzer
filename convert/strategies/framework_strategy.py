@@ -13,34 +13,36 @@ from convert.framework.create_main import MainClassGenerator
 
 
 class FrameworkConversionStrategy(ConversionStrategy):
-    """프레임워크 변환 전략 (Spring Boot, FastAPI 등)"""
+    """프레임워크 변환 전략 (Java Spring Boot, Python FastAPI 등)"""
     
-    def __init__(self, target_framework: str = "springboot"):
-        self.target_framework = target_framework.lower()
+    def __init__(self, target: str = "java"):
+        self.target = target.lower()
     
     # 공통 컨텍스트 보관용 필드
     project_name: str | None = None
     user_id: str | None = None
     api_key: str | None = None
     locale: str | None = None
-    target_lang: str | None = None
     
     async def convert(self, file_names: list, orchestrator: Any, **kwargs) -> AsyncGenerator[bytes, None]:
         """
         프레임워크 변환을 수행합니다.
-        - Spring Boot의 경우: 엔티티 → 리포지토리 → 서비스 스켈레톤/바디 → 컨트롤러 → 설정/메인 생성
-        - orchestrator는 공통 컨텍스트(유저/프로젝트/키/로케일 등)만 제공
+        - Java: Spring Boot (엔티티 → 리포지토리 → 서비스 → 컨트롤러 → 설정/메인)
+        - Python: FastAPI (TODO)
         """
-        if self.target_framework != "springboot":
-            yield emit_error(f"Unsupported framework: {self.target_framework}")
+        if self.target not in ("java", "python"):
+            yield emit_error(f"Unsupported target: {self.target}")
+            return
+        
+        if self.target == "python":
+            yield emit_error("Python FastAPI conversion is not yet supported")
             return
 
-        # 공통 컨텍스트 저장 (한번만 설정)
+        # 공통 컨텍스트 저장
         self.project_name = orchestrator.project_name
         self.user_id = orchestrator.user_id
         self.api_key = orchestrator.api_key
         self.locale = orchestrator.locale
-        self.target_lang = orchestrator.target_lang
 
         try:
             # 프로젝트 이름 송신
@@ -154,12 +156,12 @@ class FrameworkConversionStrategy(ConversionStrategy):
 
     async def _step_entity(self):
         return await EntityGenerator(
-            self.project_name, self.user_id, self.api_key, self.locale, self.target_lang
+            self.project_name, self.user_id, self.api_key, self.locale, self.target
         ).generate()
 
     async def _step_repository(self):
         return await RepositoryGenerator(
-            self.project_name, self.user_id, self.api_key, self.locale, self.target_lang
+            self.project_name, self.user_id, self.api_key, self.locale, self.target
         ).generate()
 
     async def _step_service_skeleton(
@@ -171,7 +173,7 @@ class FrameworkConversionStrategy(ConversionStrategy):
         repository_list,
     ):
         return await ServiceSkeletonGenerator(
-            self.project_name, self.user_id, self.api_key, self.locale, self.target_lang
+            self.project_name, self.user_id, self.api_key, self.locale, self.target
         ).generate(
             entity_result_list,
             folder_name,
@@ -210,12 +212,12 @@ class FrameworkConversionStrategy(ConversionStrategy):
                 self.user_id,
                 self.api_key,
                 self.locale,
-                self.target_lang,
+                self.target,
             )
             service_codes.append(service_code)
 
         controller_name, controller_code = await ControllerGenerator(
-            self.project_name, self.user_id, self.api_key, self.locale, self.target_lang
+            self.project_name, self.user_id, self.api_key, self.locale, self.target
         ).generate(
             base_name,
             service_class_name,
@@ -226,9 +228,9 @@ class FrameworkConversionStrategy(ConversionStrategy):
 
     async def _step_config_and_main(self):
         config_results = await ConfigFilesGenerator(
-            self.project_name, self.user_id, self.target_lang
+            self.project_name, self.user_id, self.target
         ).generate()
         main_code = await MainClassGenerator(
-            self.project_name, self.user_id, self.target_lang
+            self.project_name, self.user_id, self.target
         ).generate()
         return config_results, main_code

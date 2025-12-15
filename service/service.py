@@ -30,10 +30,8 @@ class ServiceOrchestrator:
         api_key: str,
         locale: str,
         project_name: str,
-        dbms: str,
-        target_lang: str = 'java',
-        update_mode: str = 'merge',
-        analysis_strategy: str = 'dbms',
+        strategy: str = 'dbms',
+        target: str = 'oracle',
     ):
         """
         ServiceOrchestrator 초기화
@@ -43,27 +41,31 @@ class ServiceOrchestrator:
             api_key: LLM API 키
             locale: 언어 설정
             project_name: 프로젝트 이름
-            dbms: 데이터베이스 종류
-            target_lang: 타겟 언어 (기본값: 'java')
+            strategy: 전략 타입 ('dbms' 또는 'framework')
+            target: 타겟 언어/DBMS (oracle, postgresql, java, python)
         """
         self.user_id = user_id
         self.api_key = api_key
         self.locale = locale
         self.project_name = project_name
-        self.dbms = dbms
-        self.target_lang = target_lang
-        self.update_mode = update_mode if update_mode in ('skip', 'merge') else 'merge'
-        self.analysis_strategy = (analysis_strategy or 'dbms').lower()
+        self.strategy = (strategy or 'dbms').lower()
+        self.target = (target or 'oracle').lower()
         self.project_name_cap = project_name.capitalize() if project_name else ''
         
-        # 디렉토리 경로 설정
+        # 디렉토리 경로 설정 - {systemName}/src/, {systemName}/analysis/ 구조
         if project_name:
-            user_base = os.path.join(BASE_DIR, 'data', user_id, project_name)
+            self._user_base = os.path.join(BASE_DIR, 'data', user_id, project_name)
             self.dirs = {
-                'plsql': os.path.join(user_base, "src"),
-                'analysis': os.path.join(user_base, "analysis"),
-                'ddl': os.path.join(user_base, "ddl"),
+                'ddl': os.path.join(self._user_base, "ddl"),
             }
+    
+    def get_system_dirs(self, system_name: str) -> dict:
+        """시스템별 src/analysis 디렉토리 경로 반환 ({systemName}/src/, {systemName}/analysis/)"""
+        system_base = os.path.join(self._user_base, system_name)
+        return {
+            'src': os.path.join(system_base, "src"),
+            'analysis': os.path.join(system_base, "analysis"),
+        }
 
     # ----- API 키 검증 -----
 
@@ -88,16 +90,16 @@ class ServiceOrchestrator:
     # ----- Understanding 프로세스 -----
 
     async def understand_project(self, file_names: list) -> AsyncGenerator[bytes, None]:
-        """PL/SQL 파일 묶음을 분석하고 Neo4j 그래프 이벤트를 스트리밍합니다.
+        """소스 파일 묶음을 분석하고 Neo4j 그래프 이벤트를 스트리밍합니다.
 
         Args:
-            file_names: `(folder_name, file_name)` 형식의 튜플 리스트
+            file_names: `(system_name, file_name)` 형식의 튜플 리스트
 
         Yields:
             bytes: 프론트엔드로 전송하는 스트리밍 이벤트(JSON 직렬화 결과)
         """
-        strategy = UnderstandStrategyFactory.create_strategy(self.analysis_strategy)
-        async for chunk in strategy.understand(file_names=file_names, orchestrator=self):
+        understand_strategy = UnderstandStrategyFactory.create_strategy(self.strategy)
+        async for chunk in understand_strategy.understand(file_names=file_names, orchestrator=self):
             yield chunk
 
 
@@ -106,36 +108,32 @@ class ServiceOrchestrator:
     async def convert_project(
         self,
         file_names: list,
-        conversion_type: str = 'framework',
-        target_framework: str = 'springboot',
-        target_dbms: str = 'oracle'
+        class_names: list = None
     ) -> AsyncGenerator[bytes, None]:
-        """변환 타입에 따라 적절한 전략을 선택하여 변환을 수행합니다.
+        """전략에 따라 적절한 변환을 수행합니다.
         
         Args:
-            file_names: 변환할 파일 목록 [(folder_name, file_name), ...]
-            conversion_type: 변환 타입 ('framework' 또는 'dbms')
-            target_framework: 타겟 프레임워크 (기본값: 'springboot')
-            target_dbms: 타겟 DBMS (기본값: 'oracle')
+            file_names: 변환할 파일 목록 [(system_name, file_name), ...]
+            class_names: 클래스명 리스트 (architecture 전략용)
             
         Yields:
             bytes: 스트리밍 응답 데이터
         """
         from convert.strategies.strategy_factory import StrategyFactory
         
-        logging.info("Convert: type=%s, project=%s, files=%d, target=%s",
-                    conversion_type, self.project_name, len(file_names),
-                    target_framework if conversion_type == 'framework' else f"{self.dbms}→{target_dbms}")
+        logging.info("Convert: strategy=%s, target=%s, project=%s, files=%d, classes=%d",
+                    self.strategy, self.target, self.project_name, 
+                    len(file_names), len(class_names or []))
 
-        # 전략 생성
-        strategy = StrategyFactory.create_strategy(
-            conversion_type,
-            target_dbms=target_dbms,
-            target_framework=target_framework
-        )
+        # 전략 생성 (strategy + target으로 결정)
+        convert_strategy = StrategyFactory.create_strategy(self.strategy, target=self.target)
 
         # 전략 실행
-        async for chunk in strategy.convert(file_names, orchestrator=self):
+        async for chunk in convert_strategy.convert(
+            file_names, 
+            orchestrator=self, 
+            class_names=class_names
+        ):
             yield chunk
 
     # ----- 파일 작업 -----

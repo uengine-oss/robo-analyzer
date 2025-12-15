@@ -1,45 +1,39 @@
 from .base_strategy import ConversionStrategy
 from .framework_strategy import FrameworkConversionStrategy
 from .dbms_strategy import DbmsConversionStrategy
+from .architecture_strategy import ArchitectureConversionStrategy
 
 
 class StrategyFactory:
     """전략 패턴 팩토리 클래스"""
     
     @staticmethod
-    def create_strategy(conversion_type: str, **kwargs) -> ConversionStrategy:
-        """변환 타입에 따라 전략을 생성 (매핑 기반, 확장 용이)."""
-        conversion_type = (conversion_type or '').lower()
+    def create_strategy(strategy: str, target: str = 'java') -> ConversionStrategy:
+        """전략과 타겟에 따라 변환 전략을 생성합니다.
+        
+        Args:
+            strategy: 전략 타입 ('framework', 'dbms', 'architecture')
+            target: 타겟 언어/DBMS (java, python, oracle, postgresql, mermaid)
+        """
+        strategy = (strategy or 'framework').lower()
+        target = (target or 'java').lower()
 
         creators = {
-            "framework": lambda: FrameworkConversionStrategy(
-                kwargs.get('target_framework', 'springboot')
-            ),
-            "dbms": lambda: DbmsConversionStrategy(
-                kwargs.get('target_dbms', 'oracle')
-            ),
+            "framework": lambda: FrameworkConversionStrategy(target),
+            "dbms": lambda: DbmsConversionStrategy(target),
+            "architecture": lambda: ArchitectureConversionStrategy(target),
         }
 
         try:
-            return creators[conversion_type]()
+            return creators[strategy]()
         except KeyError as e:
-            raise ValueError(f"Unsupported conversion type: {conversion_type}") from e
+            raise ValueError(f"Unsupported strategy: {strategy}") from e
     
     @staticmethod
-    def get_supported_conversion_types() -> dict:
-        """
-        지원하는 변환 타입 목록을 반환합니다.
-        
-        Returns:
-            dict: 지원하는 변환 타입과 옵션들
-        """
+    def get_supported_options() -> dict:
+        """지원하는 전략 및 타겟 옵션을 반환합니다."""
         return {
-            "framework": {
-                "springboot": "Java Spring Boot",
-                "fastapi": "Python FastAPI (TODO)"
-            },
-            "dbms": {
-                "postgres_to_oracle": "PostgreSQL → Oracle",
-                "oracle_to_postgres": "Oracle → PostgreSQL (TODO)"
-            }
+            "framework": ["java", "python"],
+            "dbms": ["oracle", "postgresql"],
+            "architecture": ["mermaid"]
         }

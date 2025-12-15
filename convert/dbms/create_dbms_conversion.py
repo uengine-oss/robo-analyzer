@@ -166,7 +166,7 @@ class DbmsConversionGenerator:
     """
     __slots__ = (
         'traverse_nodes', 'folder_name', 'file_name', 'procedure_name',
-        'user_id', 'api_key', 'locale', 'project_name', 'target_dbms', 'skeleton_code',
+        'user_id', 'api_key', 'locale', 'project_name', 'target', 'skeleton_code',
         'merged_chunks', 'parent_stack',
         'rule_loader', 'sequence_counter',
         'work_id_counter', 'max_workers', 'root_entry',
@@ -175,7 +175,7 @@ class DbmsConversionGenerator:
 
     def __init__(self, traverse_nodes: list, folder_name: str, file_name: str,
                  procedure_name: str, user_id: str, api_key: str, locale: str, 
-                 project_name: str = "demo", target_dbms: str = "oracle",
+                 project_name: str = "demo", target: str = "oracle",
                  skeleton_code: str | None = None):
         self.traverse_nodes = traverse_nodes
         self.folder_name = folder_name
@@ -185,15 +185,15 @@ class DbmsConversionGenerator:
         self.api_key = api_key
         self.locale = locale
         self.project_name = project_name or "demo"
-        self.target_dbms = target_dbms
+        self.target = target
         self.skeleton_code = (skeleton_code or "").strip()
 
         # 상태 초기화
         self.merged_chunks = []
         self.parent_stack = []
         
-        # Rule 파일 로더 (target_dbms로 디렉토리 찾음)
-        self.rule_loader = RuleLoader(target_lang=target_dbms)
+        # Rule 파일 로더 (target으로 디렉토리 찾음)
+        self.rule_loader = RuleLoader(target_lang=target)
         self.sequence_counter = 0
         self.work_id_counter = 0
         self.max_workers = MAX_CONVERSION_CONCURRENCY
@@ -340,7 +340,7 @@ class DbmsConversionGenerator:
         Returns:
             str: 최종 병합된 코드
         """
-        log_process("DBMS", "START", f"🚀 DBMS 변환 시작: {self.folder_name}/{self.file_name} (Postgres → {self.target_dbms.upper()})")
+        log_process("DBMS", "START", f"🚀 DBMS 변환 시작: {self.folder_name}/{self.file_name} → {self.target.upper()}")
         self._reset_state()
 
         # 중복 제거: 같은 라인 범위는 한 번만 처리
@@ -666,7 +666,7 @@ class DbmsConversionGenerator:
             base_path = build_rule_based_path(
                 self.project_name,
                 self.user_id,
-                self.target_dbms,
+                self.target,
                 'dbms_conversion',
                 folder_name=self.folder_name
             )
@@ -684,13 +684,13 @@ class DbmsConversionGenerator:
                 base_path=base_path
             )
             
-            log_process("DBMS", "SAVE", f"💾 {self.target_dbms.capitalize()} 파일 저장 완료: {base_path}/{base_name}.sql")
+            log_process("DBMS", "SAVE", f"💾 {self.target.upper()} 파일 저장 완료: {base_path}/{base_name}.sql")
             
             return final_code
             
         except Exception as e:
-            log_process("DBMS", "ERROR", f"❌ {self.target_dbms.capitalize()} 파일 저장 실패: {e}", logging.ERROR, e)
-            raise ConvertingError(f"{self.target_dbms.capitalize()} 파일 저장 중 오류: {str(e)}")
+            log_process("DBMS", "ERROR", f"❌ {self.target.upper()} 파일 저장 실패: {e}", logging.ERROR, e)
+            raise ConvertingError(f"{self.target.upper()} 파일 저장 중 오류: {str(e)}")
 
 
 # ----- 진입점 함수 -----
@@ -702,7 +702,7 @@ async def start_dbms_conversion(
     user_id: str,
     api_key: str,
     locale: str,
-    target_dbms: str = "oracle"
+    target: str = "oracle"
 ) -> str:
     """
     DBMS 변환 시작
@@ -715,7 +715,7 @@ async def start_dbms_conversion(
         user_id: 사용자 ID
         api_key: LLM API 키
         locale: 로케일
-        target_dbms: 타겟 DBMS (oracle 등)
+        target: 타겟 DBMS (oracle, postgresql)
     
     Returns:
         str: 변환된 코드
@@ -725,7 +725,7 @@ async def start_dbms_conversion(
     """
     connection = Neo4jConnection()
     
-    log_process("DBMS", "START", f"🚀 DBMS 변환 준비: {folder_name}/{file_name} (Postgres → {target_dbms.upper()})")
+    log_process("DBMS", "START", f"🚀 DBMS 변환 준비: {folder_name}/{file_name} → {target.upper()}")
 
     try:
         # Neo4j 쿼리
@@ -783,7 +783,7 @@ async def start_dbms_conversion(
             user_id=user_id,
             api_key=api_key,
             locale=locale,
-            target_dbms=target_dbms
+            target=target
         )
 
         # 변환 수행
@@ -796,7 +796,7 @@ async def start_dbms_conversion(
             api_key,
             locale,
             project_name,
-            target_dbms,
+            target,
             skeleton_code
         )
 

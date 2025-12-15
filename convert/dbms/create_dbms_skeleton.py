@@ -8,7 +8,7 @@ from util.rule_loader import RuleLoader
 class DbmsSkeletonGenerator:
     """
     DBMS 스켈레톤 생성기
-    - PROCEDURE 및 DECLARE 컨텍스트를 기반으로 Oracle용 스켈레톤을 생성
+    - PROCEDURE 및 DECLARE 컨텍스트를 기반으로 타겟 DBMS 스켈레톤을 생성
     - DECLARE 변수 정보를 LLM에 전달하여 일관된 헤더/본문 구조 구성
     """
 
@@ -20,7 +20,7 @@ class DbmsSkeletonGenerator:
         'user_id',
         'api_key',
         'locale',
-        'target_dbms',
+        'target',
         'rule_loader',
     )
 
@@ -33,7 +33,7 @@ class DbmsSkeletonGenerator:
         user_id: str,
         api_key: str,
         locale: str,
-        target_dbms: str = "oracle",
+        target: str = "oracle",
     ):
         self.folder_name = folder_name
         self.file_name = file_name
@@ -42,8 +42,8 @@ class DbmsSkeletonGenerator:
         self.user_id = user_id
         self.api_key = api_key
         self.locale = locale
-        self.target_dbms = target_dbms
-        self.rule_loader = RuleLoader(target_lang=target_dbms)
+        self.target = target
+        self.rule_loader = RuleLoader(target_lang=target)
 
     async def generate(self) -> str:
         """Oracle용 DBMS 스켈레톤 생성"""
@@ -207,7 +207,7 @@ async def start_dbms_skeleton(
     user_id: str,
     api_key: str,
     locale: str,
-    target_dbms: str = "oracle",
+    target: str = "oracle",
 ) -> str:
     """DBMS 스켈레톤 생성 진입점"""
     generator = DbmsSkeletonGenerator(
@@ -218,7 +218,7 @@ async def start_dbms_skeleton(
         user_id=user_id,
         api_key=api_key,
         locale=locale,
-        target_dbms=target_dbms,
+        target=target,
     )
     return await generator.generate()
 

@@ -35,12 +35,7 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
             await connection.ensure_constraints()
 
             if await connection.node_exists(orchestrator.user_id, file_names):
-                if orchestrator.update_mode == "skip":
-                    yield emit_message("ALREADY ANALYZED")
-                    graph_data = await connection.execute_query_and_return_graph(orchestrator.user_id, file_names)
-                    yield emit_data(graph=graph_data, analysis_progress=100)
-                    return
-                yield emit_message("ALREADY ANALYZED: MERGE MODE - RE-APPLYING UPDATES")
+                yield emit_message("ALREADY ANALYZED: RE-APPLYING UPDATES")
 
             ddl_files = self._list_ddl_files(orchestrator)
             if ddl_files:
@@ -99,10 +94,10 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
         )
 
     async def _load_assets(self, orchestrator, folder_name: str, file_name: str) -> tuple:
-        folder_dir = os.path.join(orchestrator.dirs["plsql"], folder_name)
-        plsql_file_path = os.path.join(folder_dir, file_name)
+        system_dirs = orchestrator.get_system_dirs(folder_name)
+        plsql_file_path = os.path.join(system_dirs["src"], file_name)
         base_name = os.path.splitext(file_name)[0]
-        analysis_file_path = os.path.join(orchestrator.dirs["analysis"], folder_name, f"{base_name}.json")
+        analysis_file_path = os.path.join(system_dirs["analysis"], f"{base_name}.json")
 
         async with aiofiles.open(analysis_file_path, "r", encoding="utf-8") as antlr_file, aiofiles.open(
             plsql_file_path, "r", encoding="utf-8"
@@ -127,7 +122,7 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
             )
             cypher_queries = []
 
-            common_props = {"user_id": orchestrator.user_id, "db": orchestrator.dbms, "project_name": orchestrator.project_name}
+            common_props = {"user_id": orchestrator.user_id, "db": orchestrator.target, "project_name": orchestrator.project_name}
 
             for table in parsed["analysis"]:
                 table_info = table["table"]
@@ -266,7 +261,7 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
             user_id=orchestrator.user_id,
             api_key=orchestrator.api_key,
             locale=orchestrator.locale,
-            dbms=orchestrator.dbms,
+            target=orchestrator.target,
             project_name=orchestrator.project_name,
         )
         analysis_task = asyncio.create_task(analyzer.run())

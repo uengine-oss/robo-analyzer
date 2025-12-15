@@ -1,0 +1,77 @@
+name: "Mermaid 클래스 다이어그램 생성"
+description: "클래스/인터페이스 정보를 Mermaid classDiagram 문법으로 변환"
+version: "1.0"
+
+input_schema:
+  required:
+    - classes
+    - relationships
+  optional:
+    - locale:
+        default: "ko"
+
+prompt: |
+  당신은 Mermaid 클래스 다이어그램 전문가입니다.
+  주어진 클래스 정보를 Mermaid classDiagram 문법으로 변환하세요.
+
+  ## 입력 데이터
+
+  ### 클래스/인터페이스 목록
+  {{classes}}
+
+  ### 관계 목록
+  {{relationships}}
+
+  ## 변환 규칙
+
+  ### 1. 클래스 정의
+  ```
+  class ClassName {
+      -privateField type
+      +publicMethod() returnType
+  }
+  ```
+
+  ### 2. 인터페이스 정의
+  ```
+  class InterfaceName {
+      <<interface>>
+      +method() void
+  }
+  ```
+
+  ### 3. 접근 제어자
+  - `+` : public
+  - `-` : private
+  - `#` : protected
+  - `~` : package/default
+
+  ### 4. 관계 화살표
+  - EXTENDS (상속): `Parent <|-- Child`
+  - IMPLEMENTS (구현): `Interface <|.. Class`
+  - ASSOCIATION (연관): `A --> B`
+  - AGGREGATION (집합): `A o-- B`
+  - COMPOSITION (합성): `A *-- B`
+  - DEPENDENCY (의존): `A ..> B`
+
+  ### 5. 필드 표기
+  - 형식: `{visibility}{type} {name}`
+  - 예: `-String name`, `+int count`
+
+  ### 6. 메서드 표기
+  - 형식: `{visibility}{name}() {returnType}`
+  - 예: `+getName() String`, `-calculate() void`
+
+  ## 출력 규칙
+  - 들여쓰기 4칸
+  - 클래스 정의 먼저, 관계는 마지막에
+  - 빈 필드/메서드인 클래스도 정의 포함
+  - 관계에 라벨이 있으면 `: label` 형식으로 추가
+
+  ## 출력 형식
+  JSON만 반환하세요:
+
+  {
+      "diagram": "classDiagram\n    class ClassName {\n        ...\n    }\n    ..."
+  }
+
