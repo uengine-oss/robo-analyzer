@@ -13,11 +13,20 @@ from util.utility_tool import (
 )
 from util.rule_loader import RuleLoader
 from convert.dbms.create_dbms_skeleton import start_dbms_skeleton
+from convert.dbms.parentheses_repair import (
+    validate_and_repair_sql,
+    RepairContext,
+    has_parentheses_mismatch,
+    count_parentheses
+)
 
 
 # ----- 상수 정의 -----
 TOKEN_THRESHOLD = int(os.getenv('DBMS_TOKEN_THRESHOLD', '1000'))
 CODE_PLACEHOLDER = "...code..."
+
+ENABLE_PARENTHESES_VALIDATION = False # 괄호 검증 활성화 여부 (True: 활성화, False: 비활성화)
+
 DML_PLACEHOLDER_PATTERN = re.compile(
     r'(?P<indent>^[ \t]*)(?P<label>(?P<start>\d+)):\s*\.\.\.\s*code\s*\.\.\.',
     re.IGNORECASE | re.MULTILINE
@@ -113,14 +122,16 @@ class SpAccumulator:
 class ConversionWorkQueue:
     """LLM 호출을 병렬로 실행하기 위한 작업 큐."""
 
-    __slots__ = ('rule_loader', 'api_key', 'locale', 'max_workers', 'items')
+    __slots__ = ('rule_loader', 'api_key', 'locale', 'max_workers', 'items', 'enable_parentheses_validation')
 
-    def __init__(self, rule_loader: RuleLoader, api_key: str, locale: str, max_workers: int) -> None:
+    def __init__(self, rule_loader: RuleLoader, api_key: str, locale: str, max_workers: int,
+                 enable_parentheses_validation: bool = True) -> None:
         self.rule_loader = rule_loader
         self.api_key = api_key
         self.locale = locale
         self.max_workers = max(1, max_workers)
         self.items: list[ConversionWorkItem] = []
+        self.enable_parentheses_validation = enable_parentheses_validation
 
     def reset(self) -> None:
         self.items.clear()
@@ -150,10 +161,68 @@ class ConversionWorkQueue:
                     api_key=self.api_key
                 )
             generated_code = (result.get('code') or '').strip()
+            
+            # 괄호 검증 및 복구 (DBMS 변환에만 적용)
+            if self.enable_parentheses_validation and generated_code:
+                generated_code = await self._validate_parentheses(item, generated_code)
+            
             completion_handler(item, generated_code)
 
         await asyncio.gather(*(worker(item) for item in self.items))
         self.items.clear()
+    
+    async def _validate_parentheses(self, item: ConversionWorkItem, generated_code: str) -> str:
+        """변환된 코드의 괄호 검증 및 필요시 복구"""
+        # 괄호 불일치가 없으면 그대로 반환
+        if not has_parentheses_mismatch(generated_code):
+            return generated_code
+        
+        # 복구 컨텍스트 생성
+        context = RepairContext(
+            work_id=item.work_id,
+            start_line=item.start,
+            end_line=item.end,
+            node_type="CONVERSION",
+            parent_context=f"Parent: {item.parent.start if item.parent else 'ROOT'}~{item.parent.end if item.parent else 'ROOT'}"
+        )
+        
+        open_count, close_count = count_parentheses(generated_code)
+        log_process(
+            "DBMS",
+            "VALIDATE",
+            f"⚠️ 작업 #{item.work_id} ({item.start}~{item.end}) 괄호 불일치 감지: "
+            f"여는 괄호 {open_count}, 닫는 괄호 {close_count} - 복구 시도",
+            logging.WARNING
+        )
+        
+        # 동기 함수를 비동기로 실행
+        repaired = await asyncio.to_thread(
+            validate_and_repair_sql,
+            self.rule_loader,
+            self.api_key,
+            self.locale,
+            generated_code,
+            context
+        )
+        
+        # 복구 결과 로깅
+        if not has_parentheses_mismatch(repaired):
+            log_process(
+                "DBMS",
+                "VALIDATE",
+                f"✅ 작업 #{item.work_id} 괄호 복구 성공"
+            )
+        else:
+            open_r, close_r = count_parentheses(repaired)
+            log_process(
+                "DBMS",
+                "VALIDATE",
+                f"⚠️ 작업 #{item.work_id} 괄호 복구 실패 (최선의 결과 사용): "
+                f"여는 괄호 {open_r}, 닫는 괄호 {close_r}",
+                logging.WARNING
+            )
+        
+        return repaired
 
 
 # ----- DBMS 변환 클래스 -----
@@ -199,7 +268,10 @@ class DbmsConversionGenerator:
         self.max_workers = MAX_CONVERSION_CONCURRENCY
         self.root_entry: ParentEntry | None = None
         self.sp_accumulator = SpAccumulator()
-        self.work_queue = ConversionWorkQueue(self.rule_loader, self.api_key, self.locale, self.max_workers)
+        self.work_queue = ConversionWorkQueue(
+            self.rule_loader, self.api_key, self.locale, self.max_workers,
+            enable_parentheses_validation=ENABLE_PARENTHESES_VALIDATION
+        )
 
     # ----- 공개 메서드 -----
 
