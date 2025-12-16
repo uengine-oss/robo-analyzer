@@ -16,7 +16,7 @@ class ServiceSkeletonGenerator:
     LLM을 활용하여 Service 클래스의 기본 구조와 메서드를 생성합니다.
     """
     __slots__ = ('project_name', 'user_id', 'api_key', 'locale',
-                 'folder_name', 'file_name', 'dir_name', 'service_class_name',
+                 'system_name', 'file_name', 'dir_name', 'service_class_name',
                  'external_packages', 'exist_command_class', 'global_vars', 'rule_loader')
 
     def __init__(self, project_name: str, user_id: str, api_key: str, locale: str = 'ko', target_lang: str = 'java'):
@@ -38,7 +38,7 @@ class ServiceSkeletonGenerator:
 
     # ----- 공개 메서드 -----
 
-    async def generate(self, entity_name_list: list, folder_name: str, file_name: str, 
+    async def generate(self, entity_name_list: list, system_name: str, file_name: str, 
                       global_variables: list, repositories: list | None = None) -> tuple:
         """
         Service Skeleton 생성의 메인 진입점
@@ -47,7 +47,7 @@ class ServiceSkeletonGenerator:
         
         Args:
             entity_name_list: 서비스에서 사용할 엔티티 클래스명 목록
-            folder_name: 폴더(시스템)명
+            system_name: 시스템명
             file_name: 파일명
             global_variables: 전역 변수 목록
         
@@ -63,7 +63,7 @@ class ServiceSkeletonGenerator:
         connection = Neo4jConnection()
         
         # 속성 초기화
-        self.folder_name = folder_name
+        self.system_name = system_name
         self.file_name = file_name
         object_name = os.path.splitext(file_name)[0]
         self.dir_name = convert_to_camel_case(object_name)
@@ -132,16 +132,16 @@ class ServiceSkeletonGenerator:
             tuple: (procedure_groups, external_packages)
         """
         procedure_nodes, external_nodes = await connection.execute_queries([
-            f"""MATCH (p {{folder_name: '{self.folder_name}', file_name: '{self.file_name}'}})
+            f"""MATCH (p {{system_name: '{self.system_name}', file_name: '{self.file_name}'}})
                 WHERE p:PROCEDURE OR p:CREATE_PROCEDURE_BODY OR p:FUNCTION
-                OPTIONAL MATCH (p)-[:PARENT_OF]->(d:DECLARE {{folder_name: '{self.folder_name}', file_name: '{self.file_name}'}})
-                OPTIONAL MATCH (d)-[:SCOPE]-(dv:Variable {{folder_name: '{self.folder_name}', file_name: '{self.file_name}'}})
-                OPTIONAL MATCH (p)-[:PARENT_OF]->(s:SPEC {{folder_name: '{self.folder_name}', file_name: '{self.file_name}'}})
-                OPTIONAL MATCH (s)-[:SCOPE]-(sv:Variable {{folder_name: '{self.folder_name}', file_name: '{self.file_name}'}})
+                OPTIONAL MATCH (p)-[:PARENT_OF]->(d:DECLARE {{system_name: '{self.system_name}', file_name: '{self.file_name}'}})
+                OPTIONAL MATCH (d)-[:SCOPE]-(dv:Variable {{system_name: '{self.system_name}', file_name: '{self.file_name}'}})
+                OPTIONAL MATCH (p)-[:PARENT_OF]->(s:SPEC {{system_name: '{self.system_name}', file_name: '{self.file_name}'}})
+                OPTIONAL MATCH (s)-[:SCOPE]-(sv:Variable {{system_name: '{self.system_name}', file_name: '{self.file_name}'}})
                 WITH p, d, dv, s, sv, 
                     CASE WHEN p:FUNCTION THEN 'FUNCTION' WHEN p:PROCEDURE THEN 'PROCEDURE' ELSE 'CREATE_PROCEDURE_BODY' END as node_type
                 RETURN p, d, dv, s, sv, node_type ORDER BY p.startLine""",
-            f"""MATCH (p {{folder_name: '{self.folder_name}', file_name: '{self.file_name}'}})-[:CALL {{scope: 'external'}}]->(ext)
+            f"""MATCH (p {{system_name: '{self.system_name}', file_name: '{self.file_name}'}})-[:CALL {{scope: 'external'}}]->(ext)
                 WITH ext.object_name as obj_name, COLLECT(ext)[0] as ext
                 RETURN ext"""
         ])

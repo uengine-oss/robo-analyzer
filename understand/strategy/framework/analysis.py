@@ -235,10 +235,10 @@ class BatchResult:
 class StatementCollector:
     """AST를 후위순회하여 StatementNode와 클래스 정보를 수집합니다."""
 
-    def __init__(self, antlr_data: Dict[str, Any], file_content: str, folder_name: str, file_name: str):
+    def __init__(self, antlr_data: Dict[str, Any], file_content: str, system_name: str, file_name: str):
         self.antlr_data = antlr_data
         self.file_content = file_content
-        self.folder_name = folder_name
+        self.system_name = system_name
         self.file_name = file_name
         self.nodes: List[StatementNode] = []
         self.classes: Dict[str, ClassInfo] = {}
@@ -253,7 +253,7 @@ class StatementCollector:
     def _make_class_key(self, class_name: Optional[str], start_line: int) -> str:
         """클래스 고유키를 생성합니다."""
         base = class_name or f"anonymous_{start_line}"
-        return f"{self.folder_name}:{self.file_name}:{base}:{start_line}"
+        return f"{self.system_name}:{self.file_name}:{base}:{start_line}"
 
     def _extract_class_name(self, code: str, node_type: str) -> Optional[str]:
         """코드에서 클래스/인터페이스 이름을 추출합니다."""
@@ -456,13 +456,13 @@ class ApplyManager:
         file_last_line: int,
         nodes: List[StatementNode],
         node_base_props: str,
-        folder_props: str,
+        system_props: str,
         classes: Dict[str, ClassInfo],
         api_key: str,
         locale: str,
         user_id: str,
         project_name: str,
-        folder_name: str,
+        system_name: str,
         file_name: str,
     ):
         self.send_queue = send_queue
@@ -470,15 +470,15 @@ class ApplyManager:
         self.file_last_line = file_last_line
         self._nodes = nodes
         self.node_base_props = node_base_props
-        self.folder_props = folder_props
+        self.system_props = system_props
         self.classes = classes
         self.api_key = api_key
         self.locale = locale
         self.user_id = user_id
         self.project_name = project_name
-        self.folder_name = folder_name
+        self.system_name = system_name
         self.file_name = file_name
-        self.folder_file = f"{folder_name}-{file_name}"
+        self.system_file = f"{system_name}-{file_name}"
 
         self._pending: Dict[int, BatchResult] = {}
         self._next_batch_id = 1
@@ -703,7 +703,7 @@ class FrameworkAnalyzer:
         send_queue: asyncio.Queue,
         receive_queue: asyncio.Queue,
         last_line: int,
-        folder_name: str,
+        system_name: str,
         file_name: str,
         user_id: str,
         api_key: str,
@@ -715,29 +715,29 @@ class FrameworkAnalyzer:
         self.send_queue = send_queue
         self.receive_queue = receive_queue
         self.last_line = last_line
-        self.folder_name = folder_name
+        self.system_name = system_name
         self.file_name = file_name
         self.user_id = user_id
         self.api_key = api_key
         self.locale = locale
         self.project_name = project_name
         self.max_workers = MAX_CONCURRENCY
-        self.folder_file = f"{folder_name}-{file_name}"
+        self.system_file = f"{system_name}-{file_name}"
 
         self.node_base_props = (
-            f"folder_name: '{folder_name}', file_name: '{file_name}', "
+            f"system_name: '{system_name}', file_name: '{file_name}', "
             f"user_id: '{user_id}', project_name: '{project_name}'"
         )
-        self.folder_props = (
-            f"user_id: '{user_id}', name: '{folder_name}', project_name: '{project_name}'"
+        self.system_props = (
+            f"user_id: '{user_id}', system_name: '{system_name}', project_name: '{project_name}'"
         )
 
     async def run(self):
         """파일 단위 Understanding 파이프라인을 실행합니다."""
-        log_process("UNDERSTAND", "START", f"🚀 {self.folder_file} 분석 시작 (총 {self.last_line}줄)")
+        log_process("UNDERSTAND", "START", f"🚀 {self.system_file} 분석 시작 (총 {self.last_line}줄)")
         try:
             # 1. AST 수집
-            collector = StatementCollector(self.antlr_data, self.file_content, self.folder_name, self.file_name)
+            collector = StatementCollector(self.antlr_data, self.file_content, self.system_name, self.file_name)
             nodes, classes = collector.collect()
 
             # 2. 정적 그래프 초기화
@@ -761,13 +761,13 @@ class FrameworkAnalyzer:
                 file_last_line=self.last_line,
                 nodes=nodes,
                 node_base_props=self.node_base_props,
-                folder_props=self.folder_props,
+                system_props=self.system_props,
                 classes=classes,
                 api_key=self.api_key,
                 locale=self.locale,
                 user_id=self.user_id,
                 project_name=self.project_name,
-                folder_name=self.folder_name,
+                system_name=self.system_name,
                 file_name=self.file_name,
             )
 
@@ -779,7 +779,7 @@ class FrameworkAnalyzer:
                     log_process(
                         "UNDERSTAND",
                         "LLM",
-                        f"🤖 배치 #{batch.batch_id} LLM 요청: 노드 {len(batch.nodes)}개 ({self.folder_file})",
+                        f"🤖 배치 #{batch.batch_id} LLM 요청: 노드 {len(batch.nodes)}개 ({self.system_file})",
                     )
                     general_result = await invoker.invoke(batch)
                 await apply_manager.submit(batch, general_result)
@@ -787,7 +787,7 @@ class FrameworkAnalyzer:
             await asyncio.gather(*(worker(b) for b in batches))
             await apply_manager.finalize()
 
-            log_process("UNDERSTAND", "DONE", f"✅ {self.folder_file} 분석 완료")
+            log_process("UNDERSTAND", "DONE", f"✅ {self.system_file} 분석 완료")
             await self.send_queue.put({"type": "end_analysis"})
 
         except (UnderstandingError, LLMCallError) as exc:
@@ -891,19 +891,19 @@ class FrameworkAnalyzer:
                 f"  AND toLower(n.class_name) = toLower('{escaped_class_name}')\n"
                 f"  AND n.user_id = '{self.user_id}'\n"
                 f"  AND n.project_name = '{self.project_name}'\n"
-                f"SET n:{label}, n.startLine = {node.start_line}, n.folder_name = '{self.folder_name}', n.file_name = '{self.file_name}', {base_set_str}\n"
+                f"SET n:{label}, n.startLine = {node.start_line}, n.system_name = '{self.system_name}', n.file_name = '{self.file_name}', {base_set_str}\n"
                 f"REMOVE n:{other_label}\n"
                 f"WITH n\n"
-                f"MERGE (folder:SYSTEM {{{self.folder_props}}})\n"
-                f"MERGE (folder)-[:CONTAINS]->(n)"
+                f"MERGE (system:SYSTEM {{{self.system_props}}})\n"
+                f"MERGE (system)-[:CONTAINS]->(n)"
             )
         else:
             queries.append(
                 f"MERGE (n:{label} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
                 f"SET {base_set_str}\n"
                 f"WITH n\n"
-                f"MERGE (folder:SYSTEM {{{self.folder_props}}})\n"
-                f"MERGE (folder)-[:CONTAINS]->(n)"
+                f"MERGE (system:SYSTEM {{{self.system_props}}})\n"
+                f"MERGE (system)-[:CONTAINS]->(n)"
             )
         return queries
 

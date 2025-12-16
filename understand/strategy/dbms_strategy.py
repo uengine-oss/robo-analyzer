@@ -56,10 +56,10 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
                 if ddl_tasks:
                     await asyncio.gather(*ddl_tasks)
 
-            for folder_name, file_name in file_names:
-                await self._ensure_folder_node(connection, folder_name, orchestrator)
+            for system_name, file_name in file_names:
+                await self._ensure_system_node(connection, system_name, orchestrator)
                 async for chunk in self._analyze_file(
-                    folder_name,
+                    system_name,
                     file_name,
                     file_names,
                     connection,
@@ -83,18 +83,18 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
         except Exception:
             return []
 
-    async def _ensure_folder_node(self, connection: Neo4jConnection, folder_name: str, orchestrator) -> None:
+    async def _ensure_system_node(self, connection: Neo4jConnection, system_name: str, orchestrator) -> None:
         user_id_esc = escape_for_cypher(orchestrator.user_id)
-        folder_esc = escape_for_cypher(folder_name)
+        system_esc = escape_for_cypher(system_name)
         project_esc = escape_for_cypher(orchestrator.project_name)
         await connection.execute_queries(
             [
-                f"MERGE (f:SYSTEM {{user_id: '{user_id_esc}', name: '{folder_esc}', project_name: '{project_esc}', has_children: true}}) RETURN f"
+                f"MERGE (f:SYSTEM {{user_id: '{user_id_esc}', system_name: '{system_esc}', project_name: '{project_esc}', has_children: true}}) RETURN f"
             ]
         )
 
-    async def _load_assets(self, orchestrator, folder_name: str, file_name: str) -> tuple:
-        system_dirs = orchestrator.get_system_dirs(folder_name)
+    async def _load_assets(self, orchestrator, system_name: str, file_name: str) -> tuple:
+        system_dirs = orchestrator.get_system_dirs(system_name)
         plsql_file_path = os.path.join(system_dirs["src"], file_name)
         base_name = os.path.splitext(file_name)[0]
         analysis_file_path = os.path.join(system_dirs["analysis"], f"{base_name}.json")
@@ -162,7 +162,7 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
                     "detailDescription": escape_for_cypher(detail_desc_text),
                 }
                 t_set_str = ", ".join(f"t.`{k}` = '{v}'" for k, v in t_set_props.items())
-                cypher_queries.append(f"MERGE (t:Table {{{t_merge_str}}}) SET {t_set_str}")
+                cypher_queries.append(f"MERGE (t:Table {{{t_merge_str}}}) SET {t_set_str} RETURN t")
 
                 for col in columns:
                     if not (col_name := (col.get("name") or "").strip()):
@@ -187,9 +187,9 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
                         c_set_props["pk_constraint"] = f"{parsed_table}_pkey"
 
                     c_set_str = ", ".join(f"c.`{k}` = '{v}'" for k, v in c_set_props.items())
-                    cypher_queries.append(f"MERGE (c:Column {{{c_merge_str}}}) SET {c_set_str}")
+                    cypher_queries.append(f"MERGE (c:Column {{{c_merge_str}}}) SET {c_set_str} RETURN c")
                     cypher_queries.append(
-                        f"MATCH (t:Table {{{t_merge_str}}})\nMATCH (c:Column {{{c_merge_str}}})\nMERGE (t)-[:HAS_COLUMN]->(c)"
+                        f"MATCH (t:Table {{{t_merge_str}}})\nMATCH (c:Column {{{c_merge_str}}})\nMERGE (t)-[r:HAS_COLUMN]->(c) RETURN t, r, c"
                     )
 
                 for fk in foreign_list:
@@ -204,9 +204,9 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
 
                     ref_table_merge_key = {**common_props, "schema": ref_schema or "", "name": ref_table or ""}
                     ref_table_merge_str = ", ".join(f"`{k}`: '{v}'" for k, v in ref_table_merge_key.items())
-                    cypher_queries.append(f"MERGE (rt:Table {{{ref_table_merge_str}}})")
+                    cypher_queries.append(f"MERGE (rt:Table {{{ref_table_merge_str}}}) RETURN rt")
                     cypher_queries.append(
-                        f"MATCH (t:Table {{{t_merge_str}}})\nMATCH (rt:Table {{{ref_table_merge_str}}})\nMERGE (t)-[:FK_TO_TABLE]->(rt)"
+                        f"MATCH (t:Table {{{t_merge_str}}})\nMATCH (rt:Table {{{ref_table_merge_str}}})\nMERGE (t)-[r:FK_TO_TABLE]->(rt) RETURN t, r, rt"
                     )
 
                     src_fqn = ".".join(filter(None, [effective_schema, parsed_table, src_col])).lower()
@@ -227,10 +227,10 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
                     src_c_str = ", ".join(f"`{k}`: '{v}'" for k, v in src_c_key.items())
                     ref_c_str = ", ".join(f"`{k}`: '{v}'" for k, v in ref_c_key.items())
 
-                    cypher_queries.append(f"MERGE (sc:Column {{{src_c_str}}})")
-                    cypher_queries.append(f"MERGE (dc:Column {{{ref_c_str}}})")
+                    cypher_queries.append(f"MERGE (sc:Column {{{src_c_str}}}) RETURN sc")
+                    cypher_queries.append(f"MERGE (dc:Column {{{ref_c_str}}}) RETURN dc")
                     cypher_queries.append(
-                        f"MATCH (sc:Column {{{src_c_str}}})\nMATCH (dc:Column {{{ref_c_str}}})\nMERGE (sc)-[:FK_TO]->(dc)"
+                        f"MATCH (sc:Column {{{src_c_str}}})\nMATCH (dc:Column {{{ref_c_str}}})\nMERGE (sc)-[r:FK_TO]->(dc) RETURN sc, r, dc"
                     )
 
             await connection.execute_queries(cypher_queries)
@@ -238,7 +238,7 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
 
     async def _analyze_file(
         self,
-        folder_name: str,
+        system_name: str,
         file_name: str,
         file_pairs: list,
         connection: Neo4jConnection,
@@ -246,7 +246,7 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
         events_to_analyzer: asyncio.Queue,
         orchestrator: Any,
     ) -> AsyncGenerator[bytes, None]:
-        antlr_data, plsql_content = await self._load_assets(orchestrator, folder_name, file_name)
+        antlr_data, plsql_content = await self._load_assets(orchestrator, system_name, file_name)
         last_line = len(plsql_content)
         plsql_raw = "".join(plsql_content)
 
@@ -256,7 +256,7 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
             send_queue=events_from_analyzer,
             receive_queue=events_to_analyzer,
             last_line=last_line,
-            folder_name=folder_name,
+            system_name=system_name,
             file_name=file_name,
             user_id=orchestrator.user_id,
             api_key=orchestrator.api_key,
@@ -266,7 +266,7 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
         )
         analysis_task = asyncio.create_task(analyzer.run())
 
-        current_file = f"{folder_name}-{file_name}"
+        current_file = f"{system_name}-{file_name}"
         while True:
             analysis_result = await events_from_analyzer.get()
             result_type = analysis_result.get("type")
@@ -275,10 +275,9 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
 
             if result_type == "end_analysis":
                 logging.info("Understanding Completed for %s", current_file)
-                await self._postprocess_file(connection, folder_name, file_name, file_pairs, orchestrator)
-                graph_result = await connection.execute_query_and_return_graph(orchestrator.user_id, file_pairs)
+                postprocess_graph = await self._postprocess_file(connection, system_name, file_name, file_pairs, orchestrator)
                 yield emit_data(
-                    graph=graph_result,
+                    graph=postprocess_graph,
                     line_number=last_line,
                     analysis_progress=100,
                     current_file=current_file,
@@ -292,8 +291,7 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
                 return
 
             next_analysis_line = analysis_result["line_number"]
-            await connection.execute_queries(analysis_result.get("query_data", []))
-            graph_result = await connection.execute_query_and_return_graph(orchestrator.user_id, file_pairs)
+            graph_result = await connection.execute_query_and_return_graph(analysis_result.get("query_data", []))
             yield emit_data(
                 graph=graph_result,
                 line_number=next_analysis_line,
@@ -307,19 +305,19 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
     async def _postprocess_file(
         self,
         connection: Neo4jConnection,
-        folder_name: str,
+        system_name: str,
         file_name: str,
         file_pairs: list,
         orchestrator: Any,
-    ) -> None:
-        folder_esc, file_esc = escape_for_cypher(folder_name), escape_for_cypher(file_name)
+    ) -> dict:
+        system_esc, file_esc = escape_for_cypher(system_name), escape_for_cypher(file_name)
 
         var_rows = (
             (
                 await connection.execute_queries(
                     [
                         f"""
-            MATCH (v:Variable {{folder_name: '{folder_esc}', file_name: '{file_esc}', user_id: '{orchestrator.user_id}'}})
+            MATCH (v:Variable {{system_name: '{system_esc}', file_name: '{file_esc}', user_id: '{orchestrator.user_id}'}})
             WITH v,
                 trim(replace(replace(coalesce(v.value, ''), 'Table: ', ''), 'Table:', '')) AS valueAfterPrefix,
                 coalesce(v.type, '') AS vtype
@@ -341,33 +339,37 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
             else []
         )
 
-        if var_rows:
-            loader = self._rule_loader()
-            type_results = await asyncio.gather(
-                *[
-                    loader.execute(
-                        "variable_type_resolve",
-                        {
-                            "var_name": row["varName"],
-                            "declared_type": row.get("declaredType"),
-                            "table_schema": row["schema"],
-                            "table_name": row["table"],
-                            "columns_json": parse_json_maybe(row.get("columns")),
-                            "locale": orchestrator.locale,
-                        },
-                        orchestrator.api_key,
-                    )
-                    for row in var_rows
-                ]
-            )
+        if not var_rows:
+            return {"Nodes": [], "Relationships": []}
 
-            user_id_esc = escape_for_cypher(orchestrator.user_id)
-            update_queries = [
-                f"MATCH (v:Variable {{name: '{escape_for_cypher(row['varName'])}', folder_name: '{folder_esc}', file_name: '{file_esc}', user_id: '{user_id_esc}'}}) "
-                f"SET v.type = '{escape_for_cypher((result or {}).get('resolvedType') or row.get('declaredType'))}', v.resolved = true"
-                for row, result in zip(var_rows, type_results)
+        loader = self._rule_loader()
+        type_results = await asyncio.gather(
+            *[
+                loader.execute(
+                    "variable_type_resolve",
+                    {
+                        "var_name": row["varName"],
+                        "declared_type": row.get("declaredType"),
+                        "table_schema": row["schema"],
+                        "table_name": row["table"],
+                        "columns_json": parse_json_maybe(row.get("columns")),
+                        "locale": orchestrator.locale,
+                    },
+                    orchestrator.api_key,
+                )
+                for row in var_rows
             ]
+        )
 
-            if update_queries:
-                await connection.execute_queries(update_queries)
+        user_id_esc = escape_for_cypher(orchestrator.user_id)
+        update_queries = [
+            f"MATCH (v:Variable {{name: '{escape_for_cypher(row['varName'])}', system_name: '{system_esc}', file_name: '{file_esc}', user_id: '{user_id_esc}'}}) "
+            f"SET v.type = '{escape_for_cypher((result or {}).get('resolvedType') or row.get('declaredType'))}', v.resolved = true RETURN v"
+            for row, result in zip(var_rows, type_results)
+        ]
+
+        if update_queries:
+            return await connection.execute_query_and_return_graph(update_queries)
+
+        return {"Nodes": [], "Relationships": []}
 

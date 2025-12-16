@@ -1,11 +1,21 @@
+"""
+DBMS 변환 전략 (PostgreSQL → Oracle 등)
+"""
+
 import logging
 from typing import AsyncGenerator, Any
+
 from .base_strategy import ConversionStrategy
-from convert.dbms.create_dbms_conversion import start_dbms_conversion
-from util.utility_tool import emit_message, emit_data, emit_error, get_procedures_from_file
+from convert.dbms.create_dbms_conversion import start_dbms_conversion_steps
+from util.utility_tool import emit_message, emit_data, emit_error, emit_status, get_procedures_from_file
 
 
 logger = logging.getLogger(__name__)
+
+
+# 단계 정의
+STEP_SKELETON = 1  # 스켈레톤 생성
+STEP_BODY = 2      # 본문 변환
 
 
 class DbmsConversionStrategy(ConversionStrategy):
@@ -23,11 +33,6 @@ class DbmsConversionStrategy(ConversionStrategy):
             orchestrator: ServiceOrchestrator 인스턴스
             **kwargs: 추가 매개변수
         """
-        async for chunk in self._convert_to_target(file_names, orchestrator, **kwargs):
-            yield chunk
-    
-    async def _convert_to_target(self, file_names: list, orchestrator: Any, **kwargs) -> AsyncGenerator[bytes, None]:
-        """PostgreSQL → Target DBMS 변환 (Graph 기반)"""
         try:
             yield emit_message(f"DBMS conversion started → {self.target.upper()}")
 
@@ -35,13 +40,15 @@ class DbmsConversionStrategy(ConversionStrategy):
             project_name = orchestrator.project_name
             api_key = orchestrator.api_key
             locale = orchestrator.locale
+            
+            total_files = len(file_names)
 
-            # 프로시저 목록 가져오기 (Neo4j에서)
-            for folder_name, file_name in file_names:
+            # 파일별 변환
+            for file_idx, (system_name, file_name) in enumerate(file_names, 1):
                 try:
                     # Neo4j에서 파일의 모든 프로시저 조회
                     procedure_names = await get_procedures_from_file(
-                        folder_name=folder_name,
+                        system_name=system_name,
                         file_name=file_name,
                         user_id=user_id,
                         project_name=project_name
@@ -52,13 +59,18 @@ class DbmsConversionStrategy(ConversionStrategy):
                         procedure_names = [file_name.rsplit(".", 1)[0]]
                         logger.warning(f"Neo4j에서 프로시저를 찾지 못함, 파일명 기반 사용: {procedure_names[0]}")
                     
-                    yield emit_message(f"Converting {folder_name}/{file_name} ({len(procedure_names)} procedure(s))")
+                    yield emit_message(f"[{file_idx}/{total_files}] Converting {system_name}/{file_name} ({len(procedure_names)} procedure(s))")
                     
                     # 각 프로시저별로 변환 수행
-                    for procedure_name in procedure_names:
-                        # Graph 기반 변환
-                        converted_code = await start_dbms_conversion(
-                            folder_name=folder_name,
+                    for proc_idx, procedure_name in enumerate(procedure_names, 1):
+                        
+                        # Step 1: 스켈레톤 생성 시작
+                        yield emit_message(f"  [{proc_idx}/{len(procedure_names)}] {procedure_name} - Step 1: Skeleton generation")
+                        yield emit_status(STEP_SKELETON, done=False)
+                        
+                        # 단계별 변환 수행
+                        result = await start_dbms_conversion_steps(
+                            system_name=system_name,
                             file_name=file_name,
                             procedure_name=procedure_name,
                             project_name=project_name,
@@ -68,20 +80,29 @@ class DbmsConversionStrategy(ConversionStrategy):
                             target=self.target
                         )
                         
+                        # Step 1 완료
+                        yield emit_status(STEP_SKELETON, done=True)
+                        yield emit_message(f"  [{proc_idx}/{len(procedure_names)}] {procedure_name} - Step 1: Skeleton completed")
+                        
+                        # Step 2 완료 (body 변환은 start_dbms_conversion_steps 내부에서 수행됨)
+                        yield emit_status(STEP_BODY, done=True)
+                        yield emit_message(f"  [{proc_idx}/{len(procedure_names)}] {procedure_name} - Step 2: Body conversion completed")
+                        
                         # 스트리밍으로 결과 전송
                         yield emit_data(
                             file_type="converted_sp",
                             file_name=file_name,
-                            folder_name=folder_name,
-                            code=converted_code,
-                            summary=f"Converted to {self.target.upper()} for {procedure_name}",
+                            system_name=system_name,
+                            procedure_name=procedure_name,
+                            code=result["converted_code"],
+                            summary=f"Converted to {self.target.upper()}",
                         )
                     
-                    yield emit_message(f"Conversion completed for {folder_name}/{file_name}")
+                    yield emit_message(f"[{file_idx}/{total_files}] Completed: {system_name}/{file_name}")
                     
                 except Exception as file_error:
-                    logger.error(f"Conversion failed for {folder_name}/{file_name}: {str(file_error)}")
-                    yield emit_error(f"Conversion failed for {folder_name}/{file_name}: {str(file_error)}")
+                    logger.error(f"Conversion failed for {system_name}/{file_name}: {str(file_error)}")
+                    yield emit_error(f"Conversion failed for {system_name}/{file_name}: {str(file_error)}")
                     return
             
             yield emit_message(f"DBMS conversion completed → {self.target.upper()}")

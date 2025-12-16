@@ -145,7 +145,7 @@ def get_compact_code(self) -> str:
 ```python
 @dataclass(slots=True)
 class ProcedureInfo:
-    key: str                    # 고유 키 (folder_file_procedure)
+    key: str                    # 고유 키 (system_file_procedure)
     procedure_type: str         # PROCEDURE/FUNCTION
     procedure_name: str         # 프로시저 이름
     schema_name: Optional[str]  # 스키마
@@ -264,7 +264,7 @@ analyzer = Analyzer(
     send_queue=events_from_analyzer, # 진행 상황 전송 큐
     receive_queue=events_to_analyzer,# 명령 수신 큐
     last_line=last_line,             # 파일 총 라인 수
-    folder_name=folder_name,         # 폴더명
+    system_name=system_name,         # 시스템명
     file_name=file_name,             # 파일명
     user_id=self.user_id,
     api_key=self.api_key,
@@ -412,7 +412,7 @@ async def _create_static_nodes(self, nodes: List[StatementNode]):
         # 노드 속성
         props = {
             'user_id': self.user_id,
-            'folder_name': self.folder_name,
+            'system_name': self.system_name,
             'file_name': self.file_name,
             'startLine': node.start_line,
             'endLine': node.end_line,
@@ -426,7 +426,7 @@ async def _create_static_nodes(self, nodes: List[StatementNode]):
         query = f"""
         MERGE (n:{node.node_type} {{
             user_id: '{self.user_id}',
-            folder_name: '{self.folder_name}',
+            system_name: '{self.system_name}',
             file_name: '{self.file_name}',
             startLine: {node.start_line}
         }})
@@ -457,13 +457,13 @@ async def _create_relationships(self, nodes: List[StatementNode]):
             queries.append(f"""
             MATCH (parent:{node.parent.node_type} {{
                 user_id: '{self.user_id}',
-                folder_name: '{self.folder_name}',
+                system_name: '{self.system_name}',
                 file_name: '{self.file_name}',
                 startLine: {node.parent.start_line}
             }})
             MATCH (child:{node.node_type} {{
                 user_id: '{self.user_id}',
-                folder_name: '{self.folder_name}',
+                system_name: '{self.system_name}',
                 file_name: '{self.file_name}',
                 startLine: {node.start_line}
             }})
@@ -536,7 +536,7 @@ class BatchPlanner:
     def __init__(self, token_limit: int = MAX_BATCH_TOKEN):
         self.token_limit = token_limit
     
-    def plan(self, nodes: List[StatementNode], folder_file: str) -> List[AnalysisBatch]:
+    def plan(self, nodes: List[StatementNode], system_file: str) -> List[AnalysisBatch]:
         """토큰 한도 기준 배치 생성"""
         batches: List[AnalysisBatch] = []
         current_nodes: List[StatementNode] = []
@@ -552,19 +552,19 @@ class BatchPlanner:
             if node.has_children:
                 # 현재 배치가 있으면 먼저 확정
                 if current_nodes:
-                    batches.append(self._create_batch(batch_id, current_nodes, folder_file))
+                    batches.append(self._create_batch(batch_id, current_nodes, system_file))
                     batch_id += 1
                     current_nodes = []
                     current_tokens = 0
                 
                 # 부모 노드 단독 배치
-                batches.append(self._create_batch(batch_id, [node], folder_file))
+                batches.append(self._create_batch(batch_id, [node], system_file))
                 batch_id += 1
                 continue
             
             # 토큰 한도 초과 시 배치 확정
             if current_nodes and current_tokens + node.token > self.token_limit:
-                batches.append(self._create_batch(batch_id, current_nodes, folder_file))
+                batches.append(self._create_batch(batch_id, current_nodes, system_file))
                 batch_id += 1
                 current_nodes = []
                 current_tokens = 0
@@ -575,11 +575,11 @@ class BatchPlanner:
         
         # 마지막 배치
         if current_nodes:
-            batches.append(self._create_batch(batch_id, current_nodes, folder_file))
+            batches.append(self._create_batch(batch_id, current_nodes, system_file))
         
         return batches
     
-    def _create_batch(self, batch_id: int, nodes: List[StatementNode], folder_file: str) -> AnalysisBatch:
+    def _create_batch(self, batch_id: int, nodes: List[StatementNode], system_file: str) -> AnalysisBatch:
         """AnalysisBatch 객체 생성"""
         ranges = []
         dml_ranges = []
@@ -801,7 +801,7 @@ def _build_node_queries(self, result: BatchResult) -> List[str]:
         query = f"""
         MATCH (n:{node.node_type} {{
             user_id: '{self.user_id}',
-            folder_name: '{self.folder_name}',
+            system_name: '{self.system_name}',
             file_name: '{self.file_name}',
             startLine: {node.start_line}
         }})
@@ -899,7 +899,7 @@ async def _finalize_procedure_summary(self, info: ProcedureInfo):
     MATCH (n:{info.procedure_type} {{
         procedure_name: '{info.procedure_name}',
         user_id: '{self.user_id}',
-        folder_name: '{self.folder_name}',
+        system_name: '{self.system_name}',
         file_name: '{self.file_name}'
     }})
     SET n.summary = {json.dumps(summary_result.get('summary', ''))}
@@ -985,12 +985,12 @@ async def _summarize_table(self, table_key: Tuple[str, str], data: Dict[str, Any
 이 결과는 Variable 노드의 `type`·`resolved` 플래그로 갱신되며, 선언 타입이 불명확하거나 테이블을 찾지 못한 경우에는 원래 타입을 유지합니다.
 
 ```python
-async def _postprocess_file(self, connection, folder_name, file_name, file_pairs):
+async def _postprocess_file(self, connection, system_name, file_name, file_pairs):
     """파일별 후처리 (변수 타입 해석)"""
     
     # 변수 타입 해석 대상 조회
     var_rows = await connection.execute_queries(["""
-        MATCH (v:Variable {folder_name: '...', file_name: '...', user_id: '...'})
+        MATCH (v:Variable {system_name: '...', file_name: '...', user_id: '...'})
         WHERE v.type CONTAINS '%ROWTYPE' OR v.type CONTAINS '%TYPE'
         WITH v, split(v.type, '.')[0] AS tableName
         MATCH (t:Table {name: toUpper(tableName)})
@@ -1309,9 +1309,9 @@ sequenceDiagram
         end
     end
 
-    loop 각 PL/SQL 파일 (folder_name, file_name)
-        Service->>Neo4j: _ensure_folder_node()
-        Service->>Service: _load_assets(folder, file)
+    loop 각 PL/SQL 파일 (system_name, file_name)
+        Service->>Neo4j: _ensure_system_node()
+        Service->>Service: _load_assets(system, file)
         Service->>Analyzer: Analyzer.run() (task 생성)
 
         Analyzer->>Collector: collect()

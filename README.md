@@ -581,7 +581,7 @@ Understanding이 생성하는 노드 타입:
 | 노드 타입 | 역할 | 주요 속성 |
 |----------|------|----------|
 | **SYSTEM** | 폴더/모듈 그룹 | `user_id`, `project_name`, `name` |
-| **FILE** | 소스 파일 | `user_id`, `project_name`, `folder_name`, `file_name` |
+| **FILE** | 소스 파일 | `user_id`, `project_name`, `system_name`, `file_name` |
 | **PROCEDURE** | 프로시저 | `procedure_name`, `summary`, `startLine`, `endLine` |
 | **FUNCTION** | 함수 | `procedure_name`, `summary`, `startLine`, `endLine` |
 | **TRIGGER** | 트리거 | `procedure_name`, `summary` |

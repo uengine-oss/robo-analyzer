@@ -38,7 +38,7 @@ class Neo4jConnection:
     _CONSTRAINT_QUERIES = [
         # SYSTEM: (user_id, project_name, name) 유니크
         "CREATE CONSTRAINT system_unique IF NOT EXISTS FOR (s:SYSTEM) REQUIRE (s.user_id, s.project_name, s.name) IS UNIQUE",
-        # Table: (user_id, project_name, schema, name) 유니크 (테이블은 전역이므로 folder_name 제외)
+        # Table: (user_id, project_name, schema, name) 유니크 (테이블은 전역이므로 system_name 제외)
         "CREATE CONSTRAINT table_unique IF NOT EXISTS FOR (t:Table) REQUIRE (t.user_id, t.project_name, t.schema, t.name) IS UNIQUE",
         # Column: (user_id, project_name, fqn) 유니크
         "CREATE CONSTRAINT column_unique IF NOT EXISTS FOR (c:Column) REQUIRE (c.user_id, c.project_name, c.fqn) IS UNIQUE",
@@ -70,7 +70,7 @@ class Neo4jConnection:
             error_msg = f"Cypher Query를 실행하여, 노드 및 관계를 생성하는 도중 오류가 발생: {str(e)}"
             logging.exception(error_msg)
             raise Neo4jError(error_msg)
-    
+
     async def ensure_constraints(self) -> None:
         """병합(업서트) 시 중복/충돌을 방지하기 위한 유니크 제약을 보장합니다."""
         try:
@@ -85,52 +85,56 @@ class Neo4jConnection:
             # 제약 생성 실패는 기능 차질이 크지 않도록 경고만 남깁니다.
             logging.warning(f"제약 보장 중 경고: {str(e)}")
     
-    # 클래스 상수로 쿼리 캐싱
-    _DEFAULT_GRAPH_QUERY = """
-        UNWIND $pairs as target
-        MATCH (n)-[r]->(m)
-        WHERE NOT n:Variable AND NOT n:PACKAGE_VARIABLE
-          AND NOT m:Variable AND NOT m:PACKAGE_VARIABLE
-          AND n.user_id = $user_id AND m.user_id = $user_id
-          AND ((n:Table OR (n.folder_name = target.folder_name AND n.file_name = target.file_name))
-               AND (m:Table OR (m.folder_name = target.folder_name AND m.file_name = target.file_name)))
-        RETURN DISTINCT n, r, m
-    """
-
-    async def execute_query_and_return_graph(self, user_id: str, file_names: list, custom_query: str | None = None) -> dict:
-        """노드/관계를 조회하여 그래프 딕셔너리로 반환 (최적화: 병렬 처리)"""
+    async def execute_query_and_return_graph(self, queries: list) -> dict:
+        """Cypher 쿼리 리스트를 실행하고 영향받은 노드/관계를 그래프 형태로 반환
+        
+        쿼리에 RETURN 절이 포함되어 있어야 노드/관계가 반환됩니다.
+        """
         try:
-            pairs = [{"folder_name": f, "file_name": s} for f, s in file_names]
-            params = {"user_id": user_id, "pairs": pairs}
+            nodes: dict = {}  # element_id -> node dict (중복 제거)
+            relationships: dict = {}  # element_id -> rel dict (중복 제거)
 
             async with self.__driver.session(database=self.DATABASE_NAME) as session:
-                result = await session.run(custom_query or self._DEFAULT_GRAPH_QUERY, params)
-                graph = await result.graph()
+                for query in queries:
+                    query_result = await session.run(query)
+                    graph = await query_result.graph()
 
-                # 딕셔너리 키 상수화 (반복 생성 방지)
-                return {
-                    "Nodes": [
-                        {
+                    for node in graph.nodes:
+                        nodes[node.element_id] = {
                             "Node ID": node.element_id,
                             "Labels": list(node.labels),
                             "Properties": dict(node),
                         }
-                        for node in graph.nodes
-                    ],
-                    "Relationships": [
-                        {
+                    for rel in graph.relationships:
+                        relationships[rel.element_id] = {
                             "Relationship ID": rel.element_id,
                             "Type": rel.type,
                             "Properties": dict(rel),
                             "Start Node ID": rel.start_node.element_id,
                             "End Node ID": rel.end_node.element_id,
                         }
-                        for rel in graph.relationships
-                    ]
-                }
-            
+                        # 관계의 시작/끝 노드도 포함
+                        start_node = rel.start_node
+                        end_node = rel.end_node
+                        if start_node.element_id not in nodes:
+                            nodes[start_node.element_id] = {
+                                "Node ID": start_node.element_id,
+                                "Labels": list(start_node.labels),
+                                "Properties": dict(start_node),
+                            }
+                        if end_node.element_id not in nodes:
+                            nodes[end_node.element_id] = {
+                                "Node ID": end_node.element_id,
+                                "Labels": list(end_node.labels),
+                                "Properties": dict(end_node),
+                            }
+
+            return {
+                "Nodes": list(nodes.values()),
+                "Relationships": list(relationships.values()),
+            }
         except Exception as e:
-            error_msg = f"Neo4J에서 그래프 객체 형태로 결과를 반환하는 도중 문제가 발생: {str(e)}"
+            error_msg = f"Cypher Query 실행 및 그래프 반환 중 오류가 발생: {str(e)}"
             logging.exception(error_msg)
             raise Neo4jError(error_msg)
         
@@ -140,7 +144,7 @@ class Neo4jConnection:
         UNWIND $pairs as target
         MATCH (n)
         WHERE n.user_id = $user_id
-          AND n.folder_name = target.folder_name
+          AND n.system_name = target.system_name
           AND n.file_name = target.file_name
         RETURN COUNT(n) > 0 AS exists
     """
@@ -148,7 +152,7 @@ class Neo4jConnection:
     async def node_exists(self, user_id: str, file_names: list) -> bool:
         """노드 존재 여부 확인 (최적화: 쿼리 캐싱)"""
         try:
-            pairs = [{"folder_name": f, "file_name": s} for f, s in file_names]
+            pairs = [{"system_name": f, "file_name": s} for f, s in file_names]
             params = {"pairs": pairs, "user_id": user_id}
 
             async with self.__driver.session(database=self.DATABASE_NAME) as session:

@@ -187,10 +187,10 @@ class TestServiceSkeletonGeneration:
         file_names = []
         src_dir = TEST_DATA_DIR / "src"
         if src_dir.exists():
-            for folder in src_dir.iterdir():
-                if folder.is_dir():
-                    for sql_file in folder.glob("*.sql"):
-                        file_names.append((folder.name, sql_file.name))
+            for system in src_dir.iterdir():
+                if system.is_dir():
+                    for sql_file in system.glob("*.sql"):
+                        file_names.append((system.name, sql_file.name))
         
         assert len(file_names) > 0, f"SP 파일이 없습니다: {src_dir}"
         
@@ -201,18 +201,18 @@ class TestServiceSkeletonGeneration:
         # 실제 서비스 스펙: file_names 기반으로 파일별 처리
         file_skeleton_results = {}
         
-        for folder_name, file_name in file_names:
-            print(f"   📝 처리 중: {folder_name}/{file_name}")
+        for system_name, file_name in file_names:
+            print(f"   📝 처리 중: {system_name}/{file_name}")
             
             # 실제 서비스 로직과 동일하게 generate 호출
             service_creation_info, service_class_name, exist_command_class, command_class_list = (
-                await generator.generate(entity_name_list, folder_name, file_name, global_variables, repository_list)
+                await generator.generate(entity_name_list, system_name, file_name, global_variables, repository_list)
             )
             
             # 파일별로 결과 저장 (실제 서비스 스펙과 일치)
-            file_key = f"{folder_name}/{file_name}"
+            file_key = f"{system_name}/{file_name}"
             file_skeleton_results[file_key] = {
-                'folder_name': folder_name,
+                'system_name': system_name,
                 'file_name': file_name,
                 'service_creation_info': service_creation_info,
                 'service_class_name': service_class_name,
@@ -264,12 +264,12 @@ class TestServiceCodeGeneration:
         
         # 파일별로 Service 생성 (실제 서비스 로직과 동일)
         for file_key, file_data in file_skeleton_results.items():
-            folder_name = file_data['folder_name']
+            system_name = file_data['system_name']
             file_name = file_data['file_name']
             service_creation_info = file_data['service_creation_info']
             service_class_name = file_data['service_class_name']
             
-            print(f"   📝 처리 중: {folder_name}/{file_name}")
+            print(f"   📝 처리 중: {system_name}/{file_name}")
             
             # 각 프로시저별로 Service 코드 생성 (실제 서비스와 동일)
             for svc_info in service_creation_info:
@@ -287,7 +287,7 @@ class TestServiceCodeGeneration:
                         cmd_var,
                         proc_name,
                         used_query_methods,
-                        folder_name,
+                        system_name,
                         file_name,
                         sequence_methods,
                         TEST_PROJECT_NAME,
@@ -343,7 +343,7 @@ class TestControllerGeneration:
         
         # 파일별로 Controller 생성 (실제 서비스와 동일)
         for file_key, file_data in file_skeleton_results.items():
-            folder_name = file_data['folder_name']
+            system_name = file_data['system_name']
             file_name = file_data['file_name']
             service_creation_info = file_data['service_creation_info']
             service_class_name = file_data['service_class_name']
@@ -352,7 +352,7 @@ class TestControllerGeneration:
             # base_name은 파일명에서 확장자 제거 (실제 서비스와 동일)
             base_name = file_name.rsplit(".", 1)[0]
             
-            print(f"   📝 처리 중: {folder_name}/{file_name}")
+            print(f"   📝 처리 중: {system_name}/{file_name}")
             
             try:
                 # 실제 서비스 로직과 동일하게 ControllerGenerator.generate() 호출
@@ -505,17 +505,17 @@ class TestConvertingPipeline:
         sp_files = []
         src_dir = TEST_DATA_DIR / "src"
         if src_dir.exists():
-            for folder in src_dir.iterdir():
-                if folder.is_dir():
-                    for sql_file in folder.glob("*.sql"):
-                        sp_files.append((folder.name, sql_file.name))
+            for system in src_dir.iterdir():
+                if system.is_dir():
+                    for sql_file in system.glob("*.sql"):
+                        sp_files.append((system.name, sql_file.name))
         
         assert len(sp_files) > 0, f"SP 파일이 없습니다: {src_dir}"
         file_names = sp_files
         
         print(f"📁 변환 대상 파일: {len(sp_files)}개")
-        for folder_name, file_name in sp_files:
-            print(f"   ✓ {folder_name}/{file_name}")
+        for system_name, file_name in sp_files:
+            print(f"   ✓ {system_name}/{file_name}")
         print()
         
         strategy_kwargs = {"conversion_type": conversion_type}

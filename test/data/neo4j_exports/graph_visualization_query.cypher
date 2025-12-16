@@ -8,7 +8,7 @@
 
 // 1. PROCEDURE 노드 (각 프로시저별로 반환)
 MATCH (p:PROCEDURE {
-  folder_name: 'HOSPITAL_RECEPTION',
+  system_name: 'HOSPITAL_RECEPTION',
   file_name: 'SP_HOSPITAL_RECEPTION.sql',
   user_id: 'KO_TestSession',
   project_name: 'HOSPITAL_MANAGEMENT'
@@ -25,7 +25,7 @@ UNION ALL
 
 // 2. DML 노드와 일반 테이블 (WRITES/FROM 관계)
 MATCH (p:PROCEDURE {
-  folder_name: 'HOSPITAL_RECEPTION',
+  system_name: 'HOSPITAL_RECEPTION',
   file_name: 'SP_HOSPITAL_RECEPTION.sql',
   user_id: 'KO_TestSession',
   project_name: 'HOSPITAL_MANAGEMENT'
@@ -47,13 +47,13 @@ UNION ALL
 
 // 3. CREATE_TEMP_TABLE 노드 (DML이면서 동시에 Table, 관계 없음)
 MATCH (p:PROCEDURE {
-  folder_name: 'HOSPITAL_RECEPTION',
+  system_name: 'HOSPITAL_RECEPTION',
   file_name: 'SP_HOSPITAL_RECEPTION.sql',
   user_id: 'KO_TestSession',
   project_name: 'HOSPITAL_MANAGEMENT'
 })
 MATCH path = (p)-[:PARENT_OF*]->(temp_table:CREATE_TEMP_TABLE:Table {
-  folder_name: 'HOSPITAL_RECEPTION',
+  system_name: 'HOSPITAL_RECEPTION',
   user_id: 'KO_TestSession',
   project_name: 'HOSPITAL_MANAGEMENT'
 })
@@ -69,13 +69,13 @@ UNION ALL
 
 // 4. Variable 노드 (DECLARE/SPEC과 SCOPE 관계)
 MATCH (p:PROCEDURE {
-  folder_name: 'HOSPITAL_RECEPTION',
+  system_name: 'HOSPITAL_RECEPTION',
   file_name: 'SP_HOSPITAL_RECEPTION.sql',
   user_id: 'KO_TestSession',
   project_name: 'HOSPITAL_MANAGEMENT'
 })
 MATCH path = (p)-[:PARENT_OF*]->(decl)-[r:SCOPE]->(v:Variable {
-  folder_name: 'HOSPITAL_RECEPTION',
+  system_name: 'HOSPITAL_RECEPTION',
   user_id: 'KO_TestSession',
   project_name: 'HOSPITAL_MANAGEMENT'
 })
@@ -92,7 +92,7 @@ UNION ALL
 
 // 5. CALL 관계 (프로시저 호출)
 MATCH (p:PROCEDURE {
-  folder_name: 'HOSPITAL_RECEPTION',
+  system_name: 'HOSPITAL_RECEPTION',
   file_name: 'SP_HOSPITAL_RECEPTION.sql',
   user_id: 'KO_TestSession',
   project_name: 'HOSPITAL_MANAGEMENT'

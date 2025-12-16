@@ -22,7 +22,7 @@ class ServicePreprocessingGenerator:
     """
     __slots__ = (
         'traverse_nodes', 'variable_nodes', 'command_class_variable', 'service_skeleton',
-        'query_method_list', 'folder_name', 'file_name', 'procedure_name', 'sequence_methods',
+        'query_method_list', 'system_name', 'file_name', 'procedure_name', 'sequence_methods',
         'user_id', 'api_key', 'locale', 'project_name', 'target_lang',
         'merged_chunks', 'total_tokens', 'tracking_variables', 'parent_stack',
         'sp_code_parts', 'sp_start', 'sp_end', 'pending_try_mode', 'try_buffer',
@@ -30,7 +30,7 @@ class ServicePreprocessingGenerator:
     )
 
     def __init__(self, traverse_nodes: list, variable_nodes: list, command_class_variable: dict,
-                 service_skeleton: str, query_method_list: dict, folder_name: str, file_name: str,
+                 service_skeleton: str, query_method_list: dict, system_name: str, file_name: str,
                  procedure_name: str, sequence_methods: list, user_id: str, api_key: str, locale: str, 
                  project_name: str = "demo", target_lang: str = 'java'):
         self.traverse_nodes = traverse_nodes
@@ -38,7 +38,7 @@ class ServicePreprocessingGenerator:
         self.command_class_variable = command_class_variable
         self.service_skeleton = service_skeleton
         self.query_method_list = query_method_list
-        self.folder_name = folder_name
+        self.system_name = system_name
         self.file_name = file_name
         self.procedure_name = procedure_name
         self.sequence_methods = sequence_methods
@@ -489,7 +489,7 @@ async def start_service_preprocessing(
     command_class_variable: dict,
     procedure_name: str,
     query_method_list: dict,
-    folder_name: str,
+    system_name: str,
     file_name: str,
     sequence_methods: list,
     project_name: str,
@@ -506,7 +506,7 @@ async def start_service_preprocessing(
         command_class_variable: 커맨드 클래스 필드 정의
         procedure_name: 프로시저 이름
         query_method_list: JPA 쿼리 메서드 목록
-        folder_name: 폴더명
+        system_name: 시스템명
         file_name: 파일명
         sequence_methods: 시퀀스 메서드 목록
         user_id: 사용자 ID
@@ -524,14 +524,14 @@ async def start_service_preprocessing(
     logging.info("\n" + "="*80)
     logging.info(f"⚙️  STEP 4: Service 코드 생성 - {procedure_name}")
     logging.info("="*80)
-    logging.info(f"📁 파일: {folder_name}/{file_name}")
+    logging.info(f"📁 파일: {system_name}/{file_name}")
 
     try:
         # Neo4j 쿼리
         service_nodes, variable_nodes = await connection.execute_queries([
             f"""
             MATCH (p:PROCEDURE {{
-              folder_name: '{folder_name}',
+              system_name: '{system_name}',
               file_name: '{file_name}',
               procedure_name: '{procedure_name}',
               user_id: '{user_id}'
@@ -563,7 +563,7 @@ async def start_service_preprocessing(
               WHERE ALL(i IN range(0, size(pathNodes)-2) 
                         WHERE coalesce(toInteger(pathNodes[i].token), 0) >= 1000)
               OPTIONAL MATCH (n)-[r]->(m {{
-                folder_name: '{folder_name}', file_name: '{file_name}', user_id: '{user_id}'
+                system_name: '{system_name}', file_name: '{file_name}', user_id: '{user_id}'
               }})
               WHERE r IS NULL
                  OR ( NOT (m:DECLARE OR m:Table OR m:SPEC)
@@ -576,7 +576,7 @@ async def start_service_preprocessing(
             ORDER BY sortKey, coalesce(toInteger(n.token), 0), id(n)
             """,
             f"""
-            MATCH (n {{folder_name: '{folder_name}', file_name: '{file_name}', 
+            MATCH (n {{system_name: '{system_name}', file_name: '{file_name}', 
                      procedure_name: '{procedure_name}', user_id: '{user_id}'}})
             WHERE n:DECLARE
             MATCH (n)-[:SCOPE]->(v:Variable)
@@ -591,7 +591,7 @@ async def start_service_preprocessing(
             command_class_variable,
             service_skeleton,
             query_method_list,
-            folder_name,
+            system_name,
             file_name,
             procedure_name,
             sequence_methods,

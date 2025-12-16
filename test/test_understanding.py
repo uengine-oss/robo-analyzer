@@ -138,11 +138,11 @@ def _load_source_files(data_dir: Path, *, skip_when_missing: bool = False) -> Li
     source_files: List[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
 
-    for folder in sorted(src_dir.iterdir()):
-        if folder.is_dir():
-            for src_file in sorted(folder.iterdir()):
-                if has_matching_json(folder.name, src_file):
-                    key = (folder.name, src_file.name)
+    for system in sorted(src_dir.iterdir()):
+        if system.is_dir():
+            for src_file in sorted(system.iterdir()):
+                if has_matching_json(system.name, src_file):
+                    key = (system.name, src_file.name)
                     if key not in seen:
                         seen.add(key)
                         source_files.append(key)

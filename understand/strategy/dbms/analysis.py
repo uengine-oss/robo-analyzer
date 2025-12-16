@@ -22,7 +22,7 @@ from util.utility_tool import calculate_code_token, escape_for_cypher, parse_tab
 
 # ==================== 상수 정의 ====================
 PROCEDURE_TYPES = ("PROCEDURE", "FUNCTION", "CREATE_PROCEDURE_BODY", "TRIGGER")
-NON_ANALYSIS_TYPES = frozenset(["CREATE_PROCEDURE_BODY", "FILE", "PROCEDURE", "FUNCTION", "DECLARE", "TRIGGER", "FOLDER", "SPEC"])
+NON_ANALYSIS_TYPES = frozenset(["CREATE_PROCEDURE_BODY", "FILE", "PROCEDURE", "FUNCTION", "DECLARE", "TRIGGER", "SYSTEM", "SPEC"])
 NON_NEXT_RECURSIVE_TYPES = frozenset(["FUNCTION", "PROCEDURE", "PACKAGE_VARIABLE", "TRIGGER"])
 DML_STATEMENT_TYPES = frozenset(["SELECT", "INSERT", "UPDATE", "DELETE", "MERGE", "EXECUTE_IMMEDIATE", "FETCH", "CREATE_TEMP_TABLE", "CTE", "OPEN_CURSOR"])
 TABLE_RELATIONSHIP_MAP = {
@@ -296,11 +296,11 @@ def escape_summary(summary: str) -> str:
 # ==================== 노드 수집기 ====================
 class StatementCollector:
     """AST를 후위순회하여 `StatementNode`와 프로시저 정보를 수집합니다."""
-    def __init__(self, antlr_data: Dict[str, Any], file_content: str, folder_name: str, file_name: str):
+    def __init__(self, antlr_data: Dict[str, Any], file_content: str, system_name: str, file_name: str):
         """수집기에 필요한 AST 데이터와 파일 메타 정보를 초기화합니다."""
         self.antlr_data = antlr_data
         self.file_content = file_content
-        self.folder_name = folder_name
+        self.system_name = system_name
         self.file_name = file_name
         self.nodes: List[StatementNode] = []
         self.procedures: Dict[str, ProcedureInfo] = {}
@@ -316,7 +316,7 @@ class StatementCollector:
     def _make_proc_key(self, procedure_name: Optional[str], start_line: int) -> str:
         """프로시저 고유키를 생성합니다."""
         base = procedure_name or f"anonymous_{start_line}"
-        return f"{self.folder_name}:{self.file_name}:{base}:{start_line}"
+        return f"{self.system_name}:{self.file_name}:{base}:{start_line}"
 
     def _visit(
         self,
@@ -413,7 +413,7 @@ class BatchPlanner:
         """토큰 한도를 지정하여 배치 생성기를 초기화합니다."""
         self.token_limit = token_limit
 
-    def plan(self, nodes: List[StatementNode], folder_file: str) -> List[AnalysisBatch]:
+    def plan(self, nodes: List[StatementNode], system_file: str) -> List[AnalysisBatch]:
         """토큰 한도를 넘지 않도록 노드를 분할하여 분석 배치를 생성합니다."""
         batches: List[AnalysisBatch] = []
         current_nodes: List[StatementNode] = []
@@ -528,11 +528,11 @@ class ApplyManager:
     def __init__(
         self,
         node_base_props: str,
-        folder_props: str,
+        system_props: str,
         table_base_props: str,
         user_id: str,
         project_name: str,
-        folder_name: str,
+        system_name: str,
         file_name: str,
         dbms: str,
         api_key: str,
@@ -544,11 +544,11 @@ class ApplyManager:
     ):
         """Neo4j 반영 시 필요한 메타데이터와 동기화 큐를 초기화합니다."""
         self.node_base_props = node_base_props
-        self.folder_props = folder_props
+        self.system_props = system_props
         self.table_base_props = table_base_props
         self.user_id = user_id
         self.project_name = project_name
-        self.folder_name = folder_name
+        self.system_name = system_name
         self.file_name = file_name
         self.dbms = dbms
         self.api_key = api_key
@@ -557,7 +557,7 @@ class ApplyManager:
         self.send_queue = send_queue
         self.receive_queue = receive_queue
         self.file_last_line = file_last_line
-        self.folder_file = f"{folder_name}-{file_name}"
+        self.system_file = f"{system_name}-{file_name}"
 
         self._pending: Dict[int, BatchResult] = {}
         self._summary_store: Dict[str, Dict[str, Any]] = {key: {} for key in procedures}
@@ -627,7 +627,7 @@ class ApplyManager:
             cypher_queries.extend(self._build_table_queries(result.batch, result.table_result))
 
         if cypher_queries:
-            log_process("UNDERSTAND", "APPLY", f"📤 {self.folder_file}에 Cypher 쿼리 {len(cypher_queries)}건 전송")
+            log_process("UNDERSTAND", "APPLY", f"📤 {self.system_file}에 Cypher 쿼리 {len(cypher_queries)}건 전송")
         await self._send_queries(cypher_queries, result.batch.progress_line)
         log_process("UNDERSTAND", "APPLY", f"✅ 배치 #{result.batch.batch_id} 적용 완료: 노드 {len(result.batch.nodes)}개, 테이블 분석 {'있음' if result.table_result else '없음'}")
 
@@ -668,8 +668,9 @@ class ApplyManager:
             f"MERGE (n:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
             f"SET {base_set}\n"
             f"WITH n\n"
-            f"MERGE (folder:SYSTEM {{{self.folder_props}}})\n"
-            f"MERGE (folder)-[:CONTAINS]->(n)"
+            f"MERGE (system:SYSTEM {{{self.system_props}}})\n"
+            f"MERGE (system)-[r:CONTAINS]->(n)\n"
+            f"RETURN n, r"
         )
 
         node.completion_event.set()
@@ -678,7 +679,8 @@ class ApplyManager:
             # 요약에서 변수 사용을 감지했다면 Variable 노드에 마킹합니다.
             queries.append(
                 f"MATCH (v:Variable {{name: '{escape_for_cypher(var_name)}', {self.node_base_props}}})\n"
-                f"SET v.`{node.start_line}_{node.end_line}` = 'Used'"
+                f"SET v.`{node.start_line}_{node.end_line}` = 'Used'\n"
+                f"RETURN v"
             )
 
         for call_name in analysis.get('calls', []) or []:
@@ -691,15 +693,13 @@ class ApplyManager:
                     f"MATCH (c:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
                     f"OPTIONAL MATCH (p)\n"
                     f"WHERE (p:PROCEDURE OR p:FUNCTION)\n"
-                    f"  AND p.folder_name = '{package_name}'\n"
+                    f"  AND p.system_name = '{package_name}'\n"
                     f"  AND p.procedure_name = '{proc_name}'\n"
                     f"  AND p.user_id = '{self.user_id}'\n"
                     f"WITH c, p\n"
-                    f"FOREACH(_ IN CASE WHEN p IS NULL THEN [1] ELSE [] END |\n"
-                    f"    CREATE (new:PROCEDURE:FUNCTION {{folder_name: '{package_name}', procedure_name: '{proc_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})\n"
-                    f"    MERGE (c)-[:CALL {{scope: 'external'}}]->(new))\n"
-                    f"FOREACH(_ IN CASE WHEN p IS NOT NULL THEN [1] ELSE [] END |\n"
-                    f"    MERGE (c)-[:CALL {{scope: 'external'}}]->(p))"
+                    f"MERGE (target:PROCEDURE:FUNCTION {{system_name: '{package_name}', procedure_name: '{proc_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})\n"
+                    f"MERGE (c)-[r:CALL {{scope: 'external'}}]->(target)\n"
+                    f"RETURN r"
                 )
             else:
                 escaped_call = escape_for_cypher(call_name)
@@ -709,7 +709,8 @@ class ApplyManager:
                     f"MATCH (p {{procedure_name: '{escaped_call}', {self.node_base_props}}})\n"
                     f"WHERE p:PROCEDURE OR p:FUNCTION\n"
                     # 동일 파일 내 호출은 internal scope로 연결합니다.
-                    f"MERGE (c)-[:CALL {{scope: 'internal'}}]->(p)"
+                    f"MERGE (c)-[r:CALL {{scope: 'internal'}}]->(p)\n"
+                    f"RETURN r"
                 )
 
         return queries
@@ -749,7 +750,8 @@ class ApplyManager:
                     queries.append(
                         f"{node_merge}\n"
                         f"SET n:Table, n.name = '{escape_for_cypher(name_part)}', n.schema = '{escape_for_cypher(schema_part)}', "
-                        f"n.db = '{self.dbms}'"
+                        f"n.db = '{self.dbms}'\n"
+                        f"RETURN n"
                     )
                 continue
 
@@ -770,7 +772,7 @@ class ApplyManager:
                 if 'w' in access_mode_raw:
                     relationship_targets.append(TABLE_RELATIONSHIP_MAP['w'])
                 table_merge = self._build_table_merge(name_part, schema_part)
-                folder_merge = f"MERGE (folder:SYSTEM {{{self.folder_props}}})"
+                system_merge = f"MERGE (system:SYSTEM {{{self.system_props}}})"
 
                 # 테이블 설명은 후속 요약을 위해 버킷에 누적합니다.
                 bucket_key = self._record_table_summary(schema_part, name_part, entry.get('tableDescription'))
@@ -781,18 +783,22 @@ class ApplyManager:
                     f"WITH n\n"
                     f"{table_merge}\n"
                     f"WITH n, t\n"
-                    f"{folder_merge}\n"
-                    f"MERGE (folder)-[:CONTAINS]->(t)\n"
+                    f"{system_merge}\n"
+                    f"MERGE (system)-[r_system:CONTAINS]->(t)\n"
                     f"SET t.db = coalesce(t.db, '{self.dbms}')"
                 )
 
                 if db_link_value:
                     base_table_query += f"\nSET t.db_link = COALESCE(t.db_link, '{db_link_value}')"
 
-                for relationship in relationship_targets:
+                rel_vars = ["r_system"]
+                for i, relationship in enumerate(relationship_targets):
+                    rel_var = f"r{i}"
+                    rel_vars.append(rel_var)
                     # 읽기/쓰기 모드를 Neo4j 관계로 표현합니다.
-                    base_table_query += f"\nMERGE (n)-[:{relationship}]->(t)"
+                    base_table_query += f"\nMERGE (n)-[{rel_var}:{relationship}]->(t)"
 
+                base_table_query += f"\nRETURN {', '.join(rel_vars)}"
                 queries.append(base_table_query)
 
                 # 2) 컬럼 노드 및 HAS_COLUMN 관계 생성
@@ -828,7 +834,8 @@ class ApplyManager:
                             f"MERGE (c:Column {{{column_merge_key}}})\n"
                             f"SET c.`name` = '{escaped_column_name}', c.`dtype` = '{col_type}', c.`description` = '{col_description}', c.`nullable` = '{nullable_flag}', c.`fqn` = '{fqn}'\n"
                             f"WITH t, c\n"
-                            f"MERGE (t)-[:HAS_COLUMN]->(c)"
+                            f"MERGE (t)-[r:HAS_COLUMN]->(c)\n"
+                            f"RETURN r"
                         )
                     else:
                         # 스키마가 없으면 테이블과 연결된 컬럼 노드 중 이름이 같은 것을 찾아서 확인
@@ -845,7 +852,8 @@ class ApplyManager:
                             f"CREATE (c:Column {{`user_id`: '{self.user_id}', `fqn`: fqn, `project_name`: '{self.project_name}', "
                             f"`name`: '{escaped_column_name}', `dtype`: '{col_type}', `description`: '{col_description}', `nullable`: '{nullable_flag}'}})\n"
                             f"WITH t, c\n"
-                            f"MERGE (t)-[:HAS_COLUMN]->(c)"
+                            f"MERGE (t)-[r:HAS_COLUMN]->(c)\n"
+                            f"RETURN r"
                         )
 
             # 3) DB 링크 노드 연결 (범위 단위)
@@ -864,10 +872,11 @@ class ApplyManager:
                     f"SET t.db_link = '{link_name}'\n"
                     f"WITH t\n"
                     f"MERGE (l:DBLink {{user_id: '{self.user_id}', name: '{link_name}', project_name: '{self.project_name}'}})\n"
-                    f"MERGE (l)-[:CONTAINS]->(t)\n"
-                    f"WITH t\n"
+                    f"MERGE (l)-[r1:CONTAINS]->(t)\n"
+                    f"WITH t, l, r1\n"
                     f"{node_merge_base}\n"
-                    f"MERGE (n)-[:DB_LINK {{mode: '{mode}'}}]->(t)"
+                    f"MERGE (n)-[r2:DB_LINK {{mode: '{mode}'}}]->(t)\n"
+                    f"RETURN r1, r2"
                 )
 
             # 4) 참조 관계(테이블/컬럼) 생성 (범위 단위)
@@ -897,7 +906,8 @@ class ApplyManager:
                 queries.append(
                     f"MATCH (st:Table {{{src_props}}})\n"
                     f"MATCH (tt:Table {{{tgt_props}}})\n"
-                    f"MERGE (st)-[:FK_TO_TABLE]->(tt)"
+                    f"MERGE (st)-[r:FK_TO_TABLE]->(tt)\n"
+                    f"RETURN r"
                 )
                 for src_column, tgt_column in zip(src_columns, tgt_columns):
                     if not (src_column and tgt_column):
@@ -907,7 +917,8 @@ class ApplyManager:
                     queries.append(
                         f"MATCH (sc:Column {{user_id: '{self.user_id}', name: '{src_column}', fqn: '{src_fqn}'}})\n"
                         f"MATCH (dc:Column {{user_id: '{self.user_id}', name: '{tgt_column}', fqn: '{tgt_fqn}'}})\n"
-                        f"MERGE (sc)-[:FK_TO]->(dc)"
+                        f"MERGE (sc)-[r:FK_TO]->(dc)\n"
+                        f"RETURN r"
                     )
 
         return queries
@@ -946,10 +957,11 @@ class ApplyManager:
         summary_json = json.dumps(summary_value, ensure_ascii=False)
         query = (
             f"MATCH (n:{info.procedure_type} {{procedure_name: '{escape_for_cypher(info.procedure_name)}', {self.node_base_props}}})\n"
-            f"SET n.summary = {summary_json}"
+            f"SET n.summary = {summary_json}\n"
+            f"RETURN n"
         )
         await self._send_queries([query], info.end_line)
-        log_process("UNDERSTAND", "SUMMARY", f"✅ {info.procedure_name} 프로시저 요약을 Neo4j에 반영 완료 ({self.folder_file})")
+        log_process("UNDERSTAND", "SUMMARY", f"✅ {info.procedure_name} 프로시저 요약을 Neo4j에 반영 완료 ({self.system_file})")
 
     async def _finalize_remaining_procedures(self):
         """아직 요약이 남아 있는 프로시저가 있다면 마지막으로 처리합니다."""
@@ -970,7 +982,7 @@ class ApplyManager:
             response = await self.receive_queue.get()
             if response.get('type') == 'process_completed':
                 break
-        log_process("UNDERSTAND", "APPLY", f"✅ {self.folder_name}에 대한 Neo4j 반영 완료")
+        log_process("UNDERSTAND", "APPLY", f"✅ {self.system_name}에 대한 Neo4j 반영 완료")
 
     def _build_table_merge(self, table_name: str, schema: Optional[str]) -> str:
         schema_value = schema or ''
@@ -1080,14 +1092,14 @@ class ApplyManager:
         if table_desc:
             # 테이블 설명을 최신 요약으로 덮어씁니다.
             queries.append(
-                f"MATCH (t:Table {{{table_props}}})\nSET t.description = '{escape_for_cypher(table_desc)}'"
+                f"MATCH (t:Table {{{table_props}}})\nSET t.description = '{escape_for_cypher(table_desc)}'\nRETURN t"
             )
 
         # detailDescription(사람이 읽을 수 있는 텍스트) 적용
         detail_text = result.get('detailDescription') or ''
         if isinstance(detail_text, str) and detail_text.strip():
             queries.append(
-                f"MATCH (t:Table {{{table_props}}})\nSET t.detailDescription = '{escape_for_cypher(detail_text.strip())}'"
+                f"MATCH (t:Table {{{table_props}}})\nSET t.detailDescription = '{escape_for_cypher(detail_text.strip())}'\nRETURN t"
             )
 
         for column_info in result.get('columns', []) or []:
@@ -1101,7 +1113,7 @@ class ApplyManager:
             )
             queries.append(
                 # 컬럼 역할 설명을 최종 요약으로 갱신합니다.
-                f"MATCH (c:Column {{{column_props}}})\nSET c.description = '{escape_for_cypher(column_desc)}'"
+                f"MATCH (c:Column {{{column_props}}})\nSET c.description = '{escape_for_cypher(column_desc)}'\nRETURN c"
             )
 
         if queries:
@@ -1124,7 +1136,7 @@ class Analyzer:
         send_queue: asyncio.Queue,
         receive_queue: asyncio.Queue,
         last_line: int,
-        folder_name: str,
+        system_name: str,
         file_name: str,
         user_id: str,
         api_key: str,
@@ -1138,7 +1150,7 @@ class Analyzer:
         self.send_queue = send_queue
         self.receive_queue = receive_queue
         self.last_line = last_line
-        self.folder_name = folder_name
+        self.system_name = system_name
         self.file_name = file_name
         self.user_id = user_id
         self.api_key = api_key
@@ -1146,12 +1158,12 @@ class Analyzer:
         self.dbms = (dbms or 'postgres').lower()
         self.project_name = project_name or ''
 
-        self.folder_file = f"{folder_name}-{file_name}"
+        self.system_file = f"{system_name}-{file_name}"
         self.node_base_props = (
-            f"folder_name: '{folder_name}', file_name: '{file_name}', user_id: '{user_id}', project_name: '{self.project_name}'"
+            f"system_name: '{system_name}', file_name: '{file_name}', user_id: '{user_id}', project_name: '{self.project_name}'"
         )
-        self.folder_props = (
-            f"user_id: '{user_id}', name: '{folder_name}', project_name: '{self.project_name}'"
+        self.system_props = (
+            f"user_id: '{user_id}', system_name: '{system_name}', project_name: '{self.project_name}'"
         )
         self.table_base_props = f"user_id: '{user_id}'"
         self.max_workers = MAX_CONCURRENCY
@@ -1198,8 +1210,9 @@ class Analyzer:
                 f"SET n.endLine = {node.end_line}, n.name = '{escaped_name}', n.node_code = '{escaped_code}',\n"
                 f"    n.token = {node.token}, n.procedure_name = '{procedure_name}', n.has_children = {has_children}\n"
                 f"WITH n\n"
-                f"MERGE (folder:SYSTEM {{{self.folder_props}}})\n"
-                f"MERGE (folder)-[:CONTAINS]->(n)"
+                f"MERGE (system:SYSTEM {{{self.system_props}}})\n"
+                f"MERGE (system)-[r:CONTAINS]->(n)\n"
+                f"RETURN n, r"
             )
             return queries
 
@@ -1212,8 +1225,9 @@ class Analyzer:
                 f"SET n.endLine = {node.end_line}, n.name = '{self.file_name}', n.summary = '{escape_for_cypher(file_summary)}',\n"
                 f"    n.has_children = {has_children}\n"
                 f"WITH n\n"
-                f"MERGE (folder:SYSTEM {{{self.folder_props}}})\n"
-                f"MERGE (folder)-[:CONTAINS]->(n)"
+                f"MERGE (system:SYSTEM {{{self.system_props}}})\n"
+                f"MERGE (system)-[r:CONTAINS]->(n)\n"
+                f"RETURN n, r"
             )
         else:
             placeholder_fragment = ""
@@ -1226,8 +1240,9 @@ class Analyzer:
                 f"SET n.endLine = {node.end_line}, n.name = '{escaped_name}'{placeholder_fragment},\n"
                 f"    n.node_code = '{escaped_code}', n.token = {node.token}, n.procedure_name = '{procedure_name}', n.has_children = {has_children}\n"
                 f"WITH n\n"
-                f"MERGE (folder:SYSTEM {{{self.folder_props}}})\n"
-                f"MERGE (folder)-[:CONTAINS]->(n)"
+                f"MERGE (system:SYSTEM {{{self.system_props}}})\n"
+                f"MERGE (system)-[r:CONTAINS]->(n)\n"
+                f"RETURN n, r"
             )
         return queries
 
@@ -1259,13 +1274,13 @@ class Analyzer:
         """부모와 자식 노드 사이의 PARENT_OF 관계 쿼리를 작성합니다."""
         parent_match = f"MATCH (parent:{parent.node_type} {{startLine: {parent.start_line}, {self.node_base_props}}})"
         child_match = f"MATCH (child:{child.node_type} {{startLine: {child.start_line}, {self.node_base_props}}})"
-        return f"{parent_match}\n{child_match}\nMERGE (parent)-[:PARENT_OF]->(child)"
+        return f"{parent_match}\n{child_match}\nMERGE (parent)-[r:PARENT_OF]->(child)\nRETURN r"
 
     def _build_next_relationship_query(self, prev_node: StatementNode, current_node: StatementNode) -> str:
         """형제 노드 사이의 NEXT 관계 쿼리를 작성합니다."""
         prev_match = f"MATCH (prev:{prev_node.node_type} {{startLine: {prev_node.start_line}, {self.node_base_props}}})"
         curr_match = f"MATCH (current:{current_node.node_type} {{startLine: {current_node.start_line}, {self.node_base_props}}})"
-        return f"{prev_match}\n{curr_match}\nMERGE (prev)-[:NEXT]->(current)"
+        return f"{prev_match}\n{curr_match}\nMERGE (prev)-[r:NEXT]->(current)\nRETURN r"
 
     async def _process_variable_nodes(self, nodes: List[StatementNode]):
         """변수 선언 노드를 병렬로 분석하여 Variable 노드와 연결합니다."""
@@ -1276,7 +1291,7 @@ class Analyzer:
         proc_labels = sorted({node.procedure_name or "" for node in targets})
         if proc_labels:
             label_text = ', '.join(label for label in proc_labels if label) or '익명 프로시저'
-            log_process("UNDERSTAND", "VAR", f"🔍 변수 선언 분석 시작: {label_text} ({self.folder_file})")
+            log_process("UNDERSTAND", "VAR", f"🔍 변수 선언 분석 시작: {label_text} ({self.system_file})")
 
         semaphore = asyncio.Semaphore(VARIABLE_CONCURRENCY)
 
@@ -1301,7 +1316,7 @@ class Analyzer:
 
         await asyncio.gather(*(worker(node) for node in targets))
         if proc_labels:
-            log_process("UNDERSTAND", "VAR", f"✅ 변수 선언 분석 완료: {label_text} ({self.folder_file})")
+            log_process("UNDERSTAND", "VAR", f"✅ 변수 선언 분석 완료: {label_text} ({self.system_file})")
 
     def _build_variable_queries(self, node: StatementNode, analysis: Dict[str, Any]) -> List[str]:
         """변수 분석 결과를 Neo4j 쿼리로 변환합니다."""
@@ -1316,7 +1331,7 @@ class Analyzer:
         scope = "Global" if node.node_type == "PACKAGE_VARIABLE" else "Local"
 
         node_props = self.node_base_props
-        folder_props = self.folder_props
+        system_props = self.system_props
         procedure_name = escape_for_cypher(node.procedure_name or '')
 
         if node.node_type == "PACKAGE_VARIABLE":
@@ -1329,7 +1344,7 @@ class Analyzer:
         queries: List[str] = []
         # 변수 요약은 선언 노드 자체 summary 필드에 저장합니다.
         queries.append(
-            f"MATCH (p:{node.node_type} {{{node_match}}})\nSET p.summary = {summary_json}"
+            f"MATCH (p:{node.node_type} {{{node_match}}})\nSET p.summary = {summary_json}\nRETURN p"
         )
 
         for variable in variables:
@@ -1347,10 +1362,11 @@ class Analyzer:
                 f"MERGE (v:Variable {{name: '{name}', {base_var_props}, type: '{var_type}', parameter_type: '{param_type}', value: {value_json}}})\n"
                 f"WITH v\n"
                 f"MATCH (p:{node.node_type} {{{node_match}}})\n"
-                f"MERGE (p)-[:SCOPE]->(v)\n"
-                f"WITH v\n"
-                f"MERGE (folder:SYSTEM {{{folder_props}}})\n"
-                f"MERGE (folder)-[:CONTAINS]->(v)"
+                f"MERGE (p)-[r1:SCOPE]->(v)\n"
+                f"WITH v, p, r1\n"
+                f"MERGE (system:SYSTEM {{{system_props}}})\n"
+                f"MERGE (system)-[r2:CONTAINS]->(v)\n"
+                f"RETURN v, p, r1, r2"
             )
 
         return queries
@@ -1371,16 +1387,16 @@ class Analyzer:
 
     async def run(self):
         """파일 단위 Understanding 파이프라인을 실행합니다."""
-        log_process("UNDERSTAND", "START", f"🚀 {self.folder_file} 분석 시작 (총 {self.last_line}줄)")
+        log_process("UNDERSTAND", "START", f"🚀 {self.system_file} 분석 시작 (총 {self.last_line}줄)")
         try:
-            collector = StatementCollector(self.antlr_data, self.file_content, self.folder_name, self.file_name)
+            collector = StatementCollector(self.antlr_data, self.file_content, self.system_name, self.file_name)
             # 1) AST를 평탄화하여 StatementNode 목록을 얻습니다.
             nodes, procedures = collector.collect()
             # 2) 분석 전 Neo4j에 정적 구조를 초기화합니다.
             await self._initialize_static_graph(nodes)
             planner = BatchPlanner()
             # 3) 노드를 토큰 기준으로 배치 단위로 분할합니다.
-            batches = planner.plan(nodes, self.folder_file)
+            batches = planner.plan(nodes, self.system_file)
 
             if not batches:
                 # 분석할 노드가 없다면 즉시 종료 이벤트만 전송합니다.
@@ -1391,11 +1407,11 @@ class Analyzer:
             invoker = LLMInvoker(self.api_key, self.locale)
             apply_manager = ApplyManager(
                 node_base_props=self.node_base_props,
-                folder_props=self.folder_props,
+                system_props=self.system_props,
                 table_base_props=self.table_base_props,
                 user_id=self.user_id,
                 project_name=self.project_name,
-                folder_name=self.folder_name,
+                system_name=self.system_name,
                 file_name=self.file_name,
                 dbms=self.dbms,
                 api_key=self.api_key,
@@ -1412,7 +1428,7 @@ class Analyzer:
                 # 부모 노드가 포함된 배치라면 자식 완료를 기다립니다.
                 await self._wait_for_dependencies(batch)
                 async with semaphore:
-                    log_process("UNDERSTAND", "LLM", f"🤖 배치 #{batch.batch_id} LLM 요청: 노드 {len(batch.nodes)}개 ({self.folder_file})")
+                    log_process("UNDERSTAND", "LLM", f"🤖 배치 #{batch.batch_id} LLM 요청: 노드 {len(batch.nodes)}개 ({self.system_file})")
                     # LLM 호출은 일반 요약과 테이블 요약을 동시에 요청합니다.
                     general, table = await invoker.invoke(batch)
                 await apply_manager.submit(batch, general, table)
@@ -1421,7 +1437,7 @@ class Analyzer:
             # 모든 배치 제출이 끝나면 요약/테이블 설명 후처리를 마무리합니다.
             await apply_manager.finalize()
 
-            log_process("UNDERSTAND", "DONE", f"✅ {self.folder_file} 분석 완료")
+            log_process("UNDERSTAND", "DONE", f"✅ {self.system_file} 분석 완료")
             await self.send_queue.put({"type": "end_analysis"})
 
         except (UnderstandingError, LLMCallError) as exc:

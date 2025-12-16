@@ -223,14 +223,14 @@ class FrameworkConversionStrategy(ConversionStrategy):
             yield emit_status(2, done=True)
             
             # Step 3-5: 파일별 Service/Controller 생성
-            for folder_name, file_name in file_names:
+            for system_name, file_name in file_names:
                 base_name = file_name.rsplit(".", 1)[0]
                 yield emit_message(f"Processing {base_name}")
                 
                 # Service Skeleton
                 (service_creation_info, service_class_name, exist_command_class, command_class_list) = \
                     await self._step_service_skeleton(
-                        entity_result_list, folder_name, file_name,
+                        entity_result_list, system_name, file_name,
                         global_variables, repository_list
                     )
                 
@@ -247,7 +247,7 @@ class FrameworkConversionStrategy(ConversionStrategy):
                     await self._step_service_and_controller(
                         service_creation_info, service_class_name,
                         exist_command_class, used_query_methods,
-                        folder_name, file_name, sequence_methods, base_name
+                        system_name, file_name, sequence_methods, base_name
                     )
                 
                 for service_code in service_codes:
@@ -468,14 +468,14 @@ Service는 2단계로 생성됩니다:
 
 ```python
 class ServiceSkeletonGenerator:
-    async def generate(self, entity_result_list, folder_name, file_name, global_variables, repository_list):
+    async def generate(self, entity_result_list, system_name, file_name, global_variables, repository_list):
         """Service Skeleton 생성"""
         connection = Neo4jConnection()
         
         # 1. 프로시저 정보 조회
         proc_rows = await connection.execute_queries([f"""
             MATCH (proc:PROCEDURE {{
-                folder_name: '{folder_name}',
+                system_name: '{system_name}',
                 file_name: '{file_name}',
                 user_id: '{self.user_id}'
             }})
@@ -507,7 +507,7 @@ class ServiceSkeletonGenerator:
 ```python
 async def start_service_preprocessing(
     service_skeleton, command_var, proc_name,
-    used_query_methods, folder_name, file_name,
+    used_query_methods, system_name, file_name,
     sequence_methods, project_name, user_id, api_key, locale, target_lang
 ):
     """Service 메서드 바디 생성"""
@@ -517,7 +517,7 @@ async def start_service_preprocessing(
     traverse_query = f"""
         MATCH path = (proc:PROCEDURE {{
             procedure_name: '{proc_name}',
-            folder_name: '{folder_name}',
+            system_name: '{system_name}',
             file_name: '{file_name}',
             user_id: '{user_id}'
         }})-[:PARENT_OF*]->(child)
@@ -635,7 +635,7 @@ class DbmsConversionStrategy(ConversionStrategy):
 
 ```python
 async def start_dbms_skeleton(
-    folder_name, file_name, procedure_name,
+    system_name, file_name, procedure_name,
     user_id, api_key, locale, target_dbms
 ):
     """프로시저 시그니처 변환"""
@@ -645,7 +645,7 @@ async def start_dbms_skeleton(
     spec_rows = await connection.execute_queries([f"""
         MATCH (proc:PROCEDURE {{
             procedure_name: '{procedure_name}',
-            folder_name: '{folder_name}',
+            system_name: '{system_name}',
             file_name: '{file_name}',
             user_id: '{user_id}'
         }})-[:PARENT_OF]->(spec:SPEC)
@@ -1071,7 +1071,7 @@ sequenceDiagram
         FW-->>Service: SSE repository_class (파일 저장 + 코드 전송)
 
         Note over FW,Neo4j: STEP 3-5 - 파일별 Service/Controller
-        loop 각 파일 (folder_name, file_name)
+        loop 각 파일 (system_name, file_name)
             FW->>Neo4j: MATCH PROCEDURE, DECLARE, SPEC, CALL(external)
             Neo4j-->>FW: procedure_groups, external_packages
             FW->>LLM: role=variable (global_variables)
@@ -1111,8 +1111,8 @@ sequenceDiagram
     %% DBMS 변환 상세 (PostgreSQL → Target DBMS)
     alt DBMS 변환 (PostgreSQL → Target DBMS)
         Note over DB,Neo4j: STEP 1 - 프로시저 목록 조회
-        loop 각 파일 (folder_name, file_name)
-            DB->>Neo4j: get_procedures_from_file(folder_name, file_name, user_id, project_name)
+        loop 각 파일 (system_name, file_name)
+            DB->>Neo4j: get_procedures_from_file(system_name, file_name, user_id, project_name)
             Neo4j-->>DB: procedure_names[]
 
             loop 각 프로시저
