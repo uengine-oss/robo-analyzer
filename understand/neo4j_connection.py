@@ -1,7 +1,9 @@
 import logging
 import os
 import warnings
+import json
 from pathlib import Path
+from datetime import datetime
 from dotenv import load_dotenv
 from neo4j import AsyncGraphDatabase
 from util.exception import Neo4jError
@@ -85,31 +87,33 @@ class Neo4jConnection:
             # 제약 생성 실패는 기능 차질이 크지 않도록 경고만 남깁니다.
             logging.warning(f"제약 보장 중 경고: {str(e)}")
     
+    @staticmethod
+    def _add_node(node, nodes_dict: dict) -> None:
+        """노드를 결과 딕셔너리에 추가 (중복/빈 노드 제외)."""
+        if node.element_id in nodes_dict:
+            return
+        labels, props = list(node.labels), dict(node)
+        if not labels and not props:
+            return
+        nodes_dict[node.element_id] = {
+            "Node ID": node.element_id,
+            "Labels": labels,
+            "Properties": props,
+        }
+
     async def execute_query_and_return_graph(self, queries: list) -> dict:
-        """Cypher 쿼리 리스트를 실행하고 영향받은 노드/관계를 그래프 형태로 반환
-        
-        쿼리에 RETURN 절이 포함되어 있어야 노드/관계가 반환됩니다.
-        """
+        """Cypher 쿼리 리스트를 실행하고 영향받은 노드/관계를 그래프 형태로 반환"""
         try:
-            nodes: dict = {}  # element_id -> node dict (중복 제거)
-            relationships: dict = {}  # element_id -> rel dict (중복 제거)
+            nodes: dict = {}
+            relationships: dict = {}
 
             async with self.__driver.session(database=self.DATABASE_NAME) as session:
                 for query in queries:
-                    query_result = await session.run(query)
-                    graph = await query_result.graph()
+                    graph = await (await session.run(query)).graph()
 
                     for node in graph.nodes:
-                        # RETURN 절에 명시된 노드만 포함 (Labels와 Properties가 모두 비어있으면 제외)
-                        node_labels = list(node.labels)
-                        node_props = dict(node)
-                        if len(node_labels) == 0 and len(node_props) == 0:
-                            continue
-                        nodes[node.element_id] = {
-                            "Node ID": node.element_id,
-                            "Labels": node_labels,
-                            "Properties": node_props,
-                        }
+                        self._add_node(node, nodes)
+
                     for rel in graph.relationships:
                         relationships[rel.element_id] = {
                             "Relationship ID": rel.element_id,
@@ -118,11 +122,10 @@ class Neo4jConnection:
                             "Start Node ID": rel.start_node.element_id,
                             "End Node ID": rel.end_node.element_id,
                         }
+                        self._add_node(rel.start_node, nodes)
+                        self._add_node(rel.end_node, nodes)
 
-            return {
-                "Nodes": list(nodes.values()),
-                "Relationships": list(relationships.values()),
-            }
+            return {"Nodes": list(nodes.values()), "Relationships": list(relationships.values())}
         except Exception as e:
             error_msg = f"Cypher Query 실행 및 그래프 반환 중 오류가 발생: {str(e)}"
             logging.exception(error_msg)
@@ -153,3 +156,4 @@ class Neo4jConnection:
             error_msg = f"노드 존재 여부 확인 중 오류 발생: {str(e)}"
             logging.exception(error_msg)
             raise Neo4jError(error_msg)
+

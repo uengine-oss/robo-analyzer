@@ -34,19 +34,25 @@ class DbmsConversionStrategy(ConversionStrategy):
             **kwargs: 추가 매개변수
         """
         try:
-            yield emit_message(f"DBMS conversion started → {self.target.upper()}")
-
             user_id = orchestrator.user_id
             project_name = orchestrator.project_name
             api_key = orchestrator.api_key
             locale = orchestrator.locale
             
             total_files = len(file_names)
+            target_name = self.target.upper()
 
-            # 파일별 변환
+            yield emit_message(f"DBMS 변환을 시작합니다 (대상: {target_name})")
+            yield emit_message(f"프로젝트 '{project_name}'의 {total_files}개 파일을 변환합니다")
+
+            total_procedures_converted = 0
+
             for file_idx, (system_name, file_name) in enumerate(file_names, 1):
                 try:
-                    # Neo4j에서 파일의 모든 프로시저 조회
+                    yield emit_message(f"파일 변환 시작: {file_name} ({file_idx}/{total_files})")
+                    yield emit_message(f"시스템: {system_name}")
+                    
+                    yield emit_message("프로시저 정보를 조회하고 있습니다")
                     procedure_names = await get_procedures_from_file(
                         system_name=system_name,
                         file_name=file_name,
@@ -54,21 +60,20 @@ class DbmsConversionStrategy(ConversionStrategy):
                         project_name=project_name
                     )
                     
-                    # 프로시저가 없으면 파일명 기반으로 폴백
                     if not procedure_names:
                         procedure_names = [file_name.rsplit(".", 1)[0]]
                         logger.warning(f"Neo4j에서 프로시저를 찾지 못함, 파일명 기반 사용: {procedure_names[0]}")
+                        yield emit_message("프로시저 정보가 없어 파일명 기반으로 처리합니다")
                     
-                    yield emit_message(f"[{file_idx}/{total_files}] Converting {system_name}/{file_name} ({len(procedure_names)} procedure(s))")
+                    proc_count = len(procedure_names)
+                    yield emit_message(f"발견된 프로시저: {proc_count}개")
                     
-                    # 각 프로시저별로 변환 수행
                     for proc_idx, procedure_name in enumerate(procedure_names, 1):
+                        yield emit_message(f"프로시저 변환 시작: {procedure_name} ({proc_idx}/{proc_count})")
                         
-                        # Step 1: 스켈레톤 생성 시작
-                        yield emit_message(f"  [{proc_idx}/{len(procedure_names)}] {procedure_name} - Step 1: Skeleton generation")
+                        yield emit_message("프로시저 구조를 분석하고 있습니다")
                         yield emit_status(STEP_SKELETON, done=False)
                         
-                        # 단계별 변환 수행
                         result = await start_dbms_conversion_steps(
                             system_name=system_name,
                             file_name=file_name,
@@ -80,33 +85,36 @@ class DbmsConversionStrategy(ConversionStrategy):
                             target=self.target
                         )
                         
-                        # Step 1 완료
                         yield emit_status(STEP_SKELETON, done=True)
-                        yield emit_message(f"  [{proc_idx}/{len(procedure_names)}] {procedure_name} - Step 1: Skeleton completed")
+                        yield emit_message("프로시저 구조 분석이 완료되었습니다")
                         
-                        # Step 2 완료 (body 변환은 start_dbms_conversion_steps 내부에서 수행됨)
+                        yield emit_message(f"{target_name} 코드로 변환하고 있습니다")
                         yield emit_status(STEP_BODY, done=True)
-                        yield emit_message(f"  [{proc_idx}/{len(procedure_names)}] {procedure_name} - Step 2: Body conversion completed")
+                        yield emit_message("코드 변환이 완료되었습니다")
                         
-                        # 스트리밍으로 결과 전송
                         yield emit_data(
                             file_type="converted_sp",
                             file_name=file_name,
                             system_name=system_name,
                             procedure_name=procedure_name,
                             code=result["converted_code"],
-                            summary=f"Converted to {self.target.upper()}",
+                            summary=f"{target_name}로 변환됨",
                         )
+                        
+                        total_procedures_converted += 1
+                        yield emit_message(f"프로시저 변환 완료: {procedure_name} ({proc_idx}/{proc_count})")
                     
-                    yield emit_message(f"[{file_idx}/{total_files}] Completed: {system_name}/{file_name}")
+                    yield emit_message(f"파일 변환 완료: {file_name} ({file_idx}/{total_files}, 프로시저 {proc_count}개)")
                     
                 except Exception as file_error:
                     logger.error(f"Conversion failed for {system_name}/{file_name}: {str(file_error)}")
-                    yield emit_error(f"Conversion failed for {system_name}/{file_name}: {str(file_error)}")
+                    yield emit_message(f"변환 중 오류가 발생했습니다: {str(file_error)}")
+                    yield emit_error(f"{system_name}/{file_name} 변환 실패: {str(file_error)}")
                     return
-            
-            yield emit_message(f"DBMS conversion completed → {self.target.upper()}")
+
+            yield emit_message(f"DBMS 변환이 모두 완료되었습니다 (대상: {target_name})")
+            yield emit_message(f"결과: {total_files}개 파일, {total_procedures_converted}개 프로시저 변환")
             
         except Exception as e:
             logger.error(f"Conversion error: {str(e)}")
-            yield emit_error(f"Conversion error: {str(e)}")
+            yield emit_error(f"변환 오류: {str(e)}")

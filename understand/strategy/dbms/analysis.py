@@ -699,7 +699,7 @@ class ApplyManager:
                     f"WITH c, p\n"
                     f"MERGE (target:PROCEDURE:FUNCTION {{system_name: '{package_name}', procedure_name: '{proc_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})\n"
                     f"MERGE (c)-[r:CALL {{scope: 'external'}}]->(target)\n"
-                    f"RETURN r"
+                    f"RETURN c, target, r"
                 )
             else:
                 escaped_call = escape_for_cypher(call_name)
@@ -710,7 +710,7 @@ class ApplyManager:
                     f"WHERE p:PROCEDURE OR p:FUNCTION\n"
                     # 동일 파일 내 호출은 internal scope로 연결합니다.
                     f"MERGE (c)-[r:CALL {{scope: 'internal'}}]->(p)\n"
-                    f"RETURN r"
+                    f"RETURN c, p, r"
                 )
 
         return queries
@@ -792,13 +792,15 @@ class ApplyManager:
                     base_table_query += f"\nSET t.db_link = COALESCE(t.db_link, '{db_link_value}')"
 
                 rel_vars = ["r_system"]
+                node_vars = ["n", "t", "system"]
                 for i, relationship in enumerate(relationship_targets):
                     rel_var = f"r{i}"
                     rel_vars.append(rel_var)
                     # 읽기/쓰기 모드를 Neo4j 관계로 표현합니다.
                     base_table_query += f"\nMERGE (n)-[{rel_var}:{relationship}]->(t)"
 
-                base_table_query += f"\nRETURN {', '.join(rel_vars)}"
+                # 노드와 관계를 모두 반환
+                base_table_query += f"\nRETURN {', '.join(node_vars)}, {', '.join(rel_vars)}"
                 queries.append(base_table_query)
 
                 # 2) 컬럼 노드 및 HAS_COLUMN 관계 생성
@@ -835,25 +837,20 @@ class ApplyManager:
                             f"SET c.`name` = '{escaped_column_name}', c.`dtype` = '{col_type}', c.`description` = '{col_description}', c.`nullable` = '{nullable_flag}', c.`fqn` = '{fqn}'\n"
                             f"WITH t, c\n"
                             f"MERGE (t)-[r:HAS_COLUMN]->(c)\n"
-                            f"RETURN r"
+                            f"RETURN t, c, r"
                         )
                     else:
-                        # 스키마가 없으면 테이블과 연결된 컬럼 노드 중 이름이 같은 것을 찾아서 확인
-                        # 있으면 그냥 넘어가고, 없으면 생성
+                        # 스키마가 없으면 테이블의 schema를 기반으로 fqn을 동적 계산하여 MERGE
+                        # 기존 컬럼이 있으면 찾고, 없으면 생성 (항상 관계 반환)
                         queries.append(
                             f"{table_merge}\n"
-                            f"WITH t\n"
-                            f"OPTIONAL MATCH (existing_col:Column)-[:HAS_COLUMN]-(t)\n"
-                            f"WHERE existing_col.`name` = '{escaped_column_name}' AND existing_col.`user_id` = '{self.user_id}' AND existing_col.`project_name` = '{self.project_name}'\n"
-                            f"WITH t, existing_col\n"
-                            f"WHERE existing_col IS NULL\n"
-                            f"WITH t, "
-                            f"lower(case when t.schema <> '' and t.schema IS NOT NULL then t.schema + '.' + '{name_part}' + '.' + '{column_name}' else '{name_part}' + '.' + '{column_name}' end) as fqn\n"
-                            f"CREATE (c:Column {{`user_id`: '{self.user_id}', `fqn`: fqn, `project_name`: '{self.project_name}', "
-                            f"`name`: '{escaped_column_name}', `dtype`: '{col_type}', `description`: '{col_description}', `nullable`: '{nullable_flag}'}})\n"
+                            f"WITH t, lower(case when t.schema <> '' and t.schema IS NOT NULL then t.schema + '.' + '{name_part}' + '.' + '{column_name}' else '{name_part}' + '.' + '{column_name}' end) as fqn\n"
+                            f"MERGE (c:Column {{`user_id`: '{self.user_id}', `fqn`: fqn, `project_name`: '{self.project_name}'}})\n"
+                            f"ON CREATE SET c.`name` = '{escaped_column_name}', c.`dtype` = '{col_type}', c.`description` = '{col_description}', c.`nullable` = '{nullable_flag}'\n"
+                            f"ON MATCH SET c.`name` = '{escaped_column_name}', c.`dtype` = CASE WHEN c.`dtype` = '' OR c.`dtype` IS NULL THEN '{col_type}' ELSE c.`dtype` END\n"
                             f"WITH t, c\n"
                             f"MERGE (t)-[r:HAS_COLUMN]->(c)\n"
-                            f"RETURN r"
+                            f"RETURN t, c, r"
                         )
 
             # 3) DB 링크 노드 연결 (범위 단위)
@@ -904,7 +901,7 @@ class ApplyManager:
                     f"MATCH (st:Table {{{src_props}}})\n"
                     f"MATCH (tt:Table {{{tgt_props}}})\n"
                     f"MERGE (st)-[r:FK_TO_TABLE]->(tt)\n"
-                    f"RETURN r"
+                    f"RETURN st, tt, r"
                 )
                 for src_column, tgt_column in zip(src_columns, tgt_columns):
                     if not (src_column and tgt_column):
@@ -912,10 +909,10 @@ class ApplyManager:
                     src_fqn = '.'.join(filter(None, [src_schema, src_table_name, src_column])).lower()
                     tgt_fqn = '.'.join(filter(None, [tgt_schema, tgt_table_name, tgt_column])).lower()
                     queries.append(
-                        f"MATCH (sc:Column {{user_id: '{self.user_id}', name: '{src_column}', fqn: '{src_fqn}'}})\n"
-                        f"MATCH (dc:Column {{user_id: '{self.user_id}', name: '{tgt_column}', fqn: '{tgt_fqn}'}})\n"
+                        f"MATCH (sc:Column {{user_id: '{self.user_id}', name: '{src_column}', fqn: '{src_fqn}', project_name: '{self.project_name}'}})\n"
+                        f"MATCH (dc:Column {{user_id: '{self.user_id}', name: '{tgt_column}', fqn: '{tgt_fqn}', project_name: '{self.project_name}'}})\n"
                         f"MERGE (sc)-[r:FK_TO]->(dc)\n"
-                        f"RETURN r"
+                        f"RETURN sc, dc, r"
                     )
 
         return queries
@@ -1175,6 +1172,12 @@ class Analyzer:
         await self._create_relationships(nodes)
         # 3) 변수 선언은 별도 프롬프트로 병렬 처리합니다.
         await self._process_variable_nodes(nodes)
+        # 4) 정적 그래프 초기화 완료 알림
+        await self.send_queue.put({"type": "static_complete"})
+        while True:
+            resp = await self.receive_queue.get()
+            if resp.get("type") == "process_completed":
+                break
 
     async def _create_static_nodes(self, nodes: List[StatementNode]):
         """각 StatementNode에 대응하는 기본 노드를 Neo4j에 생성합니다."""
@@ -1271,13 +1274,13 @@ class Analyzer:
         """부모와 자식 노드 사이의 PARENT_OF 관계 쿼리를 작성합니다."""
         parent_match = f"MATCH (parent:{parent.node_type} {{startLine: {parent.start_line}, {self.node_base_props}}})"
         child_match = f"MATCH (child:{child.node_type} {{startLine: {child.start_line}, {self.node_base_props}}})"
-        return f"{parent_match}\n{child_match}\nMERGE (parent)-[r:PARENT_OF]->(child)\nRETURN r"
+        return f"{parent_match}\n{child_match}\nMERGE (parent)-[r:PARENT_OF]->(child)\nRETURN parent, child, r"
 
     def _build_next_relationship_query(self, prev_node: StatementNode, current_node: StatementNode) -> str:
         """형제 노드 사이의 NEXT 관계 쿼리를 작성합니다."""
         prev_match = f"MATCH (prev:{prev_node.node_type} {{startLine: {prev_node.start_line}, {self.node_base_props}}})"
         curr_match = f"MATCH (current:{current_node.node_type} {{startLine: {current_node.start_line}, {self.node_base_props}}})"
-        return f"{prev_match}\n{curr_match}\nMERGE (prev)-[r:NEXT]->(current)\nRETURN r"
+        return f"{prev_match}\n{curr_match}\nMERGE (prev)-[r:NEXT]->(current)\nRETURN prev, current, r"
 
     async def _process_variable_nodes(self, nodes: List[StatementNode]):
         """변수 선언 노드를 병렬로 분석하여 Variable 노드와 연결합니다."""
@@ -1373,7 +1376,7 @@ class Analyzer:
         if not queries:
             return
         await self.send_queue.put({
-            "type": "analysis_code",
+            "type": "static_graph",  # 정적 그래프 초기화는 별도 타입으로 구분
             "query_data": queries,
             "line_number": progress_line,
         })
@@ -1399,6 +1402,13 @@ class Analyzer:
                 # 분석할 노드가 없다면 즉시 종료 이벤트만 전송합니다.
                 await self.send_queue.put({"type": "end_analysis"})
                 return
+
+            # LLM 분석 시작 알림 (총 배치 수 전달)
+            await self.send_queue.put({"type": "llm_start", "total_batches": len(batches)})
+            while True:
+                resp = await self.receive_queue.get()
+                if resp.get("type") == "process_completed":
+                    break
 
             # 1) LLM 워커 / 2) 적용 관리자 준비
             invoker = LLMInvoker(self.api_key, self.locale)

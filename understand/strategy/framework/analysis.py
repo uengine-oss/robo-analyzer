@@ -525,7 +525,8 @@ class ApplyManager:
             escaped_summary = escape_for_cypher(str(summary))
             queries.append(
                 f"MATCH (n:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}}) "
-                f"SET n.summary = '{escaped_summary}'"
+                f"SET n.summary = '{escaped_summary}' "
+                f"RETURN n"
             )
             log_process("UNDERSTAND", "APPLY", f"✅ {node.start_line}~{node.end_line} 구간 요약 반영")
 
@@ -553,13 +554,15 @@ class ApplyManager:
                         f"  AND toLower(t.class_name) = toLower('{target_type}')\n"
                         f"  AND t.user_id = '{self.user_id}'\n"
                         f"  AND t.project_name = '{self.project_name}'\n"
-                        f"MERGE (c)-[:CALLS {{method: '{method_name}'}}]->(t)"
+                        f"MERGE (c)-[r:CALLS {{method: '{method_name}'}}]->(t)\n"
+                        f"RETURN c, t, r"
                     )
                 else:
                     queries.append(
                         f"MATCH (c:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
                         f"MATCH (m:METHOD {{name: '{escaped_call}', {self.node_base_props}}})\n"
-                        f"MERGE (c)-[:CALLS]->(m)"
+                        f"MERGE (c)-[r:CALLS]->(m)\n"
+                        f"RETURN c, m, r"
                     )
 
             # 로컬 변수 의존 관계 (DEPENDENCY) - 연관 관계가 없을 때만
@@ -586,17 +589,9 @@ class ApplyManager:
                         f"  AND dst.user_id = '{self.user_id}'\n"
                         f"  AND dst.project_name = '{self.project_name}'\n"
                         f"  AND NOT (src)-[:ASSOCIATION|AGGREGATION|COMPOSITION]->(dst)\n"
-                        f"MERGE (src)-[:DEPENDENCY {{usage: 'local', source_member: '{node.node_type}[{node.start_line}]'}}]->(dst)"
+                        f"MERGE (src)-[r:DEPENDENCY {{usage: 'local', source_member: '{node.node_type}[{node.start_line}]'}}]->(dst)\n"
+                        f"RETURN src, dst, r"
                     )
-
-            # 지역변수 노드 생성
-            for var_name in analysis.get("variables", []) or []:
-                escaped_var = escape_for_cypher(var_name)
-                if not escaped_var:
-                    continue
-                queries.append(
-                    f"MERGE (v:VARIABLE {{name: '{escaped_var}', startLine: {node.start_line}, {self.node_base_props}}})"
-                )
 
             self._update_class_store(node, analysis)
             node.completion_event.set()
@@ -663,7 +658,8 @@ class ApplyManager:
         escaped_summary = escape_for_cypher(str(summary_value))
         query = (
             f"MATCH (n:{info.kind} {{startLine: {info.node_start}, {self.node_base_props}}}) "
-            f"SET n.summary = '{escaped_summary}'"
+            f"SET n.summary = '{escaped_summary}' "
+            f"RETURN n"
         )
         await self._send_queries([query], info.node_end)
         class_node.summary = str(summary_value)
@@ -754,6 +750,13 @@ class FrameworkAnalyzer:
                 await self.send_queue.put({"type": "end_analysis"})
                 return
 
+            # LLM 분석 시작 알림 (총 배치 수 전달)
+            await self.send_queue.put({"type": "llm_start", "total_batches": len(batches)})
+            while True:
+                resp = await self.receive_queue.get()
+                if resp.get("type") == "process_completed":
+                    break
+
             invoker = LLMInvoker(self.api_key, self.locale)
             apply_manager = ApplyManager(
                 send_queue=self.send_queue,
@@ -822,6 +825,12 @@ class FrameworkAnalyzer:
             return
         await self._create_static_nodes(nodes)
         await self._create_relationships(nodes)
+        # 정적 그래프 초기화 완료 알림
+        await self.send_queue.put({"type": "static_complete"})
+        while True:
+            resp = await self.receive_queue.get()
+            if resp.get("type") == "process_completed":
+                break
 
     async def _create_static_nodes(self, nodes: List[StatementNode]):
         """각 StatementNode에 대응하는 기본 노드를 Neo4j에 생성합니다."""
@@ -895,7 +904,8 @@ class FrameworkAnalyzer:
                 f"REMOVE n:{other_label}\n"
                 f"WITH n\n"
                 f"MERGE (system:SYSTEM {{{self.system_props}}})\n"
-                f"MERGE (system)-[:CONTAINS]->(n)"
+                f"MERGE (system)-[r:CONTAINS]->(n)\n"
+                f"RETURN n, system, r"
             )
         else:
             queries.append(
@@ -903,7 +913,8 @@ class FrameworkAnalyzer:
                 f"SET {base_set_str}\n"
                 f"WITH n\n"
                 f"MERGE (system:SYSTEM {{{self.system_props}}})\n"
-                f"MERGE (system)-[:CONTAINS]->(n)"
+                f"MERGE (system)-[r:CONTAINS]->(n)\n"
+                f"RETURN n, system, r"
             )
         return queries
 
@@ -933,7 +944,8 @@ class FrameworkAnalyzer:
         return (
             f"MATCH (p:{parent.node_type} {{startLine: {parent.start_line}, {self.node_base_props}}})\n"
             f"MATCH (c:{child.node_type} {{startLine: {child.start_line}, {self.node_base_props}}})\n"
-            f"MERGE (p)-[:PARENT_OF]->(c)"
+            f"MERGE (p)-[r:PARENT_OF]->(c)\n"
+            f"RETURN p, c, r"
         )
 
     def _build_next_relationship_query(self, prev_node: StatementNode, current_node: StatementNode) -> str:
@@ -941,7 +953,8 @@ class FrameworkAnalyzer:
         return (
             f"MATCH (prev:{prev_node.node_type} {{startLine: {prev_node.start_line}, {self.node_base_props}}})\n"
             f"MATCH (curr:{current_node.node_type} {{startLine: {current_node.start_line}, {self.node_base_props}}})\n"
-            f"MERGE (prev)-[:NEXT]->(curr)"
+            f"MERGE (prev)-[r:NEXT]->(curr)\n"
+            f"RETURN prev, curr, r"
         )
 
     async def _send_static_queries(self, queries: List[str], progress_line: int):
@@ -949,7 +962,7 @@ class FrameworkAnalyzer:
         if not queries:
             return
         await self.send_queue.put({
-            "type": "analysis_code",
+            "type": "static_graph",  # 정적 그래프 초기화는 별도 타입으로 구분
             "query_data": queries,
             "line_number": progress_line,
         })
@@ -1042,7 +1055,8 @@ class FrameworkAnalyzer:
                 f"  AND toLower(dst.class_name) = toLower('{to_type}')\n"
                 f"  AND dst.user_id = '{self.user_id}'\n"
                 f"  AND dst.project_name = '{self.project_name}'\n"
-                f"MERGE (src)-[:{rel_type}]->(dst)"
+                f"MERGE (src)-[r:{rel_type}]->(dst)\n"
+                f"RETURN src, dst, r"
             )
 
         return queries
@@ -1103,7 +1117,8 @@ class FrameworkAnalyzer:
             queries.append(
                 f"MATCH (f:FIELD {{startLine: {node.start_line}, {self.node_base_props}}})\n"
                 f"SET f.name = '{field_name}', f.field_type = '{field_type}', "
-                f"f.visibility = '{visibility}', f.is_static = {is_static}, f.is_final = {is_final}{target_class_set}"
+                f"f.visibility = '{visibility}', f.is_static = {is_static}, f.is_final = {is_final}{target_class_set}\n"
+                f"RETURN f"
             )
 
             # 연관 관계 생성 (ASSOCIATION, AGGREGATION, COMPOSITION)
@@ -1126,7 +1141,8 @@ class FrameworkAnalyzer:
                     f"  AND toLower(dst.class_name) = toLower('{target_class}')\n"
                     f"  AND dst.user_id = '{self.user_id}'\n"
                     f"  AND dst.project_name = '{self.project_name}'\n"
-                    f"MERGE (src)-[:{association_type} {{source_member: '{field_name}', multiplicity: '{multiplicity}'}}]->(dst)"
+                    f"MERGE (src)-[r:{association_type} {{source_member: '{field_name}', multiplicity: '{multiplicity}'}}]->(dst)\n"
+                    f"RETURN src, dst, r"
                 )
 
         return queries
@@ -1181,7 +1197,8 @@ class FrameworkAnalyzer:
             f"MATCH (m:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
             f"SET m.methodName = '{method_name}', m.returnType = '{return_type}', "
             f"m.visibility = '{visibility}', m.isStatic = {is_static}, "
-            f"m.method_type = '{method_kind}'"
+            f"m.method_type = '{method_kind}'\n"
+            f"RETURN m"
         )
 
         # 각 파라미터를 개별 Parameter 노드로 저장
@@ -1194,7 +1211,8 @@ class FrameworkAnalyzer:
                 f"MATCH (m:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
                 f"MERGE (p:Parameter {{name: '{param_name}', methodStartLine: {node.start_line}, {self.node_base_props}}})\n"
                 f"SET p.type = '{param_type}', p.index = {idx}\n"
-                f"MERGE (m)-[:HAS_PARAMETER]->(p)"
+                f"MERGE (m)-[r:HAS_PARAMETER]->(p)\n"
+                f"RETURN m, p, r"
             )
 
         # 의존 관계 생성 (DEPENDENCY) - 연관 관계가 없을 때만
@@ -1224,7 +1242,8 @@ class FrameworkAnalyzer:
                 f"  AND dst.user_id = '{self.user_id}'\n"
                 f"  AND dst.project_name = '{self.project_name}'\n"
                 f"  AND NOT (src)-[:ASSOCIATION|AGGREGATION|COMPOSITION]->(dst)\n"
-                f"MERGE (src)-[:DEPENDENCY {{usage: '{usage}', source_member: '{method_name}'}}]->(dst)"
+                f"MERGE (src)-[r:DEPENDENCY {{usage: '{usage}', source_member: '{method_name}'}}]->(dst)\n"
+                f"RETURN src, dst, r"
             )
 
         # 필드 할당 패턴에 따른 연관 관계 세분화 (ASSOCIATION → AGGREGATION/COMPOSITION)
@@ -1248,7 +1267,8 @@ class FrameworkAnalyzer:
                 f"-[r:ASSOCIATION {{source_member: '{field_name}'}}]->(dst)\n"
                 f"WITH src, dst, COALESCE(r.multiplicity, '1') AS mult, r\n"
                 f"DELETE r\n"
-                f"MERGE (src)-[:{new_rel_type} {{source_member: '{field_name}', multiplicity: mult}}]->(dst)"
+                f"MERGE (src)-[r2:{new_rel_type} {{source_member: '{field_name}', multiplicity: mult}}]->(dst)\n"
+                f"RETURN src, dst, r2"
             )
 
         return queries

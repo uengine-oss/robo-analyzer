@@ -99,15 +99,15 @@ class ClassDiagramGenerator:
         class_query = f"""
         MATCH (c)
         WHERE (c:CLASS OR c:INTERFACE)
-          AND c.project_name = $project_name
-          AND c.user_id = $user_id
+          AND c.project_name = '{self.project_name}'
+          AND c.user_id = '{self.user_id}'
           AND ({conditions})
         
         // 1단계 연결 클래스
         OPTIONAL MATCH (c)-[r1]-(related)
         WHERE (related:CLASS OR related:INTERFACE)
-          AND related.project_name = $project_name
-          AND related.user_id = $user_id
+          AND related.project_name = '{self.project_name}'
+          AND related.user_id = '{self.user_id}'
           AND type(r1) IN [{rel_types}]
         
         WITH collect(DISTINCT c) + collect(DISTINCT related) AS all_classes
@@ -143,13 +143,13 @@ class ClassDiagramGenerator:
         rel_query = f"""
         MATCH (c)
         WHERE (c:CLASS OR c:INTERFACE)
-          AND c.project_name = $project_name
-          AND c.user_id = $user_id
+          AND c.project_name = '{self.project_name}'
+          AND c.user_id = '{self.user_id}'
           AND ({conditions})
         
         OPTIONAL MATCH (c)-[r1]-(related)
         WHERE (related:CLASS OR related:INTERFACE)
-          AND related.project_name = $project_name
+          AND related.project_name = '{self.project_name}'
           AND type(r1) IN [{rel_types}]
         
         WITH collect(DISTINCT c) + collect(DISTINCT related) AS all_nodes
@@ -168,8 +168,7 @@ class ClassDiagramGenerator:
         ORDER BY src.system_name, src.class_name
         """
         
-        params = {"project_name": self.project_name, "user_id": self.user_id}
-        results = await conn.execute_queries([class_query, rel_query], params)
+        results = await conn.execute_queries([class_query, rel_query])
         
         classes = self._filter_classes(results[0] if results else [])
         relationships = results[1] if len(results) > 1 else []
