@@ -261,7 +261,7 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
             user_id=orchestrator.user_id,
             api_key=orchestrator.api_key,
             locale=orchestrator.locale,
-            target=orchestrator.target,
+            dbms=orchestrator.target,
             project_name=orchestrator.project_name,
         )
         analysis_task = asyncio.create_task(analyzer.run())

@@ -100,10 +100,15 @@ class Neo4jConnection:
                     graph = await query_result.graph()
 
                     for node in graph.nodes:
+                        # RETURN 절에 명시된 노드만 포함 (Labels와 Properties가 모두 비어있으면 제외)
+                        node_labels = list(node.labels)
+                        node_props = dict(node)
+                        if len(node_labels) == 0 and len(node_props) == 0:
+                            continue
                         nodes[node.element_id] = {
                             "Node ID": node.element_id,
-                            "Labels": list(node.labels),
-                            "Properties": dict(node),
+                            "Labels": node_labels,
+                            "Properties": node_props,
                         }
                     for rel in graph.relationships:
                         relationships[rel.element_id] = {
@@ -113,21 +118,6 @@ class Neo4jConnection:
                             "Start Node ID": rel.start_node.element_id,
                             "End Node ID": rel.end_node.element_id,
                         }
-                        # 관계의 시작/끝 노드도 포함
-                        start_node = rel.start_node
-                        end_node = rel.end_node
-                        if start_node.element_id not in nodes:
-                            nodes[start_node.element_id] = {
-                                "Node ID": start_node.element_id,
-                                "Labels": list(start_node.labels),
-                                "Properties": dict(start_node),
-                            }
-                        if end_node.element_id not in nodes:
-                            nodes[end_node.element_id] = {
-                                "Node ID": end_node.element_id,
-                                "Labels": list(end_node.labels),
-                                "Properties": dict(end_node),
-                            }
 
             return {
                 "Nodes": list(nodes.values()),

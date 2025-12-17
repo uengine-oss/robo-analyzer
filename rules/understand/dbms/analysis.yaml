@@ -1,5 +1,5 @@
 name: "understand_prompt"
-description: "PL/pgSQL 저장 프로시저/함수 코드 범위별 분석"
+description: "저장 프로시저/함수 코드 범위별 분석"
 version: "1.0"
 
 input_schema:
@@ -8,7 +8,7 @@ input_schema:
 
 prompt: |
   [ROLE]
-  당신은 PostgreSQL 및 PL/pgSQL 코드 분석 전문가입니다. 
+  당신은 저장 프로시저/함수 코드 분석 전문가입니다. 
   주어진 저장 프로시저/함수 코드를 체계적이고 정확하게 분석하여 구조화된 정보를 추출해야 합니다.
   
   
