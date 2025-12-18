@@ -6,7 +6,7 @@
 
 import json
 import logging
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Any
 
 from understand.neo4j_connection import Neo4jConnection
 from util.rule_loader import RuleLoader
@@ -61,7 +61,7 @@ class ClassDiagramGenerator:
         connection = Neo4jConnection()
         
         try:
-            # 1. Neo4j에서 클래스 + 1단계 연결 클래스 조회
+            # 1. Neo4j에서 프로젝트 전체 클래스/인터페이스 및 관계 조회 (깊이 제한 없음)
             classes, relationships = await self._fetch_class_graph(connection, class_names)
             
             if not classes:
@@ -86,49 +86,46 @@ class ClassDiagramGenerator:
         conn: Neo4jConnection,
         class_names: List[Tuple[str, str]]
     ) -> Tuple[List[Dict], List[Dict]]:
-        """클래스 그래프 조회 (선택 클래스 + 1단계 연결 클래스)"""
-        
-        # WHERE 조건 생성: (system_name = 'sys1' AND class_name = 'Class1') OR ...
-        conditions = " OR ".join([
-            f"(c.system_name = '{sys}' AND c.class_name = '{cls}')"
-            for sys, cls in class_names
-        ])
+        """클래스 그래프 조회 (프로젝트 전체, 깊이 제한 없음)"""
+
         rel_types = ", ".join([f"'{r}'" for r in CLASS_RELATION_TYPES])
         
-        # 클래스 + 필드 + 메서드 조회
+        # 클래스 + 필드 + 메서드/생성자(+파라미터) 조회 (전체)
         class_query = f"""
         MATCH (c)
         WHERE (c:CLASS OR c:INTERFACE)
           AND c.project_name = '{self.project_name}'
           AND c.user_id = '{self.user_id}'
-          AND ({conditions})
+
+        WITH DISTINCT c AS cls
         
-        // 1단계 연결 클래스
-        OPTIONAL MATCH (c)-[r1]-(related)
-        WHERE (related:CLASS OR related:INTERFACE)
-          AND related.project_name = '{self.project_name}'
-          AND related.user_id = '{self.user_id}'
-          AND type(r1) IN [{rel_types}]
-        
-        WITH collect(DISTINCT c) + collect(DISTINCT related) AS all_classes
-        UNWIND all_classes AS cls
-        WITH DISTINCT cls WHERE cls IS NOT NULL
-        
-        // 필드, 메서드 조회
+        // 1) 필드 조회 (cross product 방지를 위해 먼저 수집)
         OPTIONAL MATCH (cls)-[:PARENT_OF]->(f:FIELD)
+        WITH cls, collect(DISTINCT {{
+          name: f.name,
+          type: COALESCE(f.field_type, f.type, ''),
+          visibility: COALESCE(f.visibility, 'private')
+        }}) AS fields
+
+        // 2) 메서드/생성자 조회 + 파라미터 조회
         OPTIONAL MATCH (cls)-[:PARENT_OF]->(m)
         WHERE m:METHOD OR m:CONSTRUCTOR
-        
-        WITH cls,
+        OPTIONAL MATCH (m)-[:HAS_PARAMETER]->(p:Parameter)
+        WITH cls, fields, m, p
+        ORDER BY p.index
+        WITH cls, fields, m,
              collect(DISTINCT {{
-               name: f.name,
-               type: COALESCE(f.field_type, f.type, ''),
-               visibility: COALESCE(f.visibility, 'private')
-             }}) AS fields,
+               name: COALESCE(p.name, ''),
+               type: COALESCE(p.type, ''),
+               index: COALESCE(p.index, 0)
+             }}) AS params
+        WITH cls, fields,
              collect(DISTINCT {{
-               name: COALESCE(m.methodName, m.name, ''),
-               return_type: COALESCE(m.returnType, 'void'),
-               visibility: COALESCE(m.visibility, 'public')
+               name: COALESCE(m.name, ''),
+               return_type: COALESCE(m.return_type, m.returnType, 'void'),
+               visibility: COALESCE(m.visibility, 'public'),
+               kind: CASE WHEN 'CONSTRUCTOR' IN labels(m) THEN 'constructor' ELSE 'method' END,
+               parameters: params
              }}) AS methods
         
         RETURN 
@@ -139,23 +136,15 @@ class ClassDiagramGenerator:
         ORDER BY cls.system_name, cls.class_name
         """
         
-        # 관계 조회
+        # 관계 조회 (전체)
         rel_query = f"""
-        MATCH (c)
-        WHERE (c:CLASS OR c:INTERFACE)
-          AND c.project_name = '{self.project_name}'
-          AND c.user_id = '{self.user_id}'
-          AND ({conditions})
-        
-        OPTIONAL MATCH (c)-[r1]-(related)
-        WHERE (related:CLASS OR related:INTERFACE)
-          AND related.project_name = '{self.project_name}'
-          AND type(r1) IN [{rel_types}]
-        
-        WITH collect(DISTINCT c) + collect(DISTINCT related) AS all_nodes
-        
         MATCH (src)-[r]->(dst)
-        WHERE src IN all_nodes AND dst IN all_nodes
+        WHERE (src:CLASS OR src:INTERFACE)
+          AND (dst:CLASS OR dst:INTERFACE)
+          AND src.project_name = '{self.project_name}'
+          AND src.user_id = '{self.user_id}'
+          AND dst.project_name = '{self.project_name}'
+          AND dst.user_id = '{self.user_id}'
           AND type(r) IN [{rel_types}]
         
         RETURN DISTINCT
@@ -193,41 +182,93 @@ class ClassDiagramGenerator:
                 "methods": methods
             })
         return result
+
+    @staticmethod
+    def _format_params(params: List[Dict[str, Any]]) -> str:
+        """Mermaid 메서드 파라미터 문자열 생성: 'Type name, Type2 name2'"""
+        if not params:
+            return ""
+        parts: List[str] = []
+        for p in params:
+            if not p:
+                continue
+            ptype = (p.get("type") or "").strip()
+            pname = (p.get("name") or "").strip()
+            if ptype and pname:
+                parts.append(f"{ptype} {pname}")
+            elif pname:
+                parts.append(pname)
+            elif ptype:
+                parts.append(ptype)
+        return ", ".join(parts)
+
+    @staticmethod
+    def _normalize_rel_type(rel_type: str) -> str:
+        """관계 타입 정규화."""
+        return (rel_type or "ASSOCIATION").strip().upper()
+
+    def _dedupe_relationships(self, relationships: List[Dict]) -> List[Dict]:
+        """관계 중복/과다를 정리합니다.
+        
+        - 동일 (source, target, label) 조합에서 ASSOCIATION/AGGREGATION/COMPOSITION은 '더 강한' 타입 1개만 남김
+        - 완전 중복은 제거
+        """
+        if not relationships:
+            return []
+
+        strength = {"COMPOSITION": 3, "AGGREGATION": 2, "ASSOCIATION": 1}
+        picked: Dict[Tuple[str, str, str], Dict] = {}
+        passthrough: List[Dict] = []
+
+        for rel in relationships:
+            src = rel.get("source", "") or ""
+            dst = rel.get("target", "") or ""
+            rel_type = self._normalize_rel_type(rel.get("relationship"))
+            label = rel.get("label", "") or ""
+
+            # 상속/구현/의존은 그대로 유지 (중복만 제거)
+            if rel_type not in strength:
+                key = (src, dst, rel_type, label)
+                if key in picked:
+                    continue
+                picked[key] = rel
+                passthrough.append(rel)
+                continue
+
+            key2 = (src, dst, label)
+            prev = picked.get(key2)
+            if not prev:
+                picked[key2] = rel
+                continue
+            prev_type = self._normalize_rel_type(prev.get("relationship"))
+            if strength.get(rel_type, 0) > strength.get(prev_type, 0):
+                picked[key2] = rel
+
+        # picked 안에는 혼재(2종 키)하므로, association류만 따로 추출
+        assoc_like: List[Dict] = []
+        for k, v in picked.items():
+            if isinstance(k, tuple) and len(k) == 3:
+                assoc_like.append(v)
+
+        return passthrough + assoc_like
     
     async def _generate_diagram(
         self,
         classes: List[Dict],
         relationships: List[Dict]
     ) -> str:
-        """Mermaid 다이어그램 생성"""
-        
-        # 클래스 5개 이하면 직접 생성 (LLM 호출 불필요)
-        if len(classes) <= 5:
-            return self._build_diagram_direct(classes, relationships)
-        
-        # LLM으로 생성
-        inputs = {
-            "classes": json.dumps(classes, ensure_ascii=False, indent=2),
-            "relationships": json.dumps(relationships, ensure_ascii=False, indent=2),
-            "locale": self.locale
-        }
-        
-        result = self.rule_loader.execute(role_name="diagram", inputs=inputs, api_key=self.api_key)
-        diagram = result.get("diagram", "")
-        
-        if not diagram.startswith("```"):
-            diagram = f"```mermaid\nclassDiagram\n{diagram}\n```"
-        
-        return diagram
+        """Mermaid 다이어그램 생성 (LLM 없이 직접 생성)"""
+        return self._build_diagram_direct(classes, relationships)
     
     def _build_diagram_direct(self, classes: List[Dict], relationships: List[Dict]) -> str:
-        """직접 Mermaid 다이어그램 빌드 (소규모용)"""
+        """직접 Mermaid 다이어그램 빌드"""
         lines = ["```mermaid", "classDiagram", ""]
         
         # 클래스 정의
         for cls in classes:
             name = cls["class_name"]
-            lines.append(f"    class {name} {{")
+            # Mermaid 예약어 충돌 방지: 클래스 이름을 백틱으로 감쌈
+            lines.append(f"    class `{name}` {{")
             
             if cls["class_type"] == "interface":
                 lines.append("        <<interface>>")
@@ -244,12 +285,18 @@ class ClassDiagramGenerator:
                 vis = VISIBILITY_MAP.get(m.get("visibility", "public"), "+")
                 mname = m.get("name", "")
                 rtype = m.get("return_type", "void")
-                lines.append(f"        {vis}{mname}() {rtype}")
+                params_str = self._format_params(m.get("parameters") or [])
+                kind = (m.get("kind") or "method").strip().lower()
+                if kind == "constructor":
+                    lines.append(f"        {vis}{mname}({params_str})")
+                else:
+                    lines.append(f"        {vis}{mname}({params_str}) {rtype}")
             
             lines.append("    }")
             lines.append("")
         
         # 관계
+        relationships = self._dedupe_relationships(relationships or [])
         if relationships:
             lines.append("    %% Relationships")
             for rel in relationships:
@@ -259,7 +306,8 @@ class ClassDiagramGenerator:
                 label = rel.get("label", "")
                 arrow = ARROW_MAP.get(rel_type, "-->")
                 label_str = f" : {label}" if label else ""
-                lines.append(f"    {dst} {arrow} {src}{label_str}")
+                # 관계에서도 클래스 이름을 백틱으로 감쌈
+                lines.append(f"    `{src}` {arrow} `{dst}`{label_str}")
         
         lines.append("```")
         return "\n".join(lines)

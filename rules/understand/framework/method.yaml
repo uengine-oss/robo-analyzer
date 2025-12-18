@@ -33,11 +33,14 @@ prompt: |
      - 반환 타입이 사용자 정의 클래스인 경우
      - 제네릭 내부 타입도 추출 (List<Order> → Order)
   
-  3. 제외 대상 (의존 관계 생성 안 함)
+  3. 제외 대상 (dependencies에 포함 금지!)
      - primitive 타입 (int, long, double, boolean 등)
      - wrapper 타입 (Integer, Long, Double, Boolean 등)
-     - String 타입
+     - String, Object 타입
      - void
+     - 컬렉션 타입: List, ArrayList, Set, HashSet, Map, HashMap, Collection, Iterator 등
+       → 컬렉션 자체는 제외, 제네릭 내부 타입만 추출 (List<Order> → Order만 포함)
+     - Java 기본 클래스: Optional, Stream, Date, Exception 등
   
   4. 메서드 종류 판별
      - getter: getXxx(), isXxx() 형태이고 파라미터 없음

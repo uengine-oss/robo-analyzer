@@ -1,6 +1,6 @@
 name: "understand_java_prompt"
 description: "Java 코드 범위별 분석 - 클래스 다이어그램 및 Neo4j 그래프 생성용"
-version: "2.1"
+version: "2.2"
 
 input_schema:
   required: []
@@ -22,6 +22,10 @@ prompt: |
   {{ code }}
   
   
+  부모 블록 코드 (컨텍스트 참고용 - 결과에 포함하지 않음):
+  {{ parent_code }}
+  
+  
   분석할 코드 범위 목록:
   {{ ranges }}
   
@@ -34,7 +38,7 @@ prompt: |
   - 각 범위는 독립적으로 분석되어야 하며, 누락 또는 초과된 분석 결과는 허용되지 않음
   - 강제 검증 규칙:
      - analysis 각 요소는 startLine/endLine을 반드시 포함할 것 (정수)
-     - 값이 없으면 해당 필드는 다음 기본값을 사용: calls=[], variables=[], localDependencies=[]
+     - 값이 없으면 해당 필드는 다음 기본값을 사용: variables=[], localDependencies=[]
      - null 사용 절대 금지. 빈값은 빈 배열([]) 또는 빈 객체({})로만 표현
      - 코드펜스(```), 주석(//, /* */), 트레일링 콤마 허용 금지. 순수 JSON만 출력
   
@@ -55,7 +59,6 @@ prompt: |
   - 반복 처리 로직: for, while, do-while 문의 조건과 반복 목적
   - 예외 처리: try-catch-finally 블록의 처리 방식과 목적
   - 객체 생성: new 연산자로 생성되는 객체와 그 목적
-  - 메서드 호출: 다른 메서드/API 호출과 그 의도
   
   요약 작성 규칙:
   - 메서드 단위: 2~3문장으로 핵심 동작 설명
@@ -101,29 +104,13 @@ prompt: |
   - 컬렉션 자체 (List, Map, Set, Collection 등) - 단, 제네릭 내부 타입은 추출
   - Java 기본 클래스 (Exception, Date, Optional 등)
   
-  
-  [SECTION_4_METHOD_CALLS]
-  메서드 호출 식별:
-  
-  호출 형식 분류:
-  - 내부 호출: 같은 클래스 내 메서드 호출 (this.method() 또는 method())
-  - 외부 호출: 다른 객체의 메서드 호출 (object.method())
-  - 정적 호출: 클래스명.method() 형태
-  - 생성자 호출: new ClassName() 형태
-  
-  제외 대상:
-  - Java 기본 API (System.out, String 메서드 등)
-  - Getter/Setter 단순 호출 (필요시 포함 가능)
-  
-  식별 패턴:
-  - object.methodName(args)
-  - ClassName.staticMethod(args)
-  - this.methodName(args)
-  - methodName(args) - 같은 클래스 내부 호출
-  
-  중요 제약:
-  - calls 배열에는 "이름만" 반환 (괄호/인자/공백 제거)
-  - 예: "orderService.findAll" 또는 "calculateTotal"
+  sourceMember 결정 (이 의존이 어디서 발생했는지):
+  - 메서드 안: 메서드명 (예: "processOrder")
+  - 생성자 안: 생성자명/클래스명 (예: "OrderService")
+  - 필드 초기화: 필드명 (예: "customerField")
+  - static 블록: "static"
+  - 예: processOrder 메서드 안에서 `Customer c = new Customer()` → sourceMember: "processOrder"
+  - 예: 필드에서 `private Order order = new Order()` → sourceMember: "order"
   
   
   [OUTPUT_FORMAT]
@@ -136,16 +123,18 @@ prompt: |
         "startLine": 범위_시작_라인_번호,
         "endLine": 범위_종료_라인_번호,
         "summary": "코드_동작_요약_설명",
-        "calls": ["호출된 메서드명1", "호출된 메서드명2"],
         "variables": ["변수명1", "변수명2"],
-        "localDependencies": ["타입명1", "타입명2"]
+        "localDependencies": [
+          {"type": "타입명", "sourceMember": "발생위치(메서드명/생성자명/필드명/static)"}
+        ]
       }
     ]
   }
   
   출력 제약사항:
   - JSON 형식 외의 부가 설명이나 주석 금지
-  - "calls", "variables", "localDependencies" 배열 요소는 문자열 타입으로 출력
+  - "variables" 배열 요소는 문자열 타입
+  - "localDependencies" 배열 요소는 객체 타입 (type, sourceMember 필드)
   - analysis[i]에는 startLine/endLine이 필수
   - 빈 배열도 허용되며 null 값은 사용 금지
   - summary는 locale에 맞는 언어로 작성하며, 핵심만 압축 표현

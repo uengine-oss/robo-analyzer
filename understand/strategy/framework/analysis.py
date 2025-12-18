@@ -29,10 +29,12 @@ from util.utility_tool import calculate_code_token, escape_for_cypher, log_proce
 
 # ==================== 상수 정의 ====================
 NON_ANALYSIS_TYPES = frozenset(["FILE", "PACKAGE", "IMPORT"])
-CLASS_TYPES = frozenset(["CLASS", "INTERFACE", "ENUM", "RECORD", "ANNOTATION_TYPE"])
+CLASS_TYPES = frozenset(["CLASS", "INTERFACE", "ENUM"])
 INHERITANCE_TYPES = frozenset(["EXTENDS", "IMPLEMENTS"])
 FIELD_TYPES = frozenset(["FIELD"])
 METHOD_TYPES = frozenset(["METHOD", "CONSTRUCTOR"])
+# METHOD_CALL 타입 노드 - CALLS 관계 생성을 위해 별도 처리
+METHOD_CALL_TYPES = frozenset(["METHOD_CALL", "METHOD_INVOCATION", "CALL"])
 MAX_BATCH_TOKEN = int(os.getenv("FRAMEWORK_MAX_BATCH_TOKEN", "1000"))
 MAX_CONCURRENCY = int(os.getenv("FRAMEWORK_MAX_CONCURRENCY", "5"))
 INHERITANCE_CONCURRENCY = int(os.getenv("INHERITANCE_CONCURRENCY", "5"))
@@ -41,17 +43,74 @@ METHOD_CONCURRENCY = int(os.getenv("METHOD_CONCURRENCY", "5"))
 STATIC_QUERY_BATCH_SIZE = 40
 LINE_NUMBER_PATTERN = re.compile(r"^(\d+)\s*:")
 
+# Java 표준 라이브러리 및 기본 타입 - 클래스 생성 제외 대상
+JAVA_BUILTIN_TYPES = frozenset([
+    # 기본 타입 및 래퍼
+    "int", "long", "double", "float", "boolean", "char", "byte", "short", "void",
+    "Integer", "Long", "Double", "Float", "Boolean", "Character", "Byte", "Short",
+    # 기본 클래스
+    "String", "Object", "Class", "Enum", "System", "Math", "Runtime",
+    # 컬렉션
+    "List", "ArrayList", "LinkedList", "Set", "HashSet", "TreeSet", "LinkedHashSet",
+    "Map", "HashMap", "TreeMap", "LinkedHashMap", "ConcurrentHashMap",
+    "Collection", "Collections", "Arrays", "Iterator", "Iterable",
+    "Queue", "Deque", "Stack", "Vector", "PriorityQueue",
+    # 유틸리티
+    "Optional", "Stream", "Collectors", "Comparator", "Comparable",
+    "Date", "Calendar", "LocalDate", "LocalTime", "LocalDateTime", "Instant",
+    "UUID", "Random", "Scanner", "Pattern", "Matcher",
+    # 예외
+    "Exception", "RuntimeException", "Throwable", "Error",
+    "IOException", "SQLException", "NullPointerException", "IllegalArgumentException",
+    # I/O
+    "File", "Path", "Files", "InputStream", "OutputStream", "Reader", "Writer",
+    "BufferedReader", "BufferedWriter", "PrintWriter", "FileReader", "FileWriter",
+    # 기타
+    "StringBuilder", "StringBuffer", "BigDecimal", "BigInteger",
+    "Logger", "Log", "LogFactory",
+])
+
+
+def _is_valid_class_name_for_calls(name: str) -> bool:
+    """calls 관계 생성에 유효한 클래스명인지 검증.
+    
+    가짜 클래스 생성을 방지하기 위해:
+    - Java 표준 라이브러리 제외
+    - 소문자만으로 된 짧은 이름(변수명으로 보이는 것) 제외
+    - 한 글자 이름 제외
+    """
+    if not name:
+        return False
+    
+    # Java 표준 라이브러리 제외
+    if name in JAVA_BUILTIN_TYPES:
+        return False
+    
+    # 한 글자 이름 제외 (i, j, k, o, e 등 반복 변수)
+    if len(name) == 1:
+        return False
+    
+    # 소문자로만 시작하고 3글자 이하인 것 제외 (변수명으로 보임)
+    if name[0].islower() and len(name) <= 3:
+        return False
+    
+    # 모두 소문자인 짧은 이름 제외 (item, items, list, map 등)
+    if name.islower() and len(name) <= 6:
+        return False
+    
+    return True
+
 
 # ===== RuleLoader 헬퍼 =====
 def _rule_loader() -> RuleLoader:
     return RuleLoader(target_lang="framework", domain="understand")
 
 
-def understand_code(code: str, ranges: list, count: int, api_key: str, locale: str) -> Dict[str, Any]:
+def understand_code(code: str, ranges: list, count: int, api_key: str, locale: str, parent_code: str = "") -> Dict[str, Any]:
     """코드 범위별 분석 - summary, calls, variables 추출."""
     return _rule_loader().execute(
         "analysis",
-        {"code": code, "ranges": ranges, "count": count, "locale": locale},
+        {"code": code, "ranges": ranges, "count": count, "locale": locale, "parent_code": parent_code},
         api_key,
     )
 
@@ -92,6 +151,15 @@ def understand_method(declaration_code: str, api_key: str, locale: str) -> Dict[
     )
 
 
+def understand_method_call(code: str, ranges: list, api_key: str, locale: str) -> Dict[str, Any]:
+    """METHOD_CALL 노드 분석 - 클래스 필드 객체의 메서드 호출만 식별."""
+    return _rule_loader().execute(
+        "method_call",
+        {"code": code, "ranges": ranges, "locale": locale},
+        api_key,
+    )
+
+
 # ==================== 데이터 클래스 ====================
 @dataclass(slots=True)
 class StatementNode:
@@ -120,57 +188,96 @@ class StatementNode:
         """라인 번호를 포함하여 노드의 원문 코드를 반환합니다."""
         return "\n".join(f"{ln}: {text}" for ln, text in self.lines)
 
+    def _iter_merged_child_spans(
+        self,
+        *,
+        preserve_first_line: bool,
+    ) -> List[Tuple[int, int]]:
+        """자식 노드 범위를 (startLine, endLine)로 병합해 반환합니다.
+
+        - 중복/겹침을 제거하여 placeholder/compact 출력의 중복을 줄입니다.
+        - preserve_first_line=True이면 부모 첫 줄을 덮는 범위는 첫 줄 다음부터로 조정합니다.
+        """
+        if not self.children:
+            return []
+        spans = sorted(((c.start_line, c.end_line) for c in self.children), key=lambda x: (x[0], x[1]))
+        if not spans:
+            return []
+        first_ln = self.lines[0][0] if (preserve_first_line and self.lines) else None
+        merged: List[Tuple[int, int]] = []
+        for s, e in spans:
+            if first_ln is not None and s <= first_ln:
+                s = first_ln + 1
+            if e < s:
+                continue
+            if not merged or s > merged[-1][1] + 1:
+                merged.append((s, e))
+            else:
+                merged[-1] = (merged[-1][0], max(merged[-1][1], e))
+        return merged
+
+    def _render_with_spans(
+        self,
+        spans: List[Tuple[int, int]],
+        *,
+        preserve_first_line: bool,
+        span_replacement: callable,
+    ) -> str:
+        """lines를 순회하며 spans 구간을 replacement로 치환한 문자열을 반환합니다."""
+        if not self.lines:
+            return ""
+        total = len(self.lines)
+        out: List[str] = []
+        idx = 0
+
+        if preserve_first_line:
+            first_ln, first_text = self.lines[0]
+            out.append(f"{first_ln}: {first_text}")
+            idx = 1
+
+        for s, e in spans:
+            while idx < total and self.lines[idx][0] < s:
+                ln, text = self.lines[idx]
+                out.append(f"{ln}: {text}")
+                idx += 1
+
+            out.append(span_replacement(s, e))
+
+            while idx < total and self.lines[idx][0] <= e:
+                idx += 1
+
+        while idx < total:
+            ln, text = self.lines[idx]
+            out.append(f"{ln}: {text}")
+            idx += 1
+
+        return "\n".join(out)
+
     def get_compact_code(self) -> str:
         """자식 구간은 자식 요약(없으면 placeholder)으로 치환한 코드."""
         if not self.children:
             return self.get_raw_code()
-        result: List[str] = []
-        idx = 0
-        total = len(self.lines)
-        sorted_children = sorted(self.children, key=lambda c: c.start_line)
-        for child in sorted_children:
-            while idx < total and self.lines[idx][0] < child.start_line:
-                ln, text = self.lines[idx]
-                result.append(f"{ln}: {text}")
-                idx += 1
-            if child.summary:
-                result.append(f"{child.start_line}~{child.end_line}: {child.summary.strip()}")
-            else:
-                log_process(
-                    "UNDERSTAND",
-                    "COLLECT",
-                    f"⚠️ 부모 {self.start_line}~{self.end_line}의 자식 {child.start_line}~{child.end_line} 요약 없음 - placeholder 사용",
-                )
-                result.append(f"{child.start_line}: ...code...")
-            while idx < total and self.lines[idx][0] <= child.end_line:
-                idx += 1
-        while idx < total:
-            ln, text = self.lines[idx]
-            result.append(f"{ln}: {text}")
-            idx += 1
-        return "\n".join(result)
+        # compact는 "요약 치환용"이므로 첫 줄 보존은 강제하지 않습니다.
+        spans = self._iter_merged_child_spans(preserve_first_line=False)
+        summary_by_span = {(c.start_line, c.end_line): (c.summary.strip() if c.summary else None) for c in self.children}
+
+        def repl(s: int, e: int) -> str:
+            # 병합 span에 딱 맞는 summary가 있으면 사용, 아니면 placeholder
+            summary = summary_by_span.get((s, e))
+            return f"{s}~{e}: {summary}" if summary else f"{s}: ...code..."
+
+        return self._render_with_spans(spans, preserve_first_line=False, span_replacement=repl)
 
     def get_placeholder_code(self) -> str:
-        """자식 구간을 placeholder로 유지한 코드를 반환합니다."""
+        """자식 구간을 placeholder(...code...)로 유지한 컨텍스트 코드를 반환합니다."""
         if not self.children:
             return self.get_raw_code()
-        result: List[str] = []
-        idx = 0
-        total = len(self.lines)
-        sorted_children = sorted(self.children, key=lambda c: c.start_line)
-        for child in sorted_children:
-            while idx < total and self.lines[idx][0] < child.start_line:
-                ln, text = self.lines[idx]
-                result.append(f"{ln}: {text}")
-                idx += 1
-            result.append(f"{child.start_line}: ...code...")
-            while idx < total and self.lines[idx][0] <= child.end_line:
-                idx += 1
-        while idx < total:
-            ln, text = self.lines[idx]
-            result.append(f"{ln}: {text}")
-            idx += 1
-        return "\n".join(result)
+        spans = self._iter_merged_child_spans(preserve_first_line=True)
+        return self._render_with_spans(
+            spans,
+            preserve_first_line=True,
+            span_replacement=lambda s, e: f"{s}: ...code...",
+        )
 
     def get_code_with_assigns_only(self) -> str:
         """메서드 시그니처 + ASSIGN/NEW_INSTANCE 자식만 포함된 코드 (중첩 포함)."""
@@ -214,6 +321,7 @@ class AnalysisBatch:
     batch_id: int
     nodes: List[StatementNode]
     ranges: List[Dict[str, int]]
+    method_call_ranges: List[Dict[str, Any]]  # METHOD_CALL 노드 범위
     progress_line: int
 
     def build_payload(self) -> str:
@@ -223,12 +331,40 @@ class AnalysisBatch:
             for node in self.nodes
         )
 
+    def build_method_call_payload(self) -> Optional[str]:
+        """METHOD_CALL 노드만 추출하여 호출 분석 프롬프트에 전달."""
+        method_call_nodes = [
+            node for node in self.nodes 
+            if node.node_type in METHOD_CALL_TYPES
+        ]
+        if not method_call_nodes:
+            return None
+        return "\n\n".join(
+            node.get_raw_code() for node in method_call_nodes
+        )
+
+    def get_parent_code(self) -> str:
+        """배치 노드들의 부모 코드를 가져옴 (컨텍스트용)."""
+        if not self.nodes:
+            return ""
+        # 첫 번째 노드의 부모 코드 사용
+        first_node = self.nodes[0]
+        if first_node.parent:
+            # 컨텍스트(parent_code)는 요약 치환과 별개로, 항상 placeholder 스켈레톤만 전달
+            return (
+                first_node.parent.get_placeholder_code()
+                if first_node.parent.has_children
+                else first_node.parent.get_raw_code()
+            )
+        return ""
+
 
 @dataclass(slots=True)
 class BatchResult:
     """배치 처리 결과."""
     batch: AnalysisBatch
     general_result: Optional[Dict[str, Any]]
+    method_call_result: Optional[Dict[str, Any]] = None  # METHOD_CALL 분석 결과
 
 
 # ==================== 노드 수집기 ====================
@@ -419,30 +555,70 @@ class BatchPlanner:
     def _create(self, batch_id: int, nodes: List[StatementNode]) -> AnalysisBatch:
         """배치 객체를 생성합니다."""
         ranges = [{"startLine": n.start_line, "endLine": n.end_line} for n in nodes]
+        # METHOD_CALL 노드만 별도로 수집
+        method_call_ranges = [
+            {"startLine": n.start_line, "endLine": n.end_line, "type": n.node_type, "code": n.code}
+            for n in nodes if n.node_type in METHOD_CALL_TYPES
+        ]
         progress = max(n.end_line for n in nodes)
-        return AnalysisBatch(batch_id=batch_id, nodes=nodes, ranges=ranges, progress_line=progress)
+        return AnalysisBatch(
+            batch_id=batch_id, 
+            nodes=nodes, 
+            ranges=ranges, 
+            method_call_ranges=method_call_ranges,
+            progress_line=progress
+        )
 
 
 # ==================== LLM 호출 ====================
 class LLMInvoker:
-    """배치를 입력 받아 코드 분석을 호출합니다."""
+    """배치를 입력 받아 일반 분석/METHOD_CALL 분석을 병렬 호출합니다."""
 
     def __init__(self, api_key: str, locale: str):
         self.api_key = api_key
         self.locale = locale
 
-    async def invoke(self, batch: AnalysisBatch) -> Optional[Dict[str, Any]]:
-        """배치 코드를 LLM에 전달하여 분석 결과를 얻습니다."""
+    async def invoke(self, batch: AnalysisBatch) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+        """배치 코드를 LLM에 전달하여 분석 결과를 얻습니다.
+        
+        Returns:
+            (general_result, method_call_result) 튜플
+        """
         if not batch.ranges:
-            return None
-        return await asyncio.to_thread(
+            return None, None
+
+        # 일반 분석 태스크 (부모 코드 컨텍스트 포함)
+        general_task = asyncio.to_thread(
             understand_code,
             batch.build_payload(),
             batch.ranges,
             len(batch.ranges),
             self.api_key,
             self.locale,
+            batch.get_parent_code(),  # 부모 코드 컨텍스트
         )
+
+        # METHOD_CALL 분석 태스크 (METHOD_CALL 노드가 있을 때만)
+        method_call_task = None
+        method_call_payload = batch.build_method_call_payload()
+        if method_call_payload and batch.method_call_ranges:
+            method_call_task = asyncio.to_thread(
+                understand_method_call,
+                method_call_payload,
+                batch.method_call_ranges,
+                self.api_key,
+                self.locale,
+            )
+
+        # 병렬 실행
+        if method_call_task:
+            general_result, method_call_result = await asyncio.gather(
+                general_task, method_call_task
+            )
+            return general_result, method_call_result
+        else:
+            general_result = await general_task
+            return general_result, None
 
 
 # ==================== 적용 매니저 ====================
@@ -486,10 +662,19 @@ class ApplyManager:
         self._finalized_classes: set[str] = set()
         self._class_summary_store: Dict[str, Dict[str, Any]] = {key: {} for key in classes}
 
-    async def submit(self, batch: AnalysisBatch, general_result: Optional[Dict[str, Any]]):
+    async def submit(
+        self, 
+        batch: AnalysisBatch, 
+        general_result: Optional[Dict[str, Any]],
+        method_call_result: Optional[Dict[str, Any]] = None
+    ):
         """워커가 batch 처리를 마친 뒤 Apply 큐에 등록합니다."""
         async with self._lock:
-            self._pending[batch.batch_id] = BatchResult(batch=batch, general_result=general_result)
+            self._pending[batch.batch_id] = BatchResult(
+                batch=batch, 
+                general_result=general_result,
+                method_call_result=method_call_result
+            )
             await self._flush_ready()
 
     async def finalize(self):
@@ -530,66 +715,43 @@ class ApplyManager:
             )
             log_process("UNDERSTAND", "APPLY", f"✅ {node.start_line}~{node.end_line} 구간 요약 반영")
 
-            # 메서드 호출 관계
-            # 타겟 노드: DBMS 패턴 - OPTIONAL MATCH로 기존 노드 찾고, 없으면 CREATE
-            for call_name in analysis.get("calls", []) or []:
-                escaped_call = escape_for_cypher(call_name)
-                if "." in call_name:
-                    parts = call_name.split(".", 1)
-                    target_type = escape_for_cypher(parts[0])
-                    method_name = escape_for_cypher(parts[1])
-                    queries.append(
-                        f"MATCH (c:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
-                        f"OPTIONAL MATCH (existing)\n"
-                        f"WHERE (existing:CLASS OR existing:INTERFACE)\n"
-                        f"  AND toLower(existing.class_name) = toLower('{target_type}')\n"
-                        f"  AND existing.user_id = '{self.user_id}'\n"
-                        f"  AND existing.project_name = '{self.project_name}'\n"
-                        f"WITH c, existing\n"
-                        f"FOREACH(_ IN CASE WHEN existing IS NULL THEN [1] ELSE [] END |\n"
-                        f"    CREATE (:CLASS:INTERFACE {{class_name: '{target_type}', name: '{target_type}', user_id: '{self.user_id}', project_name: '{self.project_name}'}}))\n"
-                        f"WITH c\n"
-                        f"MATCH (t)\n"
-                        f"WHERE (t:CLASS OR t:INTERFACE)\n"
-                        f"  AND toLower(t.class_name) = toLower('{target_type}')\n"
-                        f"  AND t.user_id = '{self.user_id}'\n"
-                        f"  AND t.project_name = '{self.project_name}'\n"
-                        f"MERGE (c)-[r:CALLS {{method: '{method_name}'}}]->(t)\n"
-                        f"RETURN c, t, r"
-                    )
-                else:
-                    queries.append(
-                        f"MATCH (c:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
-                        f"MATCH (m:METHOD {{name: '{escaped_call}', {self.node_base_props}}})\n"
-                        f"MERGE (c)-[r:CALLS]->(m)\n"
-                        f"RETURN c, m, r"
-                    )
-
             # 로컬 변수 의존 관계 (DEPENDENCY) - 연관 관계가 없을 때만
-            for dep_type in analysis.get("localDependencies", []) or []:
-                escaped_dep = escape_for_cypher(dep_type)
-                if not escaped_dep:
+            # ⚠️ 방어 로직: 가짜 클래스 생성 방지 - 기존 클래스로만 DEPENDENCY 관계 생성
+            # localDependencies는 객체 배열: [{"type": "타입명", "sourceMember": "메서드명"}]
+            for dep in analysis.get("localDependencies", []) or []:
+                if not dep:
                     continue
-                # 소속 클래스에서 타겟 클래스로 DEPENDENCY 관계 생성 (연관 관계가 없을 때만)
+                
+                # 객체 형태인지 확인 (하위 호환성 - 문자열이면 변환)
+                if isinstance(dep, str):
+                    dep_type = dep
+                    source_member = "unknown"
+                else:
+                    dep_type = dep.get("type", "")
+                    source_member = dep.get("sourceMember", "") or "unknown"
+                
+                if not dep_type:
+                    continue
+                    
+                # 유효하지 않은 클래스명이면 DEPENDENCY 관계 생성 건너뜀
+                if not _is_valid_class_name_for_calls(dep_type):
+                    log_process("UNDERSTAND", "APPLY", f"⚠️ 유효하지 않은 의존 대상 제외: {dep_type}")
+                    continue
+                    
+                escaped_dep = escape_for_cypher(dep_type)
+                escaped_source = escape_for_cypher(source_member)
+                # 소속 클래스에서 타겟 클래스로 DEPENDENCY 관계 생성 (기존 클래스가 있을 때만)
                 if node.class_kind and node.parent:
                     queries.append(
                         f"MATCH (src:{node.class_kind} {{startLine: {node.parent.start_line}, {self.node_base_props}}})\n"
-                        f"OPTIONAL MATCH (existing)\n"
-                        f"WHERE (existing:CLASS OR existing:INTERFACE)\n"
-                        f"  AND toLower(existing.class_name) = toLower('{escaped_dep}')\n"
-                        f"  AND existing.user_id = '{self.user_id}'\n"
-                        f"  AND existing.project_name = '{self.project_name}'\n"
-                        f"WITH src, existing\n"
-                        f"FOREACH(_ IN CASE WHEN existing IS NULL THEN [1] ELSE [] END |\n"
-                        f"    CREATE (:CLASS:INTERFACE {{class_name: '{escaped_dep}', name: '{escaped_dep}', user_id: '{self.user_id}', project_name: '{self.project_name}'}}))\n"
-                        f"WITH src\n"
                         f"MATCH (dst)\n"
-                        f"WHERE (dst:CLASS OR dst:INTERFACE)\n"
+                        f"WHERE (dst:CLASS OR dst:INTERFACE OR dst:ENUM OR dst:TEMP)\n"
                         f"  AND toLower(dst.class_name) = toLower('{escaped_dep}')\n"
                         f"  AND dst.user_id = '{self.user_id}'\n"
                         f"  AND dst.project_name = '{self.project_name}'\n"
+                        f"  AND src <> dst\n"  # 자기 자신 의존 방지
                         f"  AND NOT (src)-[:ASSOCIATION|AGGREGATION|COMPOSITION]->(dst)\n"
-                        f"MERGE (src)-[r:DEPENDENCY {{usage: 'local', source_member: '{node.node_type}[{node.start_line}]'}}]->(dst)\n"
+                        f"MERGE (src)-[r:DEPENDENCY {{usage: 'local', source_member: '{escaped_source}'}}]->(dst)\n"
                         f"RETURN src, dst, r"
                     )
 
@@ -601,9 +763,64 @@ class ApplyManager:
             if not node.completion_event.is_set():
                 node.completion_event.set()
 
+        # METHOD_CALL 분석 결과 처리 (별도 프롬프트로 분석된 결과)
+        if result.method_call_result:
+            method_call_queries = self._build_method_call_queries(result)
+            queries.extend(method_call_queries)
+
         if queries:
             await self._send_queries(queries, result.batch.progress_line)
         log_process("UNDERSTAND", "APPLY", f"✅ 배치 #{result.batch.batch_id} 적용 완료")
+
+    def _build_method_call_queries(self, result: BatchResult) -> List[str]:
+        """METHOD_CALL 분석 결과를 CALLS 관계 쿼리로 변환합니다."""
+        queries: List[str] = []
+        
+        if not result.method_call_result:
+            return queries
+        
+        calls = result.method_call_result.get("calls", []) or []
+        
+        for call in calls:
+            target_class = call.get("targetClass")
+            method_name = call.get("methodName")
+            start_line = call.get("startLine")
+            
+            # targetClass가 없으면 건너뜀
+            if not target_class:
+                continue
+            
+            # 유효하지 않은 클래스명 필터링
+            if not _is_valid_class_name_for_calls(target_class):
+                log_process("UNDERSTAND", "APPLY", f"⚠️ METHOD_CALL 제외: {target_class}.{method_name}")
+                continue
+            
+            escaped_target = escape_for_cypher(target_class)
+            escaped_method = escape_for_cypher(method_name or "")
+            
+            # 해당 라인의 부모 노드 찾기
+            parent_node = None
+            for node in result.batch.nodes:
+                if node.start_line <= start_line <= node.end_line:
+                    if parent_node is None or node.start_line > parent_node.start_line:
+                        parent_node = node
+            
+            if not parent_node:
+                continue
+            
+            # 기존 클래스가 있을 때만 CALLS 관계 생성
+            queries.append(
+                f"MATCH (c:{parent_node.node_type} {{startLine: {parent_node.start_line}, {self.node_base_props}}})\n"
+                f"MATCH (t)\n"
+                f"WHERE (t:CLASS OR t:INTERFACE OR t:ENUM OR t:TEMP)\n"
+                f"  AND toLower(t.class_name) = toLower('{escaped_target}')\n"
+                f"  AND t.user_id = '{self.user_id}'\n"
+                f"  AND t.project_name = '{self.project_name}'\n"
+                f"MERGE (c)-[r:CALLS {{method: '{escaped_method}'}}]->(t)\n"
+                f"RETURN c, t, r"
+            )
+        
+        return queries
 
     def _update_class_store(self, node: StatementNode, analysis: Dict[str, Any]):
         """클래스 요약 후보를 저장합니다."""
@@ -784,8 +1001,8 @@ class FrameworkAnalyzer:
                         "LLM",
                         f"🤖 배치 #{batch.batch_id} LLM 요청: 노드 {len(batch.nodes)}개 ({self.system_file})",
                     )
-                    general_result = await invoker.invoke(batch)
-                await apply_manager.submit(batch, general_result)
+                    general_result, method_call_result = await invoker.invoke(batch)
+                await apply_manager.submit(batch, general_result, method_call_result)
 
             await asyncio.gather(*(worker(b) for b in batches))
             await apply_manager.finalize()
@@ -848,9 +1065,11 @@ class FrameworkAnalyzer:
         queries: List[str] = []
         label = node.node_type
         
-        # name은 타입[라인번호] 형식 (DBMS와 동일)
+        # name 속성 결정: CLASS/INTERFACE/METHOD는 실제 이름, 그 외는 타입[라인번호]
         if label == "FILE":
             node_name = self.file_name
+        elif label in CLASS_TYPES and node.class_name:
+            node_name = node.class_name
         else:
             node_name = f"{label}[{node.start_line}]"
         
@@ -880,28 +1099,26 @@ class FrameworkAnalyzer:
 
         base_set_str = ", ".join(base_set)
         
-        # CLASS/INTERFACE 노드: DBMS 패턴 - OPTIONAL MATCH로 기존 노드 찾고, 없으면 CREATE
-        if label in CLASS_TYPES and node.class_name:
+        # CLASS/INTERFACE/ENUM 노드: 기존 노드(TEMP 포함) 탐색 → 없으면 생성, 있으면 레이블 확정
+        if label in ("CLASS", "INTERFACE", "ENUM") and node.class_name:
             escaped_class_name = escape_for_cypher(node.class_name)
-            other_label = "INTERFACE" if label == "CLASS" else "CLASS"
-            # 기존 노드 찾기 (CLASS 또는 INTERFACE 레이블 중 하나라도 있으면 매칭) - 대소문자 무시
             queries.append(
                 f"OPTIONAL MATCH (existing)\n"
-                f"WHERE (existing:CLASS OR existing:INTERFACE)\n"
+                f"WHERE (existing:CLASS OR existing:INTERFACE OR existing:ENUM OR existing:TEMP)\n"
                 f"  AND toLower(existing.class_name) = toLower('{escaped_class_name}')\n"
                 f"  AND existing.user_id = '{self.user_id}'\n"
                 f"  AND existing.project_name = '{self.project_name}'\n"
                 f"WITH existing\n"
                 f"FOREACH(_ IN CASE WHEN existing IS NULL THEN [1] ELSE [] END |\n"
-                f"    CREATE (:CLASS:INTERFACE {{class_name: '{escaped_class_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}}))\n"
+                f"    CREATE (:{label} {{class_name: '{escaped_class_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}}))\n"
                 f"WITH 1 as dummy\n"
                 f"MATCH (n)\n"
-                f"WHERE (n:CLASS OR n:INTERFACE)\n"
+                f"WHERE (n:CLASS OR n:INTERFACE OR n:ENUM OR n:TEMP)\n"
                 f"  AND toLower(n.class_name) = toLower('{escaped_class_name}')\n"
                 f"  AND n.user_id = '{self.user_id}'\n"
                 f"  AND n.project_name = '{self.project_name}'\n"
+                f"REMOVE n:TEMP\n"
                 f"SET n:{label}, n.startLine = {node.start_line}, n.system_name = '{self.system_name}', n.file_name = '{self.file_name}', {base_set_str}\n"
-                f"REMOVE n:{other_label}\n"
                 f"WITH n\n"
                 f"MERGE (system:SYSTEM {{{self.system_props}}})\n"
                 f"MERGE (system)-[r:CONTAINS]->(n)\n"
@@ -1042,16 +1259,16 @@ class FrameworkAnalyzer:
             queries.append(
                 f"{src_match}\n"
                 f"OPTIONAL MATCH (existing)\n"
-                f"WHERE (existing:CLASS OR existing:INTERFACE)\n"
+                f"WHERE (existing:CLASS OR existing:INTERFACE OR existing:ENUM OR existing:TEMP)\n"
                 f"  AND toLower(existing.class_name) = toLower('{to_type}')\n"
                 f"  AND existing.user_id = '{self.user_id}'\n"
                 f"  AND existing.project_name = '{self.project_name}'\n"
                 f"WITH src, existing\n"
                 f"FOREACH(_ IN CASE WHEN existing IS NULL THEN [1] ELSE [] END |\n"
-                f"    CREATE (:CLASS:INTERFACE {{class_name: '{to_type}', name: '{to_type}', user_id: '{self.user_id}', project_name: '{self.project_name}'}}))\n"
+                f"    CREATE (:TEMP {{class_name: '{to_type}', name: '{to_type}', user_id: '{self.user_id}', project_name: '{self.project_name}'}}))\n"
                 f"WITH src\n"
                 f"MATCH (dst)\n"
-                f"WHERE (dst:CLASS OR dst:INTERFACE)\n"
+                f"WHERE (dst:CLASS OR dst:INTERFACE OR dst:ENUM OR dst:TEMP)\n"
                 f"  AND toLower(dst.class_name) = toLower('{to_type}')\n"
                 f"  AND dst.user_id = '{self.user_id}'\n"
                 f"  AND dst.project_name = '{self.project_name}'\n"
@@ -1128,16 +1345,16 @@ class FrameworkAnalyzer:
                 queries.append(
                     f"{src_match}\n"
                     f"OPTIONAL MATCH (existing)\n"
-                    f"WHERE (existing:CLASS OR existing:INTERFACE)\n"
+                    f"WHERE (existing:CLASS OR existing:INTERFACE OR existing:ENUM OR existing:TEMP)\n"
                     f"  AND toLower(existing.class_name) = toLower('{target_class}')\n"
                     f"  AND existing.user_id = '{self.user_id}'\n"
                     f"  AND existing.project_name = '{self.project_name}'\n"
                     f"WITH src, existing\n"
                     f"FOREACH(_ IN CASE WHEN existing IS NULL THEN [1] ELSE [] END |\n"
-                    f"    CREATE (:CLASS:INTERFACE {{class_name: '{target_class}', name: '{target_class}', user_id: '{self.user_id}', project_name: '{self.project_name}'}}))\n"
+                    f"    CREATE (:TEMP {{class_name: '{target_class}', name: '{target_class}', user_id: '{self.user_id}', project_name: '{self.project_name}'}}))\n"
                     f"WITH src\n"
                     f"MATCH (dst)\n"
-                    f"WHERE (dst:CLASS OR dst:INTERFACE)\n"
+                    f"WHERE (dst:CLASS OR dst:INTERFACE OR dst:ENUM OR dst:TEMP)\n"
                     f"  AND toLower(dst.class_name) = toLower('{target_class}')\n"
                     f"  AND dst.user_id = '{self.user_id}'\n"
                     f"  AND dst.project_name = '{self.project_name}'\n"
@@ -1192,11 +1409,11 @@ class FrameworkAnalyzer:
         parameters = analysis.get("parameters") or []
         dependencies = analysis.get("dependencies") or []
 
-        # METHOD 노드에 시그니처 정보 저장
+        # METHOD 노드에 시그니처 정보 저장 (name도 methodName으로 설정)
         queries.append(
             f"MATCH (m:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
-            f"SET m.methodName = '{method_name}', m.returnType = '{return_type}', "
-            f"m.visibility = '{visibility}', m.isStatic = {is_static}, "
+            f"SET m.name = '{method_name}', m.return_type = '{return_type}', "
+            f"m.visibility = '{visibility}', m.is_static = {is_static}, "
             f"m.method_type = '{method_kind}'\n"
             f"RETURN m"
         )
@@ -1209,7 +1426,8 @@ class FrameworkAnalyzer:
                 continue
             queries.append(
                 f"MATCH (m:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
-                f"MERGE (p:Parameter {{name: '{param_name}', methodStartLine: {node.start_line}, {self.node_base_props}}})\n"
+                # Parameter 노드 속성명은 snake_case로 통일
+                f"MERGE (p:Parameter {{name: '{param_name}', method_start_line: {node.start_line}, {self.node_base_props}}})\n"
                 f"SET p.type = '{param_type}', p.index = {idx}\n"
                 f"MERGE (m)-[r:HAS_PARAMETER]->(p)\n"
                 f"RETURN m, p, r"
@@ -1228,19 +1446,20 @@ class FrameworkAnalyzer:
             queries.append(
                 f"{src_match}\n"
                 f"OPTIONAL MATCH (existing)\n"
-                f"WHERE (existing:CLASS OR existing:INTERFACE)\n"
+                f"WHERE (existing:CLASS OR existing:INTERFACE OR existing:ENUM OR existing:TEMP)\n"
                 f"  AND toLower(existing.class_name) = toLower('{target_type}')\n"
                 f"  AND existing.user_id = '{self.user_id}'\n"
                 f"  AND existing.project_name = '{self.project_name}'\n"
                 f"WITH src, existing\n"
                 f"FOREACH(_ IN CASE WHEN existing IS NULL THEN [1] ELSE [] END |\n"
-                f"    CREATE (:CLASS:INTERFACE {{class_name: '{target_type}', name: '{target_type}', user_id: '{self.user_id}', project_name: '{self.project_name}'}}))\n"
+                f"    CREATE (:TEMP {{class_name: '{target_type}', name: '{target_type}', user_id: '{self.user_id}', project_name: '{self.project_name}'}}))\n"
                 f"WITH src\n"
                 f"MATCH (dst)\n"
-                f"WHERE (dst:CLASS OR dst:INTERFACE)\n"
+                f"WHERE (dst:CLASS OR dst:INTERFACE OR dst:ENUM OR dst:TEMP)\n"
                 f"  AND toLower(dst.class_name) = toLower('{target_type}')\n"
                 f"  AND dst.user_id = '{self.user_id}'\n"
                 f"  AND dst.project_name = '{self.project_name}'\n"
+                f"  AND src <> dst\n"  # 자기 자신 의존 방지
                 f"  AND NOT (src)-[:ASSOCIATION|AGGREGATION|COMPOSITION]->(dst)\n"
                 f"MERGE (src)-[r:DEPENDENCY {{usage: '{usage}', source_member: '{method_name}'}}]->(dst)\n"
                 f"RETURN src, dst, r"
@@ -1259,7 +1478,7 @@ class FrameworkAnalyzer:
             # value_source에 따른 관계 타입 결정
             new_rel_type = "AGGREGATION" if value_source == "parameter" else "COMPOSITION"
 
-            # FIELD 노드의 target_class이 있으면 (클래스 타입 필드) 기존 ASSOCIATION을 변경
+            # FIELD 노드의 target_class가 있으면 (클래스 타입 필드) 기존 ASSOCIATION을 변경
             queries.append(
                 f"MATCH (field:FIELD {{name: '{field_name}', {self.node_base_props}}})\n"
                 f"WHERE field.target_class IS NOT NULL\n"

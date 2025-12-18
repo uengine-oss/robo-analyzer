@@ -1,0 +1,48 @@
+name: "method_call_prompt"
+description: "METHOD_CALL 노드에서 호출 대상 클래스/메서드 추출"
+version: "1.0"
+
+input_schema:
+  required:
+    - code
+    - ranges
+  optional:
+    locale:
+      default: "ko"
+
+prompt: |
+  [ROLE]
+  METHOD_CALL 노드에서 호출 대상 정보를 추출합니다.
+  
+  
+  [INPUT_DATA]
+  {{ code }}
+  
+  범위: {{ ranges }}
+  
+  
+  [RULES]
+  각 METHOD_CALL에서 다음을 추출:
+  - targetClass: 호출 대상 (점 앞 부분)
+  - methodName: 메서드명 (점 뒤 부분)
+  
+  예시:
+  - this.repository.save() → targetClass: "repository", methodName: "save"
+  - orderService.findAll() → targetClass: "orderService", methodName: "findAll"
+  - Math.max() → targetClass: "Math", methodName: "max"
+  
+  
+  [OUTPUT_FORMAT]
+  {
+    "calls": [
+      {
+        "startLine": 라인번호,
+        "endLine": 라인번호,
+        "targetClass": "대상클래스명",
+        "methodName": "메서드명"
+      }
+    ]
+  }
+  
+  - JSON만 출력 (코드펜스 금지)
+
