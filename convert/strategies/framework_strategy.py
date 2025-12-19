@@ -94,10 +94,10 @@ class FrameworkConversionStrategy(ConversionStrategy):
 
             yield emit_message(f"서비스 및 컨트롤러 생성을 시작합니다 ({total_files}개 파일)")
 
-            for file_idx, (system_name, file_name) in enumerate(file_names, 1):
+            for file_idx, (directory, file_name) in enumerate(file_names, 1):
                 base_name = file_name.rsplit(".", 1)[0]
                 yield emit_message(f"파일 변환 시작: {base_name} ({file_idx}/{total_files})")
-                yield emit_message(f"시스템: {system_name}")
+                yield emit_message(f"경로: {directory}")
 
                 yield emit_message("서비스 스켈레톤을 생성하고 있습니다")
                 (
@@ -107,7 +107,7 @@ class FrameworkConversionStrategy(ConversionStrategy):
                     command_class_list,
                 ) = await self._step_service_skeleton(
                     entity_result_list,
-                    system_name,
+                    directory,
                     file_name,
                     global_variables,
                     repository_list,
@@ -137,7 +137,7 @@ class FrameworkConversionStrategy(ConversionStrategy):
                     service_class_name,
                     exist_command_class,
                     used_query_methods,
-                    system_name,
+                    directory,
                     file_name,
                     sequence_methods,
                     base_name,
@@ -205,7 +205,7 @@ class FrameworkConversionStrategy(ConversionStrategy):
     async def _step_service_skeleton(
         self,
         entity_result_list,
-        system_name,
+        directory,
         file_name,
         global_variables,
         repository_list,
@@ -214,7 +214,7 @@ class FrameworkConversionStrategy(ConversionStrategy):
             self.project_name, self.user_id, self.api_key, self.locale, self.target
         ).generate(
             entity_result_list,
-            system_name,
+            directory,
             file_name,
             global_variables,
             repository_list,
@@ -226,7 +226,7 @@ class FrameworkConversionStrategy(ConversionStrategy):
         service_class_name,
         exist_command_class,
         used_query_methods,
-        system_name,
+        directory,
         file_name,
         sequence_methods,
         base_name,
@@ -243,7 +243,7 @@ class FrameworkConversionStrategy(ConversionStrategy):
                 cmd_var,
                 proc_name,
                 used_query_methods,
-                system_name,
+                directory,
                 file_name,
                 sequence_methods,
                 self.project_name,

@@ -47,8 +47,8 @@ class ArchitectureConversionStrategy(ConversionStrategy):
             
             yield emit_message("클래스 정보를 수집하고 있습니다")
             
-            for idx, (system_name, class_name) in enumerate(class_names, 1):
-                yield emit_message(f"대상 클래스: {system_name}/{class_name} ({idx}/{class_count})")
+            for idx, (directory, class_name) in enumerate(class_names, 1):
+                yield emit_message(f"대상 클래스: {directory}/{class_name} ({idx}/{class_count})")
             
             yield emit_message("클래스 구조 및 관계를 분석하고 있습니다")
             

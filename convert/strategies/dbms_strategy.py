@@ -47,14 +47,14 @@ class DbmsConversionStrategy(ConversionStrategy):
 
             total_procedures_converted = 0
 
-            for file_idx, (system_name, file_name) in enumerate(file_names, 1):
+            for file_idx, (directory, file_name) in enumerate(file_names, 1):
                 try:
                     yield emit_message(f"파일 변환 시작: {file_name} ({file_idx}/{total_files})")
-                    yield emit_message(f"시스템: {system_name}")
+                    yield emit_message(f"경로: {directory}")
                     
                     yield emit_message("프로시저 정보를 조회하고 있습니다")
                     procedure_names = await get_procedures_from_file(
-                        system_name=system_name,
+                        directory=directory,
                         file_name=file_name,
                         user_id=user_id,
                         project_name=project_name
@@ -75,7 +75,7 @@ class DbmsConversionStrategy(ConversionStrategy):
                         yield emit_status(STEP_SKELETON, done=False)
                         
                         result = await start_dbms_conversion_steps(
-                            system_name=system_name,
+                            directory=directory,
                             file_name=file_name,
                             procedure_name=procedure_name,
                             project_name=project_name,
@@ -95,7 +95,7 @@ class DbmsConversionStrategy(ConversionStrategy):
                         yield emit_data(
                             file_type="converted_sp",
                             file_name=file_name,
-                            system_name=system_name,
+                            directory=directory,
                             procedure_name=procedure_name,
                             code=result["converted_code"],
                             summary=f"{target_name}로 변환됨",
@@ -107,9 +107,9 @@ class DbmsConversionStrategy(ConversionStrategy):
                     yield emit_message(f"파일 변환 완료: {file_name} ({file_idx}/{total_files}, 프로시저 {proc_count}개)")
                     
                 except Exception as file_error:
-                    logger.error(f"Conversion failed for {system_name}/{file_name}: {str(file_error)}")
+                    logger.error(f"Conversion failed for {directory}/{file_name}: {str(file_error)}")
                     yield emit_message(f"변환 중 오류가 발생했습니다: {str(file_error)}")
-                    yield emit_error(f"{system_name}/{file_name} 변환 실패: {str(file_error)}")
+                    yield emit_error(f"{directory}/{file_name} 변환 실패: {str(file_error)}")
                     return
 
             yield emit_message(f"DBMS 변환이 모두 완료되었습니다 (대상: {target_name})")

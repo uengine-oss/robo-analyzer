@@ -129,11 +129,11 @@ def _load_source_files(data_dir: Path, *, skip_when_missing: bool = False) -> Li
     if not analysis_dir.exists():
         _fail(f"analysis 디렉토리가 없습니다: {analysis_dir}")
 
-    def has_matching_json(system_name: str, file_path: Path) -> bool:
+    def has_matching_json(directory: str, file_path: Path) -> bool:
         if not file_path.is_file() or file_path.suffix.lower() != FILE_EXT:
             return False
         base = file_path.stem
-        return (analysis_dir / system_name / f"{base}.json").exists()
+        return (analysis_dir / directory / f"{base}.json").exists()
 
     source_files: List[tuple[str, str]] = []
     seen: set[tuple[str, str]] = set()
@@ -148,8 +148,8 @@ def _load_source_files(data_dir: Path, *, skip_when_missing: bool = False) -> Li
                         source_files.append(key)
 
     for src_file in sorted(src_dir.iterdir()):
-        if src_file.is_file() and has_matching_json("SYSTEM", src_file):
-            key = ("SYSTEM", src_file.name)
+        if src_file.is_file() and has_matching_json("", src_file):
+            key = ("", src_file.name)
             if key not in seen:
                 seen.add(key)
                 source_files.append(key)
@@ -247,19 +247,19 @@ async def _run_sp_only_section(orchestrator, connection, source_files: List[Sour
 
     elapsed = time.perf_counter() - start
 
-    sys_count = (await connection.execute_queries([
-        f"MATCH (s:SYSTEM {{user_id: '{TEST_USER_ID}', project_name: '{TEST_PROJECT_NAME}'}}) RETURN count(s) AS c"
+    proc_count = (await connection.execute_queries([
+        f"MATCH (p:PROCEDURE {{user_id: '{TEST_USER_ID}', project_name: '{TEST_PROJECT_NAME}'}}) RETURN count(p) AS c"
     ]))[0][0]["c"]
-    system_nodes = int(sys_count)
+    procedure_nodes = int(proc_count)
 
     assert event_count > 0, "SP 분석 이벤트가 생성되지 않았습니다"
-    assert system_nodes > 0, "SP 분석 후 SYSTEM 노드가 생성되지 않았습니다"
+    assert procedure_nodes > 0, "SP 분석 후 PROCEDURE 노드가 생성되지 않았습니다"
 
     return {
         "elapsed_seconds": elapsed,
         "event_count": event_count,
         "files": len(source_files),
-        "system_nodes": system_nodes,
+        "procedure_nodes": procedure_nodes,
     }
 
 
@@ -286,21 +286,14 @@ async def _run_java_only_section(orchestrator, connection, source_files: List[So
     ])
     class_count = int(class_count_result[0][0]["c"])
 
-    # SYSTEM 노드 확인 (폴더)
-    sys_count_result = await connection.execute_queries([
-        f"MATCH (s:SYSTEM {{user_id: '{TEST_USER_ID}', project_name: '{TEST_PROJECT_NAME}'}}) RETURN count(s) AS c"
-    ])
-    system_nodes = int(sys_count_result[0][0]["c"])
-
     assert event_count > 0, "Java 분석 이벤트가 생성되지 않았습니다"
-    assert class_count > 0 or system_nodes > 0, "Java 분석 후 CLASS/INTERFACE 또는 SYSTEM 노드가 생성되지 않았습니다"
+    assert class_count > 0, "Java 분석 후 CLASS/INTERFACE 노드가 생성되지 않았습니다"
 
     return {
         "elapsed_seconds": elapsed,
         "event_count": event_count,
         "files": len(source_files),
         "class_count": class_count,
-        "system_nodes": system_nodes,
     }
 
 

@@ -138,5 +138,9 @@ prompt: |
   - analysis[i]에는 startLine/endLine이 필수
   - 빈 배열도 허용되며 null 값은 사용 금지
   - summary는 locale에 맞는 언어로 작성하며, 핵심만 압축 표현
-  - 코드펜스(```json ... ``` 등) 포함 금지, 트레일링 콤마 금지
+  - 코드펜스(```json ... ``` 등) 포함 금지
+  - **트레일링 콤마 절대 금지**: 마지막 요소 뒤에 콤마(,)를 붙이지 말 것
+  - **유효한 JSON만 출력**: 반드시 json.loads()로 파싱 가능한 형식이어야 함
+  - 예시 (잘못된 형식): "localDependencies": [], ← 콤마 있음 ❌
+  - 예시 (올바른 형식): "localDependencies": [] ← 콤마 없음 ✅
 

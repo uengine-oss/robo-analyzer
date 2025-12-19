@@ -2,7 +2,7 @@ name: "PostgreSQL → Oracle PL/SQL 변환"
 description: "PostgreSQL Stored Procedure를 Oracle PL/SQL로 문법만 변환"
 version: "7.2"
 
-path: "../dbms/{project_name}/{system_name}"
+path: "../dbms/{project_name}/{directory}"
 
 input_schema:
   required:

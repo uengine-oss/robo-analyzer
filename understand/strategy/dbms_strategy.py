@@ -69,15 +69,12 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
 
             yield emit_message(f"프로시저 및 함수 코드 분석을 시작합니다 ({total_files}개 파일)")
 
-            for file_idx, (system_name, file_name) in enumerate(file_names, 1):
+            for file_idx, (directory, file_name) in enumerate(file_names, 1):
                 yield emit_message(f"파일 분석 시작: {file_name} ({file_idx}/{total_files})")
-                yield emit_message(f"시스템: {system_name}")
-                
-                await self._ensure_system_node(connection, system_name, orchestrator)
-                yield emit_message("시스템 정보 등록 완료")
+                yield emit_message(f"경로: {directory}")
                 
                 async for chunk in self._analyze_file(
-                    system_name,
+                    directory,
                     file_name,
                     file_names,
                     connection,
@@ -104,21 +101,10 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
         except Exception:
             return []
 
-    async def _ensure_system_node(self, connection: Neo4jConnection, system_name: str, orchestrator) -> None:
-        user_id_esc = escape_for_cypher(orchestrator.user_id)
-        system_esc = escape_for_cypher(system_name)
-        project_esc = escape_for_cypher(orchestrator.project_name)
-        await connection.execute_queries(
-            [
-                f"MERGE (f:SYSTEM {{user_id: '{user_id_esc}', system_name: '{system_esc}', project_name: '{project_esc}', has_children: true}}) RETURN f"
-            ]
-        )
-
-    async def _load_assets(self, orchestrator, system_name: str, file_name: str) -> tuple:
-        system_dirs = orchestrator.get_system_dirs(system_name)
-        plsql_file_path = os.path.join(system_dirs["src"], file_name)
+    async def _load_assets(self, orchestrator, directory: str, file_name: str) -> tuple:
+        plsql_file_path = os.path.join(orchestrator.dirs["src"], directory, file_name)
         base_name = os.path.splitext(file_name)[0]
-        analysis_file_path = os.path.join(system_dirs["analysis"], f"{base_name}.json")
+        analysis_file_path = os.path.join(orchestrator.dirs["analysis"], directory, f"{base_name}.json")
 
         async with aiofiles.open(analysis_file_path, "r", encoding="utf-8") as antlr_file, aiofiles.open(
             plsql_file_path, "r", encoding="utf-8"
@@ -260,7 +246,7 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
 
     async def _analyze_file(
         self,
-        system_name: str,
+        directory: str,
         file_name: str,
         file_pairs: list,
         connection: Neo4jConnection,
@@ -268,10 +254,10 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
         events_to_analyzer: asyncio.Queue,
         orchestrator: Any,
     ) -> AsyncGenerator[bytes, None]:
-        current_file = f"{system_name}-{file_name}"
+        current_file = f"{directory}/{file_name}" if directory else file_name
 
         yield emit_message("소스 파일을 읽는 중입니다")
-        antlr_data, plsql_content = await self._load_assets(orchestrator, system_name, file_name)
+        antlr_data, plsql_content = await self._load_assets(orchestrator, directory, file_name)
         last_line = len(plsql_content)
         plsql_raw = "".join(plsql_content)
         yield emit_message("파일 로딩이 완료되었습니다")
@@ -283,7 +269,7 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
             send_queue=events_from_analyzer,
             receive_queue=events_to_analyzer,
             last_line=last_line,
-            system_name=system_name,
+            directory=directory,
             file_name=file_name,
             user_id=orchestrator.user_id,
             api_key=orchestrator.api_key,
@@ -307,7 +293,7 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
                 logging.info("Understanding Completed for %s", current_file)
                 yield emit_message(f"파일별 코드 분석이 모두 끝났습니다 (구조 {static_blocks}개, AI 분석 {analyzed_blocks}개 블록 처리)")
                 yield emit_message("이제 변수 타입을 테이블 메타데이터로 정리하고 있습니다")
-                postprocess_graph = await self._postprocess_file(connection, system_name, file_name, file_pairs, orchestrator)
+                postprocess_graph = await self._postprocess_file(connection, directory, file_name, file_pairs, orchestrator)
                 yield emit_message("변수 타입 정리가 완료되었습니다")
                 yield emit_data(graph=postprocess_graph, line_number=last_line, analysis_progress=100, current_file=current_file)
                 break
@@ -362,20 +348,20 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
     async def _postprocess_file(
         self,
         connection: Neo4jConnection,
-        system_name: str,
+        directory: str,
         file_name: str,
         file_pairs: list,
         orchestrator: Any,
     ) -> dict:
         """변수 타입을 테이블 메타데이터 기반으로 해결하는 후처리 단계."""
-        system_esc, file_esc = escape_for_cypher(system_name), escape_for_cypher(file_name)
+        directory_esc, file_esc = escape_for_cypher(directory), escape_for_cypher(file_name)
 
         var_rows = (
             (
                 await connection.execute_queries(
                     [
                         f"""
-            MATCH (v:Variable {{system_name: '{system_esc}', file_name: '{file_esc}', user_id: '{orchestrator.user_id}'}})
+            MATCH (v:Variable {{directory: '{directory_esc}', file_name: '{file_esc}', user_id: '{orchestrator.user_id}'}})
             WITH v,
                 trim(replace(replace(coalesce(v.value, ''), 'Table: ', ''), 'Table:', '')) AS valueAfterPrefix,
                 coalesce(v.type, '') AS vtype
@@ -421,7 +407,7 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
 
         user_id_esc = escape_for_cypher(orchestrator.user_id)
         update_queries = [
-            f"MATCH (v:Variable {{name: '{escape_for_cypher(row['varName'])}', system_name: '{system_esc}', file_name: '{file_esc}', user_id: '{user_id_esc}'}}) "
+            f"MATCH (v:Variable {{name: '{escape_for_cypher(row['varName'])}', directory: '{directory_esc}', file_name: '{file_esc}', user_id: '{user_id_esc}'}}) "
             f"SET v.type = '{escape_for_cypher((result or {}).get('resolvedType') or row.get('declaredType'))}', v.resolved = true RETURN v"
             for row, result in zip(var_rows, type_results)
         ]

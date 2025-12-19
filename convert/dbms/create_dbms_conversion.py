@@ -234,7 +234,7 @@ class DbmsConversionGenerator:
     - 토큰 임계 도달 시 LLM 분석 수행
     """
     __slots__ = (
-        'traverse_nodes', 'system_name', 'file_name', 'procedure_name',
+        'traverse_nodes', 'directory', 'file_name', 'procedure_name',
         'user_id', 'api_key', 'locale', 'project_name', 'target', 'skeleton_code',
         'merged_chunks', 'parent_stack',
         'rule_loader', 'sequence_counter',
@@ -242,12 +242,12 @@ class DbmsConversionGenerator:
         'sp_accumulator', 'work_queue'
     )
 
-    def __init__(self, traverse_nodes: list, system_name: str, file_name: str,
+    def __init__(self, traverse_nodes: list, directory: str, file_name: str,
                  procedure_name: str, user_id: str, api_key: str, locale: str, 
                  project_name: str = "demo", target: str = "oracle",
                  skeleton_code: str | None = None):
         self.traverse_nodes = traverse_nodes
-        self.system_name = system_name
+        self.directory = directory
         self.file_name = file_name
         self.procedure_name = procedure_name
         self.user_id = user_id
@@ -412,7 +412,7 @@ class DbmsConversionGenerator:
         Returns:
             str: 최종 병합된 코드
         """
-        log_process("DBMS", "START", f"🚀 DBMS 변환 시작: {self.system_name}/{self.file_name} → {self.target.upper()}")
+        log_process("DBMS", "START", f"🚀 DBMS 변환 시작: {self.directory}/{self.file_name} → {self.target.upper()}")
         self._reset_state()
 
         # 중복 제거: 같은 라인 범위는 한 번만 처리
@@ -740,7 +740,7 @@ class DbmsConversionGenerator:
                 self.user_id,
                 self.target,
                 'dbms_conversion',
-                system_name=self.system_name
+                directory=self.directory
             )
             
             body_code = self._final_output().strip()
@@ -767,7 +767,7 @@ class DbmsConversionGenerator:
 
 # ----- 진입점 함수 -----
 async def start_dbms_conversion(
-    system_name: str,
+    directory: str,
     file_name: str,
     procedure_name: str,
     project_name: str,
@@ -780,14 +780,14 @@ async def start_dbms_conversion(
     DBMS 변환 시작 (단일 함수 호출용)
     """
     result = await start_dbms_conversion_steps(
-        system_name, file_name, procedure_name,
+        directory, file_name, procedure_name,
         project_name, user_id, api_key, locale, target
     )
     return result["converted_code"]
 
 
 async def start_dbms_conversion_steps(
-    system_name: str,
+    directory: str,
     file_name: str,
     procedure_name: str,
     project_name: str,
@@ -801,7 +801,7 @@ async def start_dbms_conversion_steps(
     DBMS 변환 (단계별 콜백 지원)
     
     Args:
-        system_name: 시스템명
+        directory: 디렉토리 경로
         file_name: 파일명
         procedure_name: 프로시저 이름
         project_name: 프로젝트 이름
@@ -823,7 +823,7 @@ async def start_dbms_conversion_steps(
     """
     connection = Neo4jConnection()
     
-    log_process("DBMS", "START", f"🚀 DBMS 변환 준비: {system_name}/{file_name} → {target.upper()}")
+    log_process("DBMS", "START", f"🚀 DBMS 변환 준비: {directory}/{file_name} → {target.upper()}")
 
     try:
         # Step 1: 스켈레톤 생성
@@ -831,7 +831,7 @@ async def start_dbms_conversion_steps(
             on_step(1, "skeleton", False)
         
         skeleton_code = await start_dbms_skeleton(
-            system_name=system_name,
+            directory=directory,
             file_name=file_name,
             procedure_name=procedure_name,
             project_name=project_name,
@@ -852,7 +852,7 @@ async def start_dbms_conversion_steps(
         query_results = await connection.execute_queries([
             f"""
             MATCH (p:PROCEDURE {{
-              system_name: '{system_name}',
+              directory: '{directory}',
               file_name: '{file_name}',
               procedure_name: '{procedure_name}',
               user_id: '{user_id}'
@@ -879,7 +879,7 @@ async def start_dbms_conversion_steps(
               WHERE ALL(i IN range(0, size(pathNodes)-2) 
                         WHERE coalesce(toInteger(pathNodes[i].token), 0) >= 1000)
               OPTIONAL MATCH (n)-[r]->(m {{
-                system_name: '{system_name}', file_name: '{file_name}', user_id: '{user_id}'
+                directory: '{directory}', file_name: '{file_name}', user_id: '{user_id}'
               }})
               WHERE r IS NULL
                  OR ( NOT (m:DECLARE OR m:Table OR m:SPEC)
@@ -897,7 +897,7 @@ async def start_dbms_conversion_steps(
         # 변환 수행
         generator = DbmsConversionGenerator(
             dbms_nodes,
-            system_name,
+            directory,
             file_name,
             procedure_name,
             user_id,

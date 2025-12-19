@@ -90,10 +90,10 @@ class ClassDiagramGenerator:
 
         rel_types = ", ".join([f"'{r}'" for r in CLASS_RELATION_TYPES])
         
-        # 클래스 + 필드 + 메서드/생성자(+파라미터) 조회 (전체)
+        # 클래스 + 필드 + 메서드/생성자(+파라미터) 조회 (전체) - ENUM 포함
         class_query = f"""
         MATCH (c)
-        WHERE (c:CLASS OR c:INTERFACE)
+        WHERE (c:CLASS OR c:INTERFACE OR c:ENUM)
           AND c.project_name = '{self.project_name}'
           AND c.user_id = '{self.user_id}'
 
@@ -129,18 +129,23 @@ class ClassDiagramGenerator:
              }}) AS methods
         
         RETURN 
-            cls.system_name AS system_name,
+            cls.directory AS directory,
             cls.class_name AS class_name,
-            CASE WHEN 'INTERFACE' IN labels(cls) THEN 'interface' ELSE 'class' END AS class_type,
+            CASE 
+              WHEN 'INTERFACE' IN labels(cls) THEN 'interface'
+              WHEN 'ENUM' IN labels(cls) THEN 'enum'
+              ELSE 'class'
+            END AS class_type,
+            COALESCE(cls.is_abstract, false) AS is_abstract,
             fields, methods
-        ORDER BY cls.system_name, cls.class_name
+        ORDER BY cls.directory, cls.class_name
         """
         
-        # 관계 조회 (전체)
+        # 관계 조회 (전체) - ENUM 포함
         rel_query = f"""
         MATCH (src)-[r]->(dst)
-        WHERE (src:CLASS OR src:INTERFACE)
-          AND (dst:CLASS OR dst:INTERFACE)
+        WHERE (src:CLASS OR src:INTERFACE OR src:ENUM)
+          AND (dst:CLASS OR dst:INTERFACE OR dst:ENUM)
           AND src.project_name = '{self.project_name}'
           AND src.user_id = '{self.user_id}'
           AND dst.project_name = '{self.project_name}'
@@ -148,13 +153,13 @@ class ClassDiagramGenerator:
           AND type(r) IN [{rel_types}]
         
         RETURN DISTINCT
-            src.system_name AS src_system,
+            src.directory AS src_directory,
             src.class_name AS source,
             type(r) AS relationship,
-            dst.system_name AS dst_system,
+            dst.directory AS dst_directory,
             dst.class_name AS target,
-            r.source_member AS label
-        ORDER BY src.system_name, src.class_name
+            r.source_members AS label
+        ORDER BY src.directory, src.class_name
         """
         
         results = await conn.execute_queries([class_query, rel_query])
@@ -175,9 +180,10 @@ class ClassDiagramGenerator:
             methods = [m for m in (cls.get("methods") or []) if m and m.get("name")]
             
             result.append({
-                "system_name": cls.get("system_name", ""),
+                "directory": cls.get("directory", ""),
                 "class_name": cls["class_name"],
                 "class_type": cls.get("class_type", "class"),
+                "is_abstract": cls.get("is_abstract", False),
                 "fields": fields,
                 "methods": methods
             })
@@ -224,7 +230,12 @@ class ClassDiagramGenerator:
             src = rel.get("source", "") or ""
             dst = rel.get("target", "") or ""
             rel_type = self._normalize_rel_type(rel.get("relationship"))
-            label = rel.get("label", "") or ""
+            label_raw = rel.get("label", "") or ""
+            # label은 리스트(예: source_members)로 올 수 있음 → 문자열 키로 정규화
+            if isinstance(label_raw, list):
+                label = ", ".join([str(x) for x in label_raw if x])
+            else:
+                label = str(label_raw or "")
 
             # 상속/구현/의존은 그대로 유지 (중복만 제거)
             if rel_type not in strength:
@@ -267,11 +278,21 @@ class ClassDiagramGenerator:
         # 클래스 정의
         for cls in classes:
             name = cls["class_name"]
+            class_type = cls.get("class_type", "class")
+            is_abstract = cls.get("is_abstract", False)
+            
             # Mermaid 예약어 충돌 방지: 클래스 이름을 백틱으로 감쌈
             lines.append(f"    class `{name}` {{")
             
-            if cls["class_type"] == "interface":
+            # 클래스 타입 스테레오타입 추가
+            if class_type == "interface":
                 lines.append("        <<interface>>")
+            elif class_type == "enum":
+                lines.append("        <<enumeration>>")
+            
+            # abstract 클래스 표시
+            if is_abstract and class_type == "class":
+                lines.append("        <<abstract>>")
             
             # 필드
             for f in cls.get("fields", []):
@@ -305,7 +326,9 @@ class ClassDiagramGenerator:
                 rel_type = rel.get("relationship", "ASSOCIATION")
                 label = rel.get("label", "")
                 arrow = ARROW_MAP.get(rel_type, "-->")
-                label_str = f" : {label}" if label else ""
+                if isinstance(label, list):
+                    label = ", ".join([str(x) for x in label if x])
+                label_str = f" : {label}" if (label or "").strip() else ""
                 # 관계에서도 클래스 이름을 백틱으로 감쌈
                 lines.append(f"    `{src}` {arrow} `{dst}`{label_str}")
         

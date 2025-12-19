@@ -9,7 +9,7 @@ import aiofiles
 from understand.neo4j_connection import Neo4jConnection
 from understand.strategy.base_strategy import UnderstandStrategy
 from understand.strategy.framework.analysis import FrameworkAnalyzer
-from util.utility_tool import emit_data, emit_error, emit_message, escape_for_cypher
+from util.utility_tool import emit_data, emit_error, emit_message
 
 
 class FrameworkUnderstandStrategy(UnderstandStrategy):
@@ -38,15 +38,12 @@ class FrameworkUnderstandStrategy(UnderstandStrategy):
 
             yield emit_message(f"클래스 및 인터페이스 구조 분석을 시작합니다 ({total_files}개 파일)")
 
-            for file_idx, (system_name, file_name) in enumerate(file_names, 1):
+            for file_idx, (directory, file_name) in enumerate(file_names, 1):
                 yield emit_message(f"파일 분석 시작: {file_name} ({file_idx}/{total_files})")
-                yield emit_message(f"시스템: {system_name}")
-                
-                await self._ensure_system_node(connection, system_name, orchestrator)
-                yield emit_message("시스템 정보 등록 완료")
+                yield emit_message(f"경로: {directory}")
                 
                 async for chunk in self._analyze_file(
-                    system_name,
+                    directory,
                     file_name,
                     file_names,
                     connection,
@@ -63,21 +60,10 @@ class FrameworkUnderstandStrategy(UnderstandStrategy):
         finally:
             await connection.close()
 
-    async def _ensure_system_node(self, connection: Neo4jConnection, system_name: str, orchestrator) -> None:
-        user_id_esc = escape_for_cypher(orchestrator.user_id)
-        system_esc = escape_for_cypher(system_name)
-        project_esc = escape_for_cypher(orchestrator.project_name)
-        await connection.execute_queries(
-            [
-                f"MERGE (f:SYSTEM {{user_id: '{user_id_esc}', system_name: '{system_esc}', project_name: '{project_esc}', has_children: true}}) RETURN f"
-            ]
-        )
-
-    async def _load_assets(self, orchestrator, system_name: str, file_name: str) -> tuple:
-        system_dirs = orchestrator.get_system_dirs(system_name)
-        src_file_path = os.path.join(system_dirs["src"], file_name)
+    async def _load_assets(self, orchestrator, directory: str, file_name: str) -> tuple:
+        src_file_path = os.path.join(orchestrator.dirs["src"], directory, file_name)
         base_name = os.path.splitext(file_name)[0]
-        analysis_file_path = os.path.join(system_dirs["analysis"], f"{base_name}.json")
+        analysis_file_path = os.path.join(orchestrator.dirs["analysis"], directory, f"{base_name}.json")
 
         async with aiofiles.open(analysis_file_path, "r", encoding="utf-8") as antlr_file, aiofiles.open(
             src_file_path, "r", encoding="utf-8"
@@ -87,7 +73,7 @@ class FrameworkUnderstandStrategy(UnderstandStrategy):
 
     async def _analyze_file(
         self,
-        system_name: str,
+        directory: str,
         file_name: str,
         file_pairs: list,
         connection: Neo4jConnection,
@@ -95,10 +81,10 @@ class FrameworkUnderstandStrategy(UnderstandStrategy):
         events_to_analyzer: asyncio.Queue,
         orchestrator: Any,
     ) -> AsyncGenerator[bytes, None]:
-        current_file = f"{system_name}-{file_name}"
+        current_file = f"{directory}/{file_name}" if directory else file_name
 
         yield emit_message("소스 파일을 읽는 중입니다")
-        antlr_data, source_content = await self._load_assets(orchestrator, system_name, file_name)
+        antlr_data, source_content = await self._load_assets(orchestrator, directory, file_name)
         last_line = len(source_content)
         source_raw = "".join(source_content)
         yield emit_message("파일 로딩이 완료되었습니다")
@@ -107,7 +93,7 @@ class FrameworkUnderstandStrategy(UnderstandStrategy):
         analyzer = FrameworkAnalyzer(
             antlr_data=antlr_data,
             file_content=source_raw,
-            system_name=system_name,
+            directory=directory,
             file_name=file_name,
             user_id=orchestrator.user_id,
             api_key=orchestrator.api_key,

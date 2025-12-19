@@ -11,7 +11,7 @@ class ConversionStrategy(ABC):
         파일 변환을 수행합니다.
         
         Args:
-            file_names: 변환할 파일 목록 [(system_name, file_name), ...]
+            file_names: 변환할 파일 목록 [(directory, file_name), ...]
             orchestrator: ServiceOrchestrator 인스턴스
             **kwargs: 추가 매개변수
             

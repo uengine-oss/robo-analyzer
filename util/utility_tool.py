@@ -395,7 +395,7 @@ async def extract_used_query_methods(start_line: int, end_line: int,
 #==============================================================================
 
 async def get_procedures_from_file(
-    system_name: str,
+    directory: str,
     file_name: str,
     user_id: str,
     project_name: str | None = None
@@ -404,7 +404,7 @@ async def get_procedures_from_file(
     파일의 모든 프로시저 이름을 Neo4j에서 조회합니다.
     
     Args:
-        system_name: 시스템명
+        directory: 디렉토리 경로
         file_name: 파일명
         user_id: 사용자 ID
         project_name: 프로젝트명 (선택사항, 일관성을 위해 권장)
@@ -421,7 +421,7 @@ async def get_procedures_from_file(
         
         query = f"""
             MATCH (p:PROCEDURE {{
-                system_name: '{escape_for_cypher(system_name)}',
+                directory: '{escape_for_cypher(directory)}',
                 file_name: '{escape_for_cypher(file_name)}',
                 user_id: '{escape_for_cypher(user_id)}'{project_condition}
             }})

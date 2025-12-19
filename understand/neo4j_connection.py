@@ -38,9 +38,7 @@ class Neo4jConnection:
     DEFAULT_USER = "neo4j"
     DEFAULT_PASSWORD = "neo4j"
     _CONSTRAINT_QUERIES = [
-        # SYSTEM: (user_id, project_name, name) 유니크
-        "CREATE CONSTRAINT system_unique IF NOT EXISTS FOR (s:SYSTEM) REQUIRE (s.user_id, s.project_name, s.name) IS UNIQUE",
-        # Table: (user_id, project_name, schema, name) 유니크 (테이블은 전역이므로 system_name 제외)
+        # Table: (user_id, project_name, schema, name) 유니크
         "CREATE CONSTRAINT table_unique IF NOT EXISTS FOR (t:Table) REQUIRE (t.user_id, t.project_name, t.schema, t.name) IS UNIQUE",
         # Column: (user_id, project_name, fqn) 유니크
         "CREATE CONSTRAINT column_unique IF NOT EXISTS FOR (c:Column) REQUIRE (c.user_id, c.project_name, c.fqn) IS UNIQUE",
@@ -137,7 +135,7 @@ class Neo4jConnection:
         UNWIND $pairs as target
         MATCH (n)
         WHERE n.user_id = $user_id
-          AND n.system_name = target.system_name
+          AND n.directory = target.directory
           AND n.file_name = target.file_name
         RETURN COUNT(n) > 0 AS exists
     """
@@ -145,7 +143,7 @@ class Neo4jConnection:
     async def node_exists(self, user_id: str, file_names: list) -> bool:
         """노드 존재 여부 확인 (최적화: 쿼리 캐싱)"""
         try:
-            pairs = [{"system_name": f, "file_name": s} for f, s in file_names]
+            pairs = [{"directory": d, "file_name": f} for d, f in file_names]
             params = {"pairs": pairs, "user_id": user_id}
 
             async with self.__driver.session(database=self.DATABASE_NAME) as session:

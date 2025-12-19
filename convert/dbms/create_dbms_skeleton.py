@@ -13,7 +13,7 @@ class DbmsSkeletonGenerator:
     """
 
     __slots__ = (
-        'system_name',
+        'directory',
         'file_name',
         'procedure_name',
         'project_name',
@@ -26,7 +26,7 @@ class DbmsSkeletonGenerator:
 
     def __init__(
         self,
-        system_name: str,
+        directory: str,
         file_name: str,
         procedure_name: str,
         project_name: str,
@@ -35,7 +35,7 @@ class DbmsSkeletonGenerator:
         locale: str,
         target: str = "oracle",
     ):
-        self.system_name = system_name
+        self.directory = directory
         self.file_name = file_name
         self.procedure_name = procedure_name
         self.project_name = project_name or "demo"
@@ -87,13 +87,13 @@ class DbmsSkeletonGenerator:
         """PROCEDURE, SPEC, DECLARE 컨텍스트 수집"""
         procedure_query = f"""
             MATCH (p:PROCEDURE {{
-              system_name: '{self.system_name}',
+              directory: '{self.directory}',
               file_name: '{self.file_name}',
               procedure_name: '{self.procedure_name}',
               user_id: '{self.user_id}'
             }})
             OPTIONAL MATCH (p)-[:PARENT_OF]->(spec:SPEC {{
-              system_name: '{self.system_name}',
+              directory: '{self.directory}',
               file_name: '{self.file_name}',
               procedure_name: '{self.procedure_name}',
               user_id: '{self.user_id}'
@@ -103,18 +103,18 @@ class DbmsSkeletonGenerator:
 
         declare_query = f"""
             MATCH (p:PROCEDURE {{
-              system_name: '{self.system_name}',
+              directory: '{self.directory}',
               file_name: '{self.file_name}',
               procedure_name: '{self.procedure_name}',
               user_id: '{self.user_id}'
             }})-[:PARENT_OF]->(decl:DECLARE {{
-              system_name: '{self.system_name}',
+              directory: '{self.directory}',
               file_name: '{self.file_name}',
               procedure_name: '{self.procedure_name}',
               user_id: '{self.user_id}'
             }})
             OPTIONAL MATCH (decl)-[:SCOPE]->(v:Variable {{
-              system_name: '{self.system_name}',
+              directory: '{self.directory}',
               file_name: '{self.file_name}',
               procedure_name: '{self.procedure_name}',
               user_id: '{self.user_id}'
@@ -200,7 +200,7 @@ class DbmsSkeletonGenerator:
 
 
 async def start_dbms_skeleton(
-    system_name: str,
+    directory: str,
     file_name: str,
     procedure_name: str,
     project_name: str,
@@ -211,7 +211,7 @@ async def start_dbms_skeleton(
 ) -> str:
     """DBMS 스켈레톤 생성 진입점"""
     generator = DbmsSkeletonGenerator(
-        system_name=system_name,
+        directory=directory,
         file_name=file_name,
         procedure_name=procedure_name,
         project_name=project_name,

@@ -33,6 +33,7 @@ CLASS_TYPES = frozenset(["CLASS", "INTERFACE", "ENUM"])
 INHERITANCE_TYPES = frozenset(["EXTENDS", "IMPLEMENTS"])
 FIELD_TYPES = frozenset(["FIELD"])
 METHOD_TYPES = frozenset(["METHOD", "CONSTRUCTOR"])
+METHOD_SIGNATURE_TYPES = frozenset(["METHOD_SIGNATURE"])
 # METHOD_CALL 타입 노드 - CALLS 관계 생성을 위해 별도 처리
 METHOD_CALL_TYPES = frozenset(["METHOD_CALL", "METHOD_INVOCATION", "CALL"])
 MAX_BATCH_TOKEN = int(os.getenv("FRAMEWORK_MAX_BATCH_TOKEN", "1000"))
@@ -71,6 +72,222 @@ JAVA_BUILTIN_TYPES = frozenset([
 ])
 
 
+# ==================== 데이터 클래스 ====================
+@dataclass(slots=True)
+class StatementNode:
+    """평탄화된 AST 노드를 표현합니다."""
+    node_id: int
+    start_line: int
+    end_line: int
+    node_type: str
+    code: str
+    token: int
+    has_children: bool
+    analyzable: bool
+    class_key: Optional[str]
+    class_name: Optional[str]
+    class_kind: Optional[str]
+    lines: List[Tuple[int, str]] = field(default_factory=list)
+    parent: Optional["StatementNode"] = None
+    children: List["StatementNode"] = field(default_factory=list)
+    summary: Optional[str] = None
+    completion_event: asyncio.Event = field(init=False, repr=False)
+
+    def __post_init__(self):
+        object.__setattr__(self, "completion_event", asyncio.Event())
+
+    def get_raw_code(self) -> str:
+        """라인 번호를 포함하여 노드의 원문 코드를 반환합니다."""
+        return "\n".join(f"{ln}: {text}" for ln, text in self.lines)
+
+    def get_compact_code(self) -> str:
+        """자식 구간은 자식 요약(없으면 placeholder)으로 치환한 코드를 반환합니다.
+        
+        DBMS 방식처럼 단순 순회로 처리합니다.
+        """
+        if not self.children:
+            return self.get_raw_code()
+
+        result_lines: List[str] = []
+        line_index = 0
+        total_lines = len(self.lines)
+        sorted_children = sorted(self.children, key=lambda child: child.start_line)
+
+        for child in sorted_children:
+            # 자식 이전의 부모 고유 코드를 그대로 복사합니다.
+            while line_index < total_lines and self.lines[line_index][0] < child.start_line:
+                line_no, text = self.lines[line_index]
+                result_lines.append(f"{line_no}: {text}")
+                line_index += 1
+
+            # 자식 구간은 자식 요약으로 대체합니다 (없으면 placeholder).
+            if child.summary:
+                child_summary = child.summary.strip()
+                summary_line = f"{child.start_line}~{child.end_line}: {child_summary}"
+            else:
+                summary_line = f"{child.start_line}: ...code..."
+
+            result_lines.append(summary_line)
+
+            # 자식 구간 원본 코드는 건너뜁니다.
+            while line_index < total_lines and self.lines[line_index][0] <= child.end_line:
+                line_index += 1
+
+        # 마지막 자식 이후 부모 코드가 남아 있다면 추가합니다.
+        while line_index < total_lines:
+            line_no, text = self.lines[line_index]
+            result_lines.append(f"{line_no}: {text}")
+            line_index += 1
+
+        return "\n".join(result_lines)
+
+    def get_placeholder_code(self, include_assigns: bool = False) -> str:
+        """자식 구간을 placeholder(...code...)로 치환한 코드를 반환합니다.
+        
+        기본 동작:
+        - 메서드 시그니처, 상속, 구현 관계는 원문 유지
+        - 나머지 모든 자식은 ...code...로 치환
+        
+        Args:
+            include_assigns: True이면 ASSIGN/NEW_INSTANCE 노드를 재귀적으로 찾아서 원문 유지
+                            (if문, for문 등은 제거되고 ASSIGN/NEW_INSTANCE만 남음)
+        """
+        if not self.children:
+            return self.get_raw_code()
+        
+        # 항상 원문 유지할 노드 타입: 상속/구현 관계, 메서드 시그니처
+        PRESERVE_TYPES = INHERITANCE_TYPES | METHOD_TYPES | METHOD_SIGNATURE_TYPES
+        
+        # include_assigns=True이면 ASSIGN/NEW_INSTANCE를 재귀적으로 수집
+        assign_node_set: set[Tuple[int, int]] = set()
+        if include_assigns:
+            ASSIGN_TYPES = {"ASSIGN", "NEW_INSTANCE"}
+            
+            def find_assign_nodes_recursive(node: "StatementNode") -> List["StatementNode"]:
+                """재귀적으로 ASSIGN, NEW_INSTANCE 노드를 수집합니다."""
+                results = []
+                for child in node.children:
+                    if child.node_type in ASSIGN_TYPES:
+                        results.append(child)
+                    # 자식의 자식도 재귀적으로 탐색
+                    results.extend(find_assign_nodes_recursive(child))
+                return results
+            
+            assign_nodes = find_assign_nodes_recursive(self)
+            assign_node_set = {(n.start_line, n.end_line) for n in assign_nodes}
+        
+        result_lines: List[str] = []
+        line_index = 0
+        total_lines = len(self.lines)
+        sorted_children = sorted(self.children, key=lambda child: child.start_line)
+        
+        for child in sorted_children:
+            # 자식 이전의 부모 코드를 그대로 출력
+            while line_index < total_lines and self.lines[line_index][0] < child.start_line:
+                line_no, text = self.lines[line_index]
+                result_lines.append(f"{line_no}: {text}")
+                line_index += 1
+            
+            # 원문 유지할 노드: 메서드 시그니처, 상속/구현, 또는 ASSIGN/NEW_INSTANCE
+            child_span = (child.start_line, child.end_line)
+            should_preserve = (
+                child.node_type in PRESERVE_TYPES or 
+                (include_assigns and child_span in assign_node_set)
+            )
+            
+            if should_preserve:
+                # 원문 그대로 출력
+                while line_index < total_lines and self.lines[line_index][0] <= child.end_line:
+                    line_no, text = self.lines[line_index]
+                    result_lines.append(f"{line_no}: {text}")
+                    line_index += 1
+            else:
+                # 나머지 자식은 ...code...로 치환
+                result_lines.append(f"{child.start_line}: ...code...")
+                while line_index < total_lines and self.lines[line_index][0] <= child.end_line:
+                    line_index += 1
+        
+        # 마지막 자식 이후 부모 코드가 남아 있다면 추가
+        while line_index < total_lines:
+            line_no, text = self.lines[line_index]
+            result_lines.append(f"{line_no}: {text}")
+            line_index += 1
+        
+        return "\n".join(result_lines)
+
+    def get_code_with_assigns_only(self) -> str:
+        """메서드 시그니처 + ASSIGN/NEW_INSTANCE 자식만 포함된 코드를 반환합니다.
+        
+        get_placeholder_code(include_assigns=True)를 호출합니다.
+        """
+        return self.get_placeholder_code(include_assigns=True)
+
+
+@dataclass(slots=True)
+class ClassInfo:
+    """클래스/인터페이스 정보를 저장합니다."""
+    key: str
+    name: str
+    kind: str
+    node_start: int
+    node_end: int
+    pending_nodes: int = 0
+    finalized: bool = False
+
+
+@dataclass(slots=True)
+class AnalysisBatch:
+    """분석 배치 정보."""
+    batch_id: int
+    nodes: List[StatementNode]
+    ranges: List[Dict[str, int]]
+    method_call_ranges: List[Dict[str, Any]]  # METHOD_CALL 노드 범위
+    progress_line: int
+
+    def build_general_payload(self) -> str:
+        """일반 LLM 호출용 코드 페이로드를 생성합니다 (DBMS 스타일과 동일)."""
+        return "\n\n".join(
+            node.get_compact_code() if node.has_children else node.get_raw_code()
+            for node in self.nodes
+        )
+
+    def build_method_call_payload(self) -> Optional[str]:
+        """METHOD_CALL 노드만 추출하여 호출 분석 프롬프트에 전달."""
+        method_call_nodes = [
+            node for node in self.nodes 
+            if node.node_type in METHOD_CALL_TYPES
+        ]
+        if not method_call_nodes:
+            return None
+        return "\n\n".join(
+            node.get_raw_code() for node in method_call_nodes
+        )
+
+    def get_parent_code(self) -> str:
+        """배치 노드들의 부모 코드를 가져옴 (컨텍스트용)."""
+        if not self.nodes:
+            return ""
+        # 첫 번째 노드의 부모 코드 사용
+        first_node = self.nodes[0]
+        if first_node.parent:
+            # 컨텍스트(parent_code)는 요약 치환과 별개로, 항상 placeholder 스켈레톤만 전달
+            return (
+                first_node.parent.get_placeholder_code()
+                if first_node.parent.has_children
+                else first_node.parent.get_raw_code()
+            )
+        return ""
+
+
+@dataclass(slots=True)
+class BatchResult:
+    """배치 처리 결과."""
+    batch: AnalysisBatch
+    general_result: Optional[Dict[str, Any]]
+    method_call_result: Optional[Dict[str, Any]] = None  # METHOD_CALL 분석 결과
+
+
+# ==================== 헬퍼 함수 ====================
 def _is_valid_class_name_for_calls(name: str) -> bool:
     """calls 관계 생성에 유효한 클래스명인지 검증.
     
@@ -101,7 +318,7 @@ def _is_valid_class_name_for_calls(name: str) -> bool:
     return True
 
 
-# ===== RuleLoader 헬퍼 =====
+# ==================== RuleLoader 헬퍼 ====================
 def _rule_loader() -> RuleLoader:
     return RuleLoader(target_lang="framework", domain="understand")
 
@@ -160,221 +377,14 @@ def understand_method_call(code: str, ranges: list, api_key: str, locale: str) -
     )
 
 
-# ==================== 데이터 클래스 ====================
-@dataclass(slots=True)
-class StatementNode:
-    """평탄화된 AST 노드를 표현합니다."""
-    node_id: int
-    start_line: int
-    end_line: int
-    node_type: str
-    code: str
-    token: int
-    has_children: bool
-    analyzable: bool
-    class_key: Optional[str]
-    class_name: Optional[str]
-    class_kind: Optional[str]
-    lines: List[Tuple[int, str]] = field(default_factory=list)
-    parent: Optional["StatementNode"] = None
-    children: List["StatementNode"] = field(default_factory=list)
-    summary: Optional[str] = None
-    completion_event: asyncio.Event = field(init=False, repr=False)
-
-    def __post_init__(self):
-        object.__setattr__(self, "completion_event", asyncio.Event())
-
-    def get_raw_code(self) -> str:
-        """라인 번호를 포함하여 노드의 원문 코드를 반환합니다."""
-        return "\n".join(f"{ln}: {text}" for ln, text in self.lines)
-
-    def _iter_merged_child_spans(
-        self,
-        *,
-        preserve_first_line: bool,
-    ) -> List[Tuple[int, int]]:
-        """자식 노드 범위를 (startLine, endLine)로 병합해 반환합니다.
-
-        - 중복/겹침을 제거하여 placeholder/compact 출력의 중복을 줄입니다.
-        - preserve_first_line=True이면 부모 첫 줄을 덮는 범위는 첫 줄 다음부터로 조정합니다.
-        """
-        if not self.children:
-            return []
-        spans = sorted(((c.start_line, c.end_line) for c in self.children), key=lambda x: (x[0], x[1]))
-        if not spans:
-            return []
-        first_ln = self.lines[0][0] if (preserve_first_line and self.lines) else None
-        merged: List[Tuple[int, int]] = []
-        for s, e in spans:
-            if first_ln is not None and s <= first_ln:
-                s = first_ln + 1
-            if e < s:
-                continue
-            if not merged or s > merged[-1][1] + 1:
-                merged.append((s, e))
-            else:
-                merged[-1] = (merged[-1][0], max(merged[-1][1], e))
-        return merged
-
-    def _render_with_spans(
-        self,
-        spans: List[Tuple[int, int]],
-        *,
-        preserve_first_line: bool,
-        span_replacement: callable,
-    ) -> str:
-        """lines를 순회하며 spans 구간을 replacement로 치환한 문자열을 반환합니다."""
-        if not self.lines:
-            return ""
-        total = len(self.lines)
-        out: List[str] = []
-        idx = 0
-
-        if preserve_first_line:
-            first_ln, first_text = self.lines[0]
-            out.append(f"{first_ln}: {first_text}")
-            idx = 1
-
-        for s, e in spans:
-            while idx < total and self.lines[idx][0] < s:
-                ln, text = self.lines[idx]
-                out.append(f"{ln}: {text}")
-                idx += 1
-
-            out.append(span_replacement(s, e))
-
-            while idx < total and self.lines[idx][0] <= e:
-                idx += 1
-
-        while idx < total:
-            ln, text = self.lines[idx]
-            out.append(f"{ln}: {text}")
-            idx += 1
-
-        return "\n".join(out)
-
-    def get_compact_code(self) -> str:
-        """자식 구간은 자식 요약(없으면 placeholder)으로 치환한 코드."""
-        if not self.children:
-            return self.get_raw_code()
-        # compact는 "요약 치환용"이므로 첫 줄 보존은 강제하지 않습니다.
-        spans = self._iter_merged_child_spans(preserve_first_line=False)
-        summary_by_span = {(c.start_line, c.end_line): (c.summary.strip() if c.summary else None) for c in self.children}
-
-        def repl(s: int, e: int) -> str:
-            # 병합 span에 딱 맞는 summary가 있으면 사용, 아니면 placeholder
-            summary = summary_by_span.get((s, e))
-            return f"{s}~{e}: {summary}" if summary else f"{s}: ...code..."
-
-        return self._render_with_spans(spans, preserve_first_line=False, span_replacement=repl)
-
-    def get_placeholder_code(self) -> str:
-        """자식 구간을 placeholder(...code...)로 유지한 컨텍스트 코드를 반환합니다."""
-        if not self.children:
-            return self.get_raw_code()
-        spans = self._iter_merged_child_spans(preserve_first_line=True)
-        return self._render_with_spans(
-            spans,
-            preserve_first_line=True,
-            span_replacement=lambda s, e: f"{s}: ...code...",
-        )
-
-    def get_code_with_assigns_only(self) -> str:
-        """메서드 시그니처 + ASSIGN/NEW_INSTANCE 자식만 포함된 코드 (중첩 포함)."""
-        if not self.children:
-            return self.get_raw_code()
-
-        target_types = {"ASSIGN", "NEW_INSTANCE"}
-
-        def find_targets(node: "StatementNode") -> List["StatementNode"]:
-            """재귀적으로 ASSIGN, NEW_INSTANCE 자식을 찾습니다."""
-            targets = []
-            for child in node.children:
-                if child.node_type in target_types:
-                    targets.append(child)
-                targets.extend(find_targets(child))
-            return targets
-
-        result = [f"{self.lines[0][0]}: {self.lines[0][1]}"]  # 시그니처
-        for target in sorted(find_targets(self), key=lambda n: n.start_line):
-            for ln, text in target.lines:
-                result.append(f"{ln}: {text}")
-        result.append(f"{self.lines[-1][0]}: {self.lines[-1][1]}")  # 닫는 괄호
-        return "\n".join(result)
-
-
-@dataclass(slots=True)
-class ClassInfo:
-    """클래스/인터페이스 정보를 저장합니다."""
-    key: str
-    name: str
-    kind: str
-    node_start: int
-    node_end: int
-    pending_nodes: int = 0
-    finalized: bool = False
-
-
-@dataclass(slots=True)
-class AnalysisBatch:
-    """분석 배치 정보."""
-    batch_id: int
-    nodes: List[StatementNode]
-    ranges: List[Dict[str, int]]
-    method_call_ranges: List[Dict[str, Any]]  # METHOD_CALL 노드 범위
-    progress_line: int
-
-    def build_payload(self) -> str:
-        """LLM 호출용 코드 페이로드 생성."""
-        return "\n\n".join(
-            node.get_compact_code() if node.has_children else node.get_raw_code()
-            for node in self.nodes
-        )
-
-    def build_method_call_payload(self) -> Optional[str]:
-        """METHOD_CALL 노드만 추출하여 호출 분석 프롬프트에 전달."""
-        method_call_nodes = [
-            node for node in self.nodes 
-            if node.node_type in METHOD_CALL_TYPES
-        ]
-        if not method_call_nodes:
-            return None
-        return "\n\n".join(
-            node.get_raw_code() for node in method_call_nodes
-        )
-
-    def get_parent_code(self) -> str:
-        """배치 노드들의 부모 코드를 가져옴 (컨텍스트용)."""
-        if not self.nodes:
-            return ""
-        # 첫 번째 노드의 부모 코드 사용
-        first_node = self.nodes[0]
-        if first_node.parent:
-            # 컨텍스트(parent_code)는 요약 치환과 별개로, 항상 placeholder 스켈레톤만 전달
-            return (
-                first_node.parent.get_placeholder_code()
-                if first_node.parent.has_children
-                else first_node.parent.get_raw_code()
-            )
-        return ""
-
-
-@dataclass(slots=True)
-class BatchResult:
-    """배치 처리 결과."""
-    batch: AnalysisBatch
-    general_result: Optional[Dict[str, Any]]
-    method_call_result: Optional[Dict[str, Any]] = None  # METHOD_CALL 분석 결과
-
-
 # ==================== 노드 수집기 ====================
 class StatementCollector:
     """AST를 후위순회하여 StatementNode와 클래스 정보를 수집합니다."""
 
-    def __init__(self, antlr_data: Dict[str, Any], file_content: str, system_name: str, file_name: str):
+    def __init__(self, antlr_data: Dict[str, Any], file_content: str, directory: str, file_name: str):
         self.antlr_data = antlr_data
         self.file_content = file_content
-        self.system_name = system_name
+        self.directory = directory
         self.file_name = file_name
         self.nodes: List[StatementNode] = []
         self.classes: Dict[str, ClassInfo] = {}
@@ -389,7 +399,7 @@ class StatementCollector:
     def _make_class_key(self, class_name: Optional[str], start_line: int) -> str:
         """클래스 고유키를 생성합니다."""
         base = class_name or f"anonymous_{start_line}"
-        return f"{self.system_name}:{self.file_name}:{base}:{start_line}"
+        return f"{self.directory}:{self.file_name}:{base}:{start_line}"
 
     def _extract_class_name(self, code: str, node_type: str) -> Optional[str]:
         """코드에서 클래스/인터페이스 이름을 추출합니다."""
@@ -504,63 +514,64 @@ class BatchPlanner:
     def plan(self, nodes: List[StatementNode]) -> List[AnalysisBatch]:
         """토큰 한도를 넘지 않도록 노드를 분할하여 분석 배치를 생성합니다."""
         batches: List[AnalysisBatch] = []
-        current: List[StatementNode] = []
-        tokens = 0
+        current_nodes: List[StatementNode] = []
+        current_tokens = 0
         batch_id = 1
 
-        for n in nodes:
-            if not n.analyzable:
+        for node in nodes:
+            if not node.analyzable:
                 continue
-            if n.has_children:
-                if current:
-                    batches.append(self._create(batch_id, current))
+            if node.has_children:
+                if current_nodes:
+                    batches.append(self._create_batch(batch_id, current_nodes))
                     log_process(
                         "UNDERSTAND",
                         "BATCH",
-                        f"📦 배치 #{batch_id} 확정: 리프 노드 {len(current)}개 (토큰 {tokens}/{self.token_limit})",
+                        f"📦 배치 #{batch_id} 확정: 리프 노드 {len(current_nodes)}개 (토큰 {current_tokens}/{self.token_limit})",
                     )
                     batch_id += 1
-                    current = []
-                    tokens = 0
-                batches.append(self._create(batch_id, [n]))
+                    current_nodes = []
+                    current_tokens = 0
+                batches.append(self._create_batch(batch_id, [node]))
                 log_process(
                     "UNDERSTAND",
                     "BATCH",
-                    f"📦 배치 #{batch_id} 확정: 부모 노드 단독 (라인 {n.start_line}~{n.end_line}, 토큰 {n.token})",
+                    f"📦 배치 #{batch_id} 확정: 부모 노드 단독 (라인 {node.start_line}~{node.end_line}, 토큰 {node.token})",
                 )
                 batch_id += 1
                 continue
-            if current and tokens + n.token > self.token_limit:
-                batches.append(self._create(batch_id, current))
+            if current_nodes and current_tokens + node.token > self.token_limit:
+                batches.append(self._create_batch(batch_id, current_nodes))
                 log_process(
                     "UNDERSTAND",
                     "BATCH",
-                    f"📦 배치 #{batch_id} 확정: 토큰 한도 도달 (누적 {tokens}/{self.token_limit})",
+                    f"📦 배치 #{batch_id} 확정: 토큰 한도 도달 (누적 {current_tokens}/{self.token_limit})",
                 )
                 batch_id += 1
-                current = []
-                tokens = 0
-            current.append(n)
-            tokens += n.token
+                current_nodes = []
+                current_tokens = 0
+            current_nodes.append(node)
+            current_tokens += node.token
 
-        if current:
-            batches.append(self._create(batch_id, current))
+        if current_nodes:
+            batches.append(self._create_batch(batch_id, current_nodes))
             log_process(
                 "UNDERSTAND",
                 "BATCH",
-                f"📦 배치 #{batch_id} 확정: 마지막 리프 노드 {len(current)}개 (토큰 {tokens}/{self.token_limit})",
+                f"📦 배치 #{batch_id} 확정: 마지막 리프 노드 {len(current_nodes)}개 (토큰 {current_tokens}/{self.token_limit})",
             )
         return batches
 
-    def _create(self, batch_id: int, nodes: List[StatementNode]) -> AnalysisBatch:
-        """배치 객체를 생성합니다."""
-        ranges = [{"startLine": n.start_line, "endLine": n.end_line} for n in nodes]
+    def _create_batch(self, batch_id: int, nodes: List[StatementNode]) -> AnalysisBatch:
+        """배치 ID와 노드 리스트로 AnalysisBatch 객체를 생성합니다 (DBMS 스타일과 동일)."""
+        ranges = [{"startLine": node.start_line, "endLine": node.end_line} for node in nodes]
         # METHOD_CALL 노드만 별도로 수집
         method_call_ranges = [
-            {"startLine": n.start_line, "endLine": n.end_line, "type": n.node_type, "code": n.code}
-            for n in nodes if n.node_type in METHOD_CALL_TYPES
+            {"startLine": node.start_line, "endLine": node.end_line, "type": node.node_type, "code": node.code}
+            for node in nodes
+            if node.node_type in METHOD_CALL_TYPES
         ]
-        progress = max(n.end_line for n in nodes)
+        progress = max(node.end_line for node in nodes)
         return AnalysisBatch(
             batch_id=batch_id, 
             nodes=nodes, 
@@ -590,7 +601,7 @@ class LLMInvoker:
         # 일반 분석 태스크 (부모 코드 컨텍스트 포함)
         general_task = asyncio.to_thread(
             understand_code,
-            batch.build_payload(),
+            batch.build_general_payload(),
             batch.ranges,
             len(batch.ranges),
             self.api_key,
@@ -632,13 +643,12 @@ class ApplyManager:
         file_last_line: int,
         nodes: List[StatementNode],
         node_base_props: str,
-        system_props: str,
         classes: Dict[str, ClassInfo],
         api_key: str,
         locale: str,
         user_id: str,
         project_name: str,
-        system_name: str,
+        directory: str,
         file_name: str,
     ):
         self.send_queue = send_queue
@@ -646,15 +656,14 @@ class ApplyManager:
         self.file_last_line = file_last_line
         self._nodes = nodes
         self.node_base_props = node_base_props
-        self.system_props = system_props
         self.classes = classes
         self.api_key = api_key
         self.locale = locale
         self.user_id = user_id
         self.project_name = project_name
-        self.system_name = system_name
+        self.directory = directory
         self.file_name = file_name
-        self.system_file = f"{system_name}-{file_name}"
+        self.current_file = f"{directory}/{file_name}" if directory else file_name
 
         self._pending: Dict[int, BatchResult] = {}
         self._next_batch_id = 1
@@ -716,8 +725,11 @@ class ApplyManager:
             log_process("UNDERSTAND", "APPLY", f"✅ {node.start_line}~{node.end_line} 구간 요약 반영")
 
             # 로컬 변수 의존 관계 (DEPENDENCY) - 연관 관계가 없을 때만
-            # ⚠️ 방어 로직: 가짜 클래스 생성 방지 - 기존 클래스로만 DEPENDENCY 관계 생성
             # localDependencies는 객체 배열: [{"type": "타입명", "sourceMember": "메서드명"}]
+            #
+            # ✅ 관계 중복 방지 정책:
+            # - (src)-[:DEPENDENCY {usage:'local'}]->(dst) 관계는 src->dst당 1개만 유지
+            # - 의존 발생 위치는 r.source_members(List<String>)에 누적
             for dep in analysis.get("localDependencies", []) or []:
                 if not dep:
                     continue
@@ -751,7 +763,12 @@ class ApplyManager:
                         f"  AND dst.project_name = '{self.project_name}'\n"
                         f"  AND src <> dst\n"  # 자기 자신 의존 방지
                         f"  AND NOT (src)-[:ASSOCIATION|AGGREGATION|COMPOSITION]->(dst)\n"
-                        f"MERGE (src)-[r:DEPENDENCY {{usage: 'local', source_member: '{escaped_source}'}}]->(dst)\n"
+                        f"MERGE (src)-[r:DEPENDENCY {{usage: 'local'}}]->(dst)\n"
+                        f"SET r.source_members = CASE\n"
+                        f"  WHEN r.source_members IS NULL THEN ['{escaped_source}']\n"
+                        f"  WHEN '{escaped_source}' IN r.source_members THEN r.source_members\n"
+                        f"  ELSE r.source_members + ['{escaped_source}']\n"
+                        f"END\n"
                         f"RETURN src, dst, r"
                     )
 
@@ -916,7 +933,7 @@ class FrameworkAnalyzer:
         send_queue: asyncio.Queue,
         receive_queue: asyncio.Queue,
         last_line: int,
-        system_name: str,
+        directory: str,
         file_name: str,
         user_id: str,
         api_key: str,
@@ -928,29 +945,26 @@ class FrameworkAnalyzer:
         self.send_queue = send_queue
         self.receive_queue = receive_queue
         self.last_line = last_line
-        self.system_name = system_name
+        self.directory = directory
         self.file_name = file_name
         self.user_id = user_id
         self.api_key = api_key
         self.locale = locale
         self.project_name = project_name
         self.max_workers = MAX_CONCURRENCY
-        self.system_file = f"{system_name}-{file_name}"
+        self.current_file = f"{directory}/{file_name}" if directory else file_name
 
         self.node_base_props = (
-            f"system_name: '{system_name}', file_name: '{file_name}', "
+            f"directory: '{directory}', file_name: '{file_name}', "
             f"user_id: '{user_id}', project_name: '{project_name}'"
-        )
-        self.system_props = (
-            f"user_id: '{user_id}', system_name: '{system_name}', project_name: '{project_name}'"
         )
 
     async def run(self):
         """파일 단위 Understanding 파이프라인을 실행합니다."""
-        log_process("UNDERSTAND", "START", f"🚀 {self.system_file} 분석 시작 (총 {self.last_line}줄)")
+        log_process("UNDERSTAND", "START", f"🚀 {self.current_file} 분석 시작 (총 {self.last_line}줄)")
         try:
             # 1. AST 수집
-            collector = StatementCollector(self.antlr_data, self.file_content, self.system_name, self.file_name)
+            collector = StatementCollector(self.antlr_data, self.file_content, self.directory, self.file_name)
             nodes, classes = collector.collect()
 
             # 2. 정적 그래프 초기화
@@ -981,13 +995,12 @@ class FrameworkAnalyzer:
                 file_last_line=self.last_line,
                 nodes=nodes,
                 node_base_props=self.node_base_props,
-                system_props=self.system_props,
                 classes=classes,
                 api_key=self.api_key,
                 locale=self.locale,
                 user_id=self.user_id,
                 project_name=self.project_name,
-                system_name=self.system_name,
+                directory=self.directory,
                 file_name=self.file_name,
             )
 
@@ -999,7 +1012,7 @@ class FrameworkAnalyzer:
                     log_process(
                         "UNDERSTAND",
                         "LLM",
-                        f"🤖 배치 #{batch.batch_id} LLM 요청: 노드 {len(batch.nodes)}개 ({self.system_file})",
+                        f"🤖 배치 #{batch.batch_id} LLM 요청: 노드 {len(batch.nodes)}개 ({self.current_file})",
                     )
                     general_result, method_call_result = await invoker.invoke(batch)
                 await apply_manager.submit(batch, general_result, method_call_result)
@@ -1007,7 +1020,7 @@ class FrameworkAnalyzer:
             await asyncio.gather(*(worker(b) for b in batches))
             await apply_manager.finalize()
 
-            log_process("UNDERSTAND", "DONE", f"✅ {self.system_file} 분석 완료")
+            log_process("UNDERSTAND", "DONE", f"✅ {self.current_file} 분석 완료")
             await self.send_queue.put({"type": "end_analysis"})
 
         except (UnderstandingError, LLMCallError) as exc:
@@ -1118,20 +1131,14 @@ class FrameworkAnalyzer:
                 f"  AND n.user_id = '{self.user_id}'\n"
                 f"  AND n.project_name = '{self.project_name}'\n"
                 f"REMOVE n:TEMP\n"
-                f"SET n:{label}, n.startLine = {node.start_line}, n.system_name = '{self.system_name}', n.file_name = '{self.file_name}', {base_set_str}\n"
-                f"WITH n\n"
-                f"MERGE (system:SYSTEM {{{self.system_props}}})\n"
-                f"MERGE (system)-[r:CONTAINS]->(n)\n"
-                f"RETURN n, system, r"
+                f"SET n:{label}, n.startLine = {node.start_line}, n.directory = '{self.directory}', n.file_name = '{self.file_name}', {base_set_str}\n"
+                f"RETURN n"
             )
         else:
             queries.append(
                 f"MERGE (n:{label} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
                 f"SET {base_set_str}\n"
-                f"WITH n\n"
-                f"MERGE (system:SYSTEM {{{self.system_props}}})\n"
-                f"MERGE (system)-[r:CONTAINS]->(n)\n"
-                f"RETURN n, system, r"
+                f"RETURN n"
             )
         return queries
 
@@ -1157,22 +1164,16 @@ class FrameworkAnalyzer:
             await self._send_static_queries(queries, nodes[-1].end_line)
 
     def _build_parent_relationship_query(self, parent: StatementNode, child: StatementNode) -> str:
-        """PARENT_OF 관계 쿼리."""
-        return (
-            f"MATCH (p:{parent.node_type} {{startLine: {parent.start_line}, {self.node_base_props}}})\n"
-            f"MATCH (c:{child.node_type} {{startLine: {child.start_line}, {self.node_base_props}}})\n"
-            f"MERGE (p)-[r:PARENT_OF]->(c)\n"
-            f"RETURN p, c, r"
-        )
+        """부모와 자식 노드 사이의 PARENT_OF 관계 쿼리를 작성합니다 (DBMS 스타일과 동일)."""
+        parent_match = f"MATCH (parent:{parent.node_type} {{startLine: {parent.start_line}, {self.node_base_props}}})"
+        child_match = f"MATCH (child:{child.node_type} {{startLine: {child.start_line}, {self.node_base_props}}})"
+        return f"{parent_match}\n{child_match}\nMERGE (parent)-[r:PARENT_OF]->(child)\nRETURN parent, child, r"
 
     def _build_next_relationship_query(self, prev_node: StatementNode, current_node: StatementNode) -> str:
-        """NEXT 관계 쿼리."""
-        return (
-            f"MATCH (prev:{prev_node.node_type} {{startLine: {prev_node.start_line}, {self.node_base_props}}})\n"
-            f"MATCH (curr:{current_node.node_type} {{startLine: {current_node.start_line}, {self.node_base_props}}})\n"
-            f"MERGE (prev)-[r:NEXT]->(curr)\n"
-            f"RETURN prev, curr, r"
-        )
+        """형제 노드 사이의 NEXT 관계 쿼리를 작성합니다 (DBMS 스타일과 동일)."""
+        prev_match = f"MATCH (prev:{prev_node.node_type} {{startLine: {prev_node.start_line}, {self.node_base_props}}})"
+        curr_match = f"MATCH (current:{current_node.node_type} {{startLine: {current_node.start_line}, {self.node_base_props}}})"
+        return f"{prev_match}\n{curr_match}\nMERGE (prev)-[r:NEXT]->(current)\nRETURN prev, current, r"
 
     async def _send_static_queries(self, queries: List[str], progress_line: int):
         """정적 그래프 쿼리 전송."""
@@ -1461,7 +1462,12 @@ class FrameworkAnalyzer:
                 f"  AND dst.project_name = '{self.project_name}'\n"
                 f"  AND src <> dst\n"  # 자기 자신 의존 방지
                 f"  AND NOT (src)-[:ASSOCIATION|AGGREGATION|COMPOSITION]->(dst)\n"
-                f"MERGE (src)-[r:DEPENDENCY {{usage: '{usage}', source_member: '{method_name}'}}]->(dst)\n"
+                f"MERGE (src)-[r:DEPENDENCY {{usage: '{usage}'}}]->(dst)\n"
+                f"SET r.source_members = CASE\n"
+                f"  WHEN r.source_members IS NULL THEN ['{method_name}']\n"
+                f"  WHEN '{method_name}' IN r.source_members THEN r.source_members\n"
+                f"  ELSE r.source_members + ['{method_name}']\n"
+                f"END\n"
                 f"RETURN src, dst, r"
             )
 
