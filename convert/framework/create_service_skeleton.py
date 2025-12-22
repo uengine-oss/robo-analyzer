@@ -65,6 +65,8 @@ class ServiceSkeletonGenerator:
         # 속성 초기화
         self.directory = directory
         self.file_name = file_name
+        # Neo4j 쿼리용 정규화된 directory (Windows 경로 구분자 통일)
+        self.directory_normalized = directory.replace('\\', '/') if directory else ''
         object_name = os.path.splitext(file_name)[0]
         self.dir_name = convert_to_camel_case(object_name)
         self.service_class_name = convert_to_pascal_case(object_name) + "Service"
@@ -132,16 +134,16 @@ class ServiceSkeletonGenerator:
             tuple: (procedure_groups, external_packages)
         """
         procedure_nodes, external_nodes = await connection.execute_queries([
-            f"""MATCH (p {{directory: '{self.directory}', file_name: '{self.file_name}'}})
+            f"""MATCH (p {{directory: '{self.directory_normalized}', file_name: '{self.file_name}'}})
                 WHERE p:PROCEDURE OR p:CREATE_PROCEDURE_BODY OR p:FUNCTION
-                OPTIONAL MATCH (p)-[:PARENT_OF]->(d:DECLARE {{directory: '{self.directory}', file_name: '{self.file_name}'}})
-                OPTIONAL MATCH (d)-[:SCOPE]-(dv:Variable {{directory: '{self.directory}', file_name: '{self.file_name}'}})
-                OPTIONAL MATCH (p)-[:PARENT_OF]->(s:SPEC {{directory: '{self.directory}', file_name: '{self.file_name}'}})
-                OPTIONAL MATCH (s)-[:SCOPE]-(sv:Variable {{directory: '{self.directory}', file_name: '{self.file_name}'}})
+                OPTIONAL MATCH (p)-[:PARENT_OF]->(d:DECLARE {{directory: '{self.directory_normalized}', file_name: '{self.file_name}'}})
+                OPTIONAL MATCH (d)-[:SCOPE]-(dv:Variable {{directory: '{self.directory_normalized}', file_name: '{self.file_name}'}})
+                OPTIONAL MATCH (p)-[:PARENT_OF]->(s:SPEC {{directory: '{self.directory_normalized}', file_name: '{self.file_name}'}})
+                OPTIONAL MATCH (s)-[:SCOPE]-(sv:Variable {{directory: '{self.directory_normalized}', file_name: '{self.file_name}'}})
                 WITH p, d, dv, s, sv, 
                     CASE WHEN p:FUNCTION THEN 'FUNCTION' WHEN p:PROCEDURE THEN 'PROCEDURE' ELSE 'CREATE_PROCEDURE_BODY' END as node_type
                 RETURN p, d, dv, s, sv, node_type ORDER BY p.startLine""",
-            f"""MATCH (p {{directory: '{self.directory}', file_name: '{self.file_name}'}})-[:CALL {{scope: 'external'}}]->(ext)
+            f"""MATCH (p {{directory: '{self.directory_normalized}', file_name: '{self.file_name}'}})-[:CALL {{scope: 'external'}}]->(ext)
                 WITH ext.object_name as obj_name, COLLECT(ext)[0] as ext
                 RETURN ext"""
         ])

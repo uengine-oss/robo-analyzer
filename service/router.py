@@ -65,30 +65,47 @@ async def convert_project(request: Request):
         projectName: 프로젝트명 (필수)
         strategy: "framework" | "dbms" | "architecture" (기본: framework)
         target: "java" | "oracle" | ... (기본: java)
-        classNames: ["dir/ClassName", ...] (architecture 전략 필수)
+        directory: ["dir1", "dir2", ...] (architecture 전략 필수, 디렉토리 리스트)
+        classNames: ["ClassName1", "ClassName2", ...] (architecture 전략 필수, 클래스명 리스트)
+        - 같은 인덱스의 directory와 className이 자동 매칭되어 "dir/ClassName.java" 형태로 조합됨
     
     Response: NDJSON 스트림
     """
     body = await request.json()
     orchestrator = await create_orchestrator(request, body, api_key_missing_status=400)
     
-    # architecture 전략: classNames 필수
+    # architecture 전략: directory와 classNames 필수
     if orchestrator.strategy == 'architecture':
-        raw_class_names = body.get('classNames') or []
-        if not raw_class_names:
-            raise HTTPException(400, "architecture 전략은 classNames가 필요합니다.")
-        file_names, class_names = [], parse_class_names(raw_class_names)
+        directory_list = body.get('directory') or []
+        class_names_list = body.get('classNames') or []
+        
+        if not directory_list or not class_names_list:
+            raise HTTPException(400, "architecture 전략은 directory와 classNames가 모두 필요합니다.")
+        if not isinstance(directory_list, list) or not isinstance(class_names_list, list):
+            raise HTTPException(400, "directory와 classNames는 모두 배열이어야 합니다.")
+        if len(directory_list) != len(class_names_list):
+            raise HTTPException(400, "directory와 classNames 배열의 길이가 일치해야 합니다.")
+        
+        # 경로 구분자를 /로 통일하여 Neo4j 저장 형식과 일치시킴
+        # directory와 class_name을 튜플로 조합하여 전달
+        directories_list = []
+        for dir_path, class_name in zip(directory_list, class_names_list):
+            # Windows 경로 구분자(\\)를 /로 변환
+            full_path = dir_path.replace('\\', '/') if dir_path else ''
+            # (directory, class_name) 튜플로 저장
+            directories_list.append((full_path, class_name))
+        file_names = []
     else:
         file_names = orchestrator.discover_source_files()
-        class_names = []
+        directories_list = []
         if not file_names:
             raise HTTPException(400, "변환할 소스 파일이 없습니다.")
 
-    logger.info("Converting: project=%s, strategy=%s, files=%d, classes=%d",
-                orchestrator.project_name, orchestrator.strategy, len(file_names), len(class_names))
+    logger.info("Converting: project=%s, strategy=%s, files=%d, directories=%d",
+                orchestrator.project_name, orchestrator.strategy, len(file_names), len(directories_list))
 
     return StreamingResponse(
-        stream_with_error_boundary(orchestrator.convert_project(file_names, class_names=class_names)),
+        stream_with_error_boundary(orchestrator.convert_project(file_names, directories=directories_list)),
         media_type="text/plain"
     )
 

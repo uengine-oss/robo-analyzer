@@ -416,12 +416,14 @@ async def get_procedures_from_file(
     
     connection = Neo4jConnection()
     try:
+        # Neo4j 쿼리용 정규화된 directory (Windows 경로 구분자 통일)
+        directory_normalized = directory.replace('\\', '/') if directory else ''
         # project_name 조건 추가 (있는 경우)
         project_condition = f", project_name: '{escape_for_cypher(project_name)}'" if project_name else ""
         
         query = f"""
             MATCH (p:PROCEDURE {{
-                directory: '{escape_for_cypher(directory)}',
+                directory: '{escape_for_cypher(directory_normalized)}',
                 file_name: '{escape_for_cypher(file_name)}',
                 user_id: '{escape_for_cypher(user_id)}'{project_condition}
             }})

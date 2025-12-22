@@ -38,6 +38,8 @@ class DbmsSkeletonGenerator:
         self.directory = directory
         self.file_name = file_name
         self.procedure_name = procedure_name
+        # Neo4j 쿼리용 정규화된 directory (Windows 경로 구분자 통일)
+        self.directory_normalized = directory.replace('\\', '/') if directory else ''
         self.project_name = project_name or "demo"
         self.user_id = user_id
         self.api_key = api_key
@@ -87,13 +89,13 @@ class DbmsSkeletonGenerator:
         """PROCEDURE, SPEC, DECLARE 컨텍스트 수집"""
         procedure_query = f"""
             MATCH (p:PROCEDURE {{
-              directory: '{self.directory}',
+              directory: '{self.directory_normalized}',
               file_name: '{self.file_name}',
               procedure_name: '{self.procedure_name}',
               user_id: '{self.user_id}'
             }})
             OPTIONAL MATCH (p)-[:PARENT_OF]->(spec:SPEC {{
-              directory: '{self.directory}',
+              directory: '{self.directory_normalized}',
               file_name: '{self.file_name}',
               procedure_name: '{self.procedure_name}',
               user_id: '{self.user_id}'
@@ -103,18 +105,18 @@ class DbmsSkeletonGenerator:
 
         declare_query = f"""
             MATCH (p:PROCEDURE {{
-              directory: '{self.directory}',
+              directory: '{self.directory_normalized}',
               file_name: '{self.file_name}',
               procedure_name: '{self.procedure_name}',
               user_id: '{self.user_id}'
             }})-[:PARENT_OF]->(decl:DECLARE {{
-              directory: '{self.directory}',
+              directory: '{self.directory_normalized}',
               file_name: '{self.file_name}',
               procedure_name: '{self.procedure_name}',
               user_id: '{self.user_id}'
             }})
             OPTIONAL MATCH (decl)-[:SCOPE]->(v:Variable {{
-              directory: '{self.directory}',
+              directory: '{self.directory_normalized}',
               file_name: '{self.file_name}',
               procedure_name: '{self.procedure_name}',
               user_id: '{self.user_id}'

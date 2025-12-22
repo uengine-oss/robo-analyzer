@@ -24,42 +24,40 @@ class ArchitectureConversionStrategy(ConversionStrategy):
         self,
         file_names: list,
         orchestrator: Any,
-        class_names: List[Tuple[str, str]] = None,
+        directories: List[str] = None,
         **kwargs
     ) -> AsyncGenerator[bytes, None]:
         """
         클래스 다이어그램 변환 수행
         
         Args:
-            file_names: 사용 안함 (architecture는 class_names 기반)
+            file_names: 사용 안함 (architecture는 directories 기반)
             orchestrator: ServiceOrchestrator
-            class_names: [(systemName, className), ...] 튜플 리스트
+            directories: [("dir/file.java", "ClassName"), ...] (directory, class_name) 튜플 리스트
         """
-        if not class_names:
-            yield emit_error("class_names가 필요합니다. 형식: [(systemName, className), ...]")
+        if not directories:
+            yield emit_error("directories가 필요합니다. 예: [(\"sample/com/example/Player.java\", \"Player\")]")
             return
         
-        class_count = len(class_names)
+        file_count = len(directories)
         
         try:
             yield emit_message("클래스 다이어그램 생성을 시작합니다")
-            yield emit_message(f"프로젝트 '{orchestrator.project_name}'의 {class_count}개 클래스를 분석합니다")
+            yield emit_message(f"프로젝트 '{orchestrator.project_name}'의 {file_count}개 클래스를 분석합니다")
             
             yield emit_message("클래스 정보를 수집하고 있습니다")
             
-            for idx, (directory, class_name) in enumerate(class_names, 1):
-                yield emit_message(f"대상 클래스: {directory}/{class_name} ({idx}/{class_count})")
+            for idx, (directory_path, class_name) in enumerate(directories, 1):
+                yield emit_message(f"대상 클래스: {class_name} ({directory_path}) ({idx}/{file_count})")
             
             yield emit_message("클래스 구조 및 관계를 분석하고 있습니다")
             
-            yield emit_message("AI가 Mermaid 다이어그램 코드를 생성하고 있습니다")
+            yield emit_message("Mermaid 다이어그램 코드를 생성하고 있습니다")
             
             result = await start_class_diagram_generation(
-                class_names=class_names,
+                directories=directories,
                 project_name=orchestrator.project_name,
-                user_id=orchestrator.user_id,
-                api_key=orchestrator.api_key,
-                locale=orchestrator.locale
+                user_id=orchestrator.user_id
             )
             
             result_class_count = result['class_count']

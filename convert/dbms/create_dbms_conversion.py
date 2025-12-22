@@ -250,6 +250,8 @@ class DbmsConversionGenerator:
         self.directory = directory
         self.file_name = file_name
         self.procedure_name = procedure_name
+        # Neo4j 쿼리용 정규화된 directory (Windows 경로 구분자 통일)
+        self.directory_normalized = directory.replace('\\', '/') if directory else ''
         self.user_id = user_id
         self.api_key = api_key
         self.locale = locale
@@ -825,6 +827,9 @@ async def start_dbms_conversion_steps(
     
     log_process("DBMS", "START", f"🚀 DBMS 변환 준비: {directory}/{file_name} → {target.upper()}")
 
+    # Neo4j 쿼리용 정규화된 directory (Windows 경로 구분자 통일)
+    directory_normalized = directory.replace('\\', '/') if directory else ''
+
     try:
         # Step 1: 스켈레톤 생성
         if on_step:
@@ -852,7 +857,7 @@ async def start_dbms_conversion_steps(
         query_results = await connection.execute_queries([
             f"""
             MATCH (p:PROCEDURE {{
-              directory: '{directory}',
+              directory: '{directory_normalized}',
               file_name: '{file_name}',
               procedure_name: '{procedure_name}',
               user_id: '{user_id}'
@@ -879,7 +884,7 @@ async def start_dbms_conversion_steps(
               WHERE ALL(i IN range(0, size(pathNodes)-2) 
                         WHERE coalesce(toInteger(pathNodes[i].token), 0) >= 1000)
               OPTIONAL MATCH (n)-[r]->(m {{
-                directory: '{directory}', file_name: '{file_name}', user_id: '{user_id}'
+                directory: '{directory_normalized}', file_name: '{file_name}', user_id: '{user_id}'
               }})
               WHERE r IS NULL
                  OR ( NOT (m:DECLARE OR m:Table OR m:SPEC)

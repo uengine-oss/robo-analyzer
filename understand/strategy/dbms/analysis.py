@@ -555,7 +555,8 @@ class ApplyManager:
         self.send_queue = send_queue
         self.receive_queue = receive_queue
         self.file_last_line = file_last_line
-        self.current_file = f"{directory}/{file_name}" if directory else file_name
+        # full_directory: 디렉토리 + 파일명 (로그 및 참조용)
+        self.full_directory = f"{directory}/{file_name}" if directory else file_name
 
         self._pending: Dict[int, BatchResult] = {}
         self._summary_store: Dict[str, Dict[str, Any]] = {key: {} for key in procedures}
@@ -625,7 +626,7 @@ class ApplyManager:
             cypher_queries.extend(self._build_table_queries(result.batch, result.table_result))
 
         if cypher_queries:
-            log_process("UNDERSTAND", "APPLY", f"📤 {self.current_file}에 Cypher 쿼리 {len(cypher_queries)}건 전송")
+            log_process("UNDERSTAND", "APPLY", f"📤 {self.full_directory}에 Cypher 쿼리 {len(cypher_queries)}건 전송")
         await self._send_queries(cypher_queries, result.batch.progress_line)
         log_process("UNDERSTAND", "APPLY", f"✅ 배치 #{result.batch.batch_id} 적용 완료: 노드 {len(result.batch.nodes)}개, 테이블 분석 {'있음' if result.table_result else '없음'}")
 
@@ -949,7 +950,7 @@ class ApplyManager:
             f"RETURN n"
         )
         await self._send_queries([query], info.end_line)
-        log_process("UNDERSTAND", "SUMMARY", f"✅ {info.procedure_name} 프로시저 요약을 Neo4j에 반영 완료 ({self.current_file})")
+        log_process("UNDERSTAND", "SUMMARY", f"✅ {info.procedure_name} 프로시저 요약을 Neo4j에 반영 완료 ({self.full_directory})")
 
     async def _finalize_remaining_procedures(self):
         """아직 요약이 남아 있는 프로시저가 있다면 마지막으로 처리합니다."""
@@ -970,7 +971,7 @@ class ApplyManager:
             response = await self.receive_queue.get()
             if response.get('type') == 'process_completed':
                 break
-        log_process("UNDERSTAND", "APPLY", f"✅ {self.current_file}에 대한 Neo4j 반영 완료")
+        log_process("UNDERSTAND", "APPLY", f"✅ {self.full_directory}에 대한 Neo4j 반영 완료")
 
     def _build_table_merge(self, table_name: str, schema: Optional[str]) -> str:
         schema_value = schema or ''
@@ -1138,17 +1139,20 @@ class Analyzer:
         self.send_queue = send_queue
         self.receive_queue = receive_queue
         self.last_line = last_line
-        self.directory = directory
+        # Windows 경로 구분자(\\)를 /로 변환하여 일관성 유지
+        normalized_dir = directory.replace('\\', '/') if directory else ''
+        self.directory = normalized_dir
         self.file_name = file_name
         self.user_id = user_id
         self.api_key = api_key
         self.locale = locale
         self.dbms = (dbms or 'postgres').lower()
         self.project_name = project_name or ''
+        # full_directory: 디렉토리 + 파일명 (Neo4j directory 속성으로 사용)
+        self.full_directory = f"{normalized_dir}/{file_name}" if normalized_dir else file_name
 
-        self.current_file = f"{directory}/{file_name}" if directory else file_name
         self.node_base_props = (
-            f"directory: '{directory}', file_name: '{file_name}', user_id: '{user_id}', project_name: '{self.project_name}'"
+            f"directory: '{escape_for_cypher(self.full_directory)}', file_name: '{file_name}', user_id: '{user_id}', project_name: '{self.project_name}'"
         )
         self.table_base_props = f"user_id: '{user_id}'"
         self.max_workers = MAX_CONCURRENCY
@@ -1273,7 +1277,7 @@ class Analyzer:
         proc_labels = sorted({node.procedure_name or "" for node in targets})
         if proc_labels:
             label_text = ', '.join(label for label in proc_labels if label) or '익명 프로시저'
-            log_process("UNDERSTAND", "VAR", f"🔍 변수 선언 분석 시작: {label_text} ({self.current_file})")
+            log_process("UNDERSTAND", "VAR", f"🔍 변수 선언 분석 시작: {label_text} ({self.full_directory})")
 
         semaphore = asyncio.Semaphore(VARIABLE_CONCURRENCY)
 
@@ -1298,7 +1302,7 @@ class Analyzer:
 
         await asyncio.gather(*(worker(node) for node in targets))
         if proc_labels:
-            log_process("UNDERSTAND", "VAR", f"✅ 변수 선언 분석 완료: {label_text} ({self.current_file})")
+            log_process("UNDERSTAND", "VAR", f"✅ 변수 선언 분석 완료: {label_text} ({self.full_directory})")
 
     def _build_variable_queries(self, node: StatementNode, analysis: Dict[str, Any]) -> List[str]:
         """변수 분석 결과를 Neo4j 쿼리로 변환합니다."""
@@ -1365,7 +1369,7 @@ class Analyzer:
 
     async def run(self):
         """파일 단위 Understanding 파이프라인을 실행합니다."""
-        log_process("UNDERSTAND", "START", f"🚀 {self.current_file} 분석 시작 (총 {self.last_line}줄)")
+        log_process("UNDERSTAND", "START", f"🚀 {self.full_directory} 분석 시작 (총 {self.last_line}줄)")
         try:
             collector = StatementCollector(self.antlr_data, self.file_content, self.directory, self.file_name)
             # 1) AST를 평탄화하여 StatementNode 목록을 얻습니다.
@@ -1374,7 +1378,7 @@ class Analyzer:
             await self._initialize_static_graph(nodes)
             planner = BatchPlanner()
             # 3) 노드를 토큰 기준으로 배치 단위로 분할합니다.
-            batches = planner.plan(nodes, self.current_file)
+            batches = planner.plan(nodes, self.full_directory)
 
             if not batches:
                 # 분석할 노드가 없다면 즉시 종료 이벤트만 전송합니다.
@@ -1412,7 +1416,7 @@ class Analyzer:
                 # 부모 노드가 포함된 배치라면 자식 완료를 기다립니다.
                 await self._wait_for_dependencies(batch)
                 async with semaphore:
-                    log_process("UNDERSTAND", "LLM", f"🤖 배치 #{batch.batch_id} LLM 요청: 노드 {len(batch.nodes)}개 ({self.current_file})")
+                    log_process("UNDERSTAND", "LLM", f"🤖 배치 #{batch.batch_id} LLM 요청: 노드 {len(batch.nodes)}개 ({self.full_directory})")
                     # LLM 호출은 일반 요약과 테이블 요약을 동시에 요청합니다.
                     general, table = await invoker.invoke(batch)
                 await apply_manager.submit(batch, general, table)
@@ -1421,7 +1425,7 @@ class Analyzer:
             # 모든 배치 제출이 끝나면 요약/테이블 설명 후처리를 마무리합니다.
             await apply_manager.finalize()
 
-            log_process("UNDERSTAND", "DONE", f"✅ {self.current_file} 분석 완료")
+            log_process("UNDERSTAND", "DONE", f"✅ {self.full_directory} 분석 완료")
             await self.send_queue.put({"type": "end_analysis"})
 
         except (UnderstandingError, LLMCallError) as exc:

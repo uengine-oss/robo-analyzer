@@ -354,7 +354,9 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
         orchestrator: Any,
     ) -> dict:
         """변수 타입을 테이블 메타데이터 기반으로 해결하는 후처리 단계."""
-        directory_esc, file_esc = escape_for_cypher(directory), escape_for_cypher(file_name)
+        # Neo4j 쿼리용 정규화된 directory (Windows 경로 구분자 통일)
+        directory_normalized = directory.replace('\\', '/') if directory else ''
+        directory_esc, file_esc = escape_for_cypher(directory_normalized), escape_for_cypher(file_name)
 
         var_rows = (
             (

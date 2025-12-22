@@ -661,9 +661,9 @@ class ApplyManager:
         self.locale = locale
         self.user_id = user_id
         self.project_name = project_name
+        # directory는 이미 full_directory 형태 (파일명 포함)
         self.directory = directory
         self.file_name = file_name
-        self.current_file = f"{directory}/{file_name}" if directory else file_name
 
         self._pending: Dict[int, BatchResult] = {}
         self._next_batch_id = 1
@@ -952,16 +952,19 @@ class FrameworkAnalyzer:
         self.locale = locale
         self.project_name = project_name
         self.max_workers = MAX_CONCURRENCY
-        self.current_file = f"{directory}/{file_name}" if directory else file_name
+        # full_directory: 디렉토리 + 파일명 (Neo4j directory 속성으로 사용)
+        # Windows 경로 구분자(\\)를 /로 변환하여 일관성 유지
+        normalized_dir = directory.replace('\\', '/') if directory else ''
+        self.full_directory = f"{normalized_dir}/{file_name}" if normalized_dir else file_name
 
         self.node_base_props = (
-            f"directory: '{directory}', file_name: '{file_name}', "
+            f"directory: '{escape_for_cypher(self.full_directory)}', file_name: '{file_name}', "
             f"user_id: '{user_id}', project_name: '{project_name}'"
         )
 
     async def run(self):
         """파일 단위 Understanding 파이프라인을 실행합니다."""
-        log_process("UNDERSTAND", "START", f"🚀 {self.current_file} 분석 시작 (총 {self.last_line}줄)")
+        log_process("UNDERSTAND", "START", f"🚀 {self.full_directory} 분석 시작 (총 {self.last_line}줄)")
         try:
             # 1. AST 수집
             collector = StatementCollector(self.antlr_data, self.file_content, self.directory, self.file_name)
@@ -1012,7 +1015,7 @@ class FrameworkAnalyzer:
                     log_process(
                         "UNDERSTAND",
                         "LLM",
-                        f"🤖 배치 #{batch.batch_id} LLM 요청: 노드 {len(batch.nodes)}개 ({self.current_file})",
+                        f"🤖 배치 #{batch.batch_id} LLM 요청: 노드 {len(batch.nodes)}개 ({self.full_directory})",
                     )
                     general_result, method_call_result = await invoker.invoke(batch)
                 await apply_manager.submit(batch, general_result, method_call_result)
@@ -1020,7 +1023,7 @@ class FrameworkAnalyzer:
             await asyncio.gather(*(worker(b) for b in batches))
             await apply_manager.finalize()
 
-            log_process("UNDERSTAND", "DONE", f"✅ {self.current_file} 분석 완료")
+            log_process("UNDERSTAND", "DONE", f"✅ {self.full_directory} 분석 완료")
             await self.send_queue.put({"type": "end_analysis"})
 
         except (UnderstandingError, LLMCallError) as exc:
@@ -1131,7 +1134,7 @@ class FrameworkAnalyzer:
                 f"  AND n.user_id = '{self.user_id}'\n"
                 f"  AND n.project_name = '{self.project_name}'\n"
                 f"REMOVE n:TEMP\n"
-                f"SET n:{label}, n.startLine = {node.start_line}, n.directory = '{self.directory}', n.file_name = '{self.file_name}', {base_set_str}\n"
+                f"SET n:{label}, n.startLine = {node.start_line}, n.directory = '{escape_for_cypher(self.full_directory)}', n.file_name = '{self.file_name}', {base_set_str}\n"
                 f"RETURN n"
             )
         else:
@@ -1440,7 +1443,8 @@ class FrameworkAnalyzer:
         for dep in dependencies:
             target_type = escape_for_cypher(dep.get("target_class") or "")
             usage = escape_for_cypher(dep.get("usage") or "parameter")
-            is_value_object = dep.get("is_value_object", False)
+            # None을 False로 정규화하여 boolean 값만 허용 (다른 boolean 필드들과 일관성 유지)
+            is_value_object_cypher = "true" if dep.get("is_value_object") else "false"
 
             if not target_type:
                 continue
@@ -1470,7 +1474,7 @@ class FrameworkAnalyzer:
                 f"  WHEN '{method_name}' IN r.source_members THEN r.source_members\n"
                 f"  ELSE r.source_members + ['{method_name}']\n"
                 f"END,\n"
-                f"r.is_value_object = {str(is_value_object).lower()}\n"
+                f"r.is_value_object = {is_value_object_cypher}\n"
                 f"RETURN src, dst, r"
             )
 

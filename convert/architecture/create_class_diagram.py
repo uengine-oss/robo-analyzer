@@ -4,7 +4,6 @@
 - Mermaid classDiagram 문법으로 변환
 """
 
-import json
 import logging
 from typing import List, Dict, Tuple, Any
 
@@ -34,18 +33,18 @@ CLASS_RELATION_TYPES = ['EXTENDS', 'IMPLEMENTS', 'ASSOCIATION', 'AGGREGATION', '
 class ClassDiagramGenerator:
     """Mermaid 클래스 다이어그램 생성기"""
     
-    def __init__(self, project_name: str, user_id: str, api_key: str, locale: str):
+    def __init__(self, project_name: str, user_id: str):
         self.project_name = project_name
         self.user_id = user_id
-        self.api_key = api_key
-        self.locale = locale
     
-    async def generate(self, class_names: List[Tuple[str, str]]) -> Dict:
+    async def generate(self, directories: List[Tuple[str, str]]) -> Dict:
         """
         클래스 다이어그램 생성
         
         Args:
-            class_names: [(systemName, className), ...] 튜플 리스트
+            directories: [("directory/file.java", "ClassName"), ...] (directory, class_name) 튜플 리스트.
+                        현재 구현에서는 프로젝트 전체 클래스를 대상으로 다이어그램을 생성하며,
+                        전달된 값은 필터링에 사용되지 않습니다. (레거시 동작과 동일)
         
         Returns:
             dict: {
@@ -60,7 +59,7 @@ class ClassDiagramGenerator:
         
         try:
             # 1. Neo4j에서 프로젝트 전체 클래스/인터페이스 및 관계 조회 (깊이 제한 없음)
-            classes, relationships = await self._fetch_class_graph(connection, class_names)
+            classes, relationships = await self._fetch_class_graph(connection)
             
             if not classes:
                 raise ValueError("선택한 클래스를 찾을 수 없습니다.")
@@ -79,17 +78,18 @@ class ClassDiagramGenerator:
         finally:
             await connection.close()
     
-    def _build_base_conditions(self) -> str:
+    def _build_base_conditions(self, node_alias: str = "c") -> str:
         """공통 WHERE 조건 문자열 생성"""
-        return f"project_name = '{self.project_name}' AND user_id = '{self.user_id}'"
+        return f"{node_alias}.project_name = '{self.project_name}' AND {node_alias}.user_id = '{self.user_id}'"
     
     def _build_class_query(self) -> str:
-        """클래스 + 필드 + 메서드 조회 쿼리 생성"""
-        base_conditions = self._build_base_conditions()
+        """클래스 + 필드 + 메서드 조회 쿼리 생성 (프로젝트 전체 대상, 레거시 동작과 동일)"""
+        base_conditions = self._build_base_conditions("c")
+        
         return f"""
         MATCH (c)
         WHERE (c:CLASS OR c:INTERFACE OR c:ENUM)
-          AND c.{base_conditions}
+          AND {base_conditions}
 
         WITH DISTINCT c AS cls
         
@@ -136,15 +136,17 @@ class ClassDiagramGenerator:
         """
     
     def _build_relationship_query(self) -> str:
-        """관계 조회 쿼리 생성 (is_value_object 필터링 포함)"""
-        base_conditions = self._build_base_conditions()
+        """관계 조회 쿼리 생성 (is_value_object 필터링 포함, 프로젝트 전체 대상)"""
+        src_conditions = self._build_base_conditions("src")
+        dst_conditions = self._build_base_conditions("dst")
         rel_types = ", ".join([f"'{r}'" for r in CLASS_RELATION_TYPES])
+        
         return f"""
         MATCH (src)-[r]->(dst)
         WHERE (src:CLASS OR src:INTERFACE OR src:ENUM)
           AND (dst:CLASS OR dst:INTERFACE OR dst:ENUM)
-          AND src.{base_conditions}
-          AND dst.{base_conditions}
+          AND {src_conditions}
+          AND {dst_conditions}
           AND type(r) IN [{rel_types}]
           AND (type(r) <> 'DEPENDENCY' OR r.is_value_object IS NULL OR r.is_value_object = false)
         
@@ -160,14 +162,16 @@ class ClassDiagramGenerator:
         """
     
     def _build_inheritance_query(self) -> str:
-        """상속 관계 조회 쿼리 생성"""
-        base_conditions = self._build_base_conditions()
+        """상속 관계 조회 쿼리 생성 (프로젝트 전체 대상)"""
+        child_conditions = self._build_base_conditions("child")
+        parent_conditions = self._build_base_conditions("parent")
+        
         return f"""
         MATCH (child)-[:EXTENDS|IMPLEMENTS*]->(parent)
         WHERE (child:CLASS OR child:INTERFACE OR child:ENUM)
           AND (parent:CLASS OR parent:INTERFACE OR parent:ENUM)
-          AND child.{base_conditions}
-          AND parent.{base_conditions}
+          AND {child_conditions}
+          AND {parent_conditions}
         
         RETURN DISTINCT
             child.class_name AS child,
@@ -177,7 +181,6 @@ class ClassDiagramGenerator:
     async def _fetch_class_graph(
         self,
         conn: Neo4jConnection,
-        class_names: List[Tuple[str, str]]
     ) -> Tuple[List[Dict], List[Dict]]:
         """클래스 그래프 조회 (프로젝트 전체, 깊이 제한 없음)"""
         class_query = self._build_class_query()
@@ -383,7 +386,7 @@ class ClassDiagramGenerator:
         classes: List[Dict],
         relationships: List[Dict]
     ) -> str:
-        """Mermaid 다이어그램 생성 (LLM 없이 직접 생성)"""
+        """Mermaid 다이어그램 생성"""
         return self._build_diagram_direct(classes, relationships)
     
     def _format_class_definition(self, cls: Dict) -> List[str]:
@@ -470,25 +473,21 @@ class ClassDiagramGenerator:
 
 
 async def start_class_diagram_generation(
-    class_names: List[Tuple[str, str]],
+    directories: List[Tuple[str, str]],
     project_name: str,
-    user_id: str,
-    api_key: str,
-    locale: str
+    user_id: str
 ) -> Dict:
     """
     클래스 다이어그램 생성 시작점
     
     Args:
-        class_names: [(systemName, className), ...] 튜플 리스트
+        directories: [("dir/file.java", "ClassName"), ...] (directory, class_name) 튜플 리스트
         project_name: 프로젝트 이름
         user_id: 사용자 ID
-        api_key: LLM API 키
-        locale: 로케일
     
     Returns:
         dict: 다이어그램 결과
     """
-    generator = ClassDiagramGenerator(project_name, user_id, api_key, locale)
-    return await generator.generate(class_names)
+    generator = ClassDiagramGenerator(project_name, user_id)
+    return await generator.generate(directories)
 

@@ -4,7 +4,7 @@ import logging
 import os
 import shutil
 import zipfile
-from typing import AsyncGenerator
+from typing import AsyncGenerator, List, Optional
 
 from fastapi import HTTPException, Request
 
@@ -232,21 +232,21 @@ class ServiceOrchestrator:
     async def convert_project(
         self,
         file_names: list[tuple[str, str]],
-        class_names: list[tuple[str, str]] | None = None
+        directories: Optional[List[str]] = None
     ) -> AsyncGenerator[bytes, None]:
         """전략에 따른 코드 변환 실행
         
         Args:
             file_names: [(directory, file_name), ...] 튜플 리스트
-            class_names: [(directory, class_name), ...] (architecture 전략용)
+            directories: ["dir/file.java", ...] (architecture 전략용, 파일 경로 리스트)
         """
         from convert.strategies.strategy_factory import StrategyFactory
         
         logging.info(f"Convert: strategy={self.strategy}, target={self.target}, "
-                     f"files={len(file_names)}, classes={len(class_names or [])}")
+                     f"files={len(file_names)}, directories={len(directories or [])}")
 
         strategy = StrategyFactory.create_strategy(self.strategy, target=self.target)
-        async for chunk in strategy.convert(file_names, orchestrator=self, class_names=class_names):
+        async for chunk in strategy.convert(file_names, orchestrator=self, directories=directories):
             yield chunk
 
     # -------------------------------------------------------------------------

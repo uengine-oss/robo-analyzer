@@ -526,12 +526,15 @@ async def start_service_preprocessing(
     logging.info("="*80)
     logging.info(f"📁 파일: {directory}/{file_name}")
 
+    # Neo4j 쿼리용 정규화된 directory (Windows 경로 구분자 통일)
+    directory_normalized = directory.replace('\\', '/') if directory else ''
+
     try:
         # Neo4j 쿼리
         service_nodes, variable_nodes = await connection.execute_queries([
             f"""
             MATCH (p:PROCEDURE {{
-              directory: '{directory}',
+              directory: '{directory_normalized}',
               file_name: '{file_name}',
               procedure_name: '{procedure_name}',
               user_id: '{user_id}'
@@ -563,7 +566,7 @@ async def start_service_preprocessing(
               WHERE ALL(i IN range(0, size(pathNodes)-2) 
                         WHERE coalesce(toInteger(pathNodes[i].token), 0) >= 1000)
               OPTIONAL MATCH (n)-[r]->(m {{
-                directory: '{directory}', file_name: '{file_name}', user_id: '{user_id}'
+                directory: '{directory_normalized}', file_name: '{file_name}', user_id: '{user_id}'
               }})
               WHERE r IS NULL
                  OR ( NOT (m:DECLARE OR m:Table OR m:SPEC)
@@ -576,7 +579,7 @@ async def start_service_preprocessing(
             ORDER BY sortKey, coalesce(toInteger(n.token), 0), id(n)
             """,
             f"""
-            MATCH (n {{directory: '{directory}', file_name: '{file_name}', 
+            MATCH (n {{directory: '{directory_normalized}', file_name: '{file_name}', 
                      procedure_name: '{procedure_name}', user_id: '{user_id}'}})
             WHERE n:DECLARE
             MATCH (n)-[:SCOPE]->(v:Variable)

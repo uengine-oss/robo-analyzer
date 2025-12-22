@@ -34,9 +34,7 @@ def _env(key: str, default: str) -> str:
 
 TEST_USER_ID = _env("TEST_USER_ID", "TestSession_4")
 TEST_PROJECT_NAME = _env("TEST_PROJECT_NAME", "test")
-TEST_API_KEY = os.getenv("LLM_API_KEY", "test-api-key")
 TEST_DB_NAME = _env("TEST_DB_NAME", "neo4j")
-TEST_LOCALE = _env("TEST_LOCALE", "ko")
 
 # 결과 저장 디렉토리
 OUTPUT_DIR = Path(__file__).parent / "data" / "class_diagrams"
@@ -151,11 +149,9 @@ async def test_class_diagram_generation(conn: Neo4jConnection):
     # 다이어그램 생성 (전체 클래스)
     print("다이어그램 생성 중...")
     result = await start_class_diagram_generation(
-        class_names=[],  # 빈 리스트 = 전체 클래스
+        directories=[],  # 빈 리스트 = 전체 클래스
         project_name=TEST_PROJECT_NAME,
-        user_id=TEST_USER_ID,
-        api_key=TEST_API_KEY,
-        locale=TEST_LOCALE
+        user_id=TEST_USER_ID
     )
     
     # 결과 검증
