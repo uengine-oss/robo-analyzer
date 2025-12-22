@@ -1317,7 +1317,8 @@ class FrameworkAnalyzer:
 
         for field_info in fields:
             field_name = escape_for_cypher(field_info.get("field_name") or "")
-            field_type = escape_for_cypher(field_info.get("field_type") or "")
+            field_type_raw = field_info.get("field_type") or ""
+            field_type = escape_for_cypher(field_type_raw)
             target_class_raw = field_info.get("target_class")
             target_class = escape_for_cypher(target_class_raw) if target_class_raw else None
             visibility = escape_for_cypher(field_info.get("visibility") or "private")
@@ -1439,6 +1440,7 @@ class FrameworkAnalyzer:
         for dep in dependencies:
             target_type = escape_for_cypher(dep.get("target_class") or "")
             usage = escape_for_cypher(dep.get("usage") or "parameter")
+            is_value_object = dep.get("is_value_object", False)
 
             if not target_type:
                 continue
@@ -1467,7 +1469,8 @@ class FrameworkAnalyzer:
                 f"  WHEN r.source_members IS NULL THEN ['{method_name}']\n"
                 f"  WHEN '{method_name}' IN r.source_members THEN r.source_members\n"
                 f"  ELSE r.source_members + ['{method_name}']\n"
-                f"END\n"
+                f"END,\n"
+                f"r.is_value_object = {str(is_value_object).lower()}\n"
                 f"RETURN src, dst, r"
             )
 
