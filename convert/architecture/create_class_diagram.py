@@ -21,13 +21,15 @@ ARROW_MAP = {
     "EXTENDS": "<|--",
     "IMPLEMENTS": "<|..",
     "ASSOCIATION": "-->",
-    "AGGREGATION": "o--",
     "COMPOSITION": "*--",
     "DEPENDENCY": "..>",
 }
 
 # 클래스 관계 타입
-CLASS_RELATION_TYPES = ['EXTENDS', 'IMPLEMENTS', 'ASSOCIATION', 'AGGREGATION', 'COMPOSITION', 'DEPENDENCY']
+CLASS_RELATION_TYPES = ['EXTENDS', 'IMPLEMENTS', 'ASSOCIATION', 'COMPOSITION', 'DEPENDENCY']
+
+# 소유 관계 타입 (상속/구현/의존 제외)
+OWNERSHIP_TYPES = {"COMPOSITION", "ASSOCIATION"}
 
 
 class ClassDiagramGenerator:
@@ -150,14 +152,28 @@ class ClassDiagramGenerator:
           AND type(r) IN [{rel_types}]
           AND (type(r) <> 'DEPENDENCY' OR r.is_value_object IS NULL OR r.is_value_object = false)
         
+        WITH src, dst, r,
+             CASE
+               WHEN r.source_member IS NOT NULL THEN [r.source_member]
+               WHEN r.source_members IS NOT NULL THEN r.source_members
+               ELSE ['']
+             END AS members_list,
+             r.usage AS usage
+        
+        UNWIND members_list AS member
+        
+        WITH src, dst, r, member, usage
+        WHERE member IS NOT NULL AND member <> ''
+        
         RETURN DISTINCT
             src.directory AS src_directory,
             src.class_name AS source,
             type(r) AS relationship,
             dst.directory AS dst_directory,
             dst.class_name AS target,
-            r.source_members AS label,
-            r.multiplicity AS multiplicity
+            member AS label,
+            r.multiplicity AS multiplicity,
+            usage
         ORDER BY src.directory, src.class_name
         """
     
@@ -270,14 +286,13 @@ class ClassDiagramGenerator:
     def _build_ownership_map(self, relationships: List[Dict]) -> Dict[str, Dict[str, str]]:
         """소유 관계 맵 생성: {source: {target: relationship_type}}"""
         ownership_map: Dict[str, Dict[str, str]] = {}
-        ownership_types = {"COMPOSITION", "AGGREGATION", "ASSOCIATION"}
         
         for rel in relationships:
             src = rel.get("source", "") or ""
             dst = rel.get("target", "") or ""
             rel_type = self._normalize_rel_type(rel.get("relationship"))
             
-            if rel_type in ownership_types:
+            if rel_type in OWNERSHIP_TYPES:
                 if src not in ownership_map:
                     ownership_map[src] = {}
                 ownership_map[src][dst] = rel_type
@@ -308,7 +323,7 @@ class ClassDiagramGenerator:
     ) -> List[Dict]:
         """상속 체인을 통한 노이즈 DEPENDENCY 제거
         
-        상위 클래스에서 이미 COMPOSITION/AGGREGATION/ASSOCIATION 관계가 있는 타겟으로의 
+        상위 클래스에서 이미 COMPOSITION/ASSOCIATION 관계가 있는 타겟으로의 
         DEPENDENCY를 하위 클래스에서 제거합니다.
         """
         if not relationships:
@@ -334,52 +349,72 @@ class ClassDiagramGenerator:
     def _dedupe_relationships(self, relationships: List[Dict]) -> List[Dict]:
         """관계 중복/과다를 정리합니다.
         
-        - 동일 (source, target, label) 조합에서 ASSOCIATION/AGGREGATION/COMPOSITION은 '더 강한' 타입 1개만 남김
+        - 동일 (source, target, label) 조합에서 ASSOCIATION/COMPOSITION은 '더 강한' 타입 1개만 남김
+        - DEPENDENCY는 동일 (source, target) 조합에서 하나로 합침 (label은 여러 개 합쳐서 표시)
         - 완전 중복은 제거
         """
         if not relationships:
             return []
 
-        strength = {"COMPOSITION": 3, "AGGREGATION": 2, "ASSOCIATION": 1}
-        picked: Dict[Tuple[str, str, str], Dict] = {}
-        passthrough: List[Dict] = []
+        # 소유 관계 강도 (COMPOSITION > ASSOCIATION)
+        strength = {"COMPOSITION": 2, "ASSOCIATION": 1}
+        
+        # 소유 관계용: (source, target, label) -> 관계
+        ownership_map: Dict[Tuple[str, str, str], Dict] = {}
+        # DEPENDENCY용: (source, target) -> 관계 (label들을 합침)
+        dependency_map: Dict[Tuple[str, str], Dict] = {}
+        # 기타 관계용: (source, target, rel_type, label, usage) -> 관계
+        other_rels: Dict[Tuple[str, str, str, str, str], Dict] = {}
 
         for rel in relationships:
             src = rel.get("source", "") or ""
             dst = rel.get("target", "") or ""
             rel_type = self._normalize_rel_type(rel.get("relationship"))
             label_raw = rel.get("label", "") or ""
-            # label은 리스트(예: source_members)로 올 수 있음 → 문자열 키로 정규화
+            
+            # label 정규화
             if isinstance(label_raw, list):
                 label = ", ".join([str(x) for x in label_raw if x])
             else:
                 label = str(label_raw or "")
 
-            # 상속/구현/의존은 그대로 유지 (중복만 제거)
-            if rel_type not in strength:
-                key = (src, dst, rel_type, label)
-                if key in picked:
-                    continue
-                picked[key] = rel
-                passthrough.append(rel)
-                continue
+            # 소유 관계 (ASSOCIATION, COMPOSITION) 처리
+            if rel_type in OWNERSHIP_TYPES:
+                key = (src, dst, label)
+                prev = ownership_map.get(key)
+                if not prev:
+                    ownership_map[key] = rel
+                else:
+                    # 더 강한 타입으로 교체
+                    prev_type = self._normalize_rel_type(prev.get("relationship"))
+                    if strength.get(rel_type, 0) > strength.get(prev_type, 0):
+                        ownership_map[key] = rel
+            elif rel_type == "DEPENDENCY":
+                # DEPENDENCY는 (source, target)만으로 키를 만들어서 하나로 합침
+                key = (src, dst)
+                prev = dependency_map.get(key)
+                if not prev:
+                    dependency_map[key] = rel.copy()
+                else:
+                    # label들을 합침 (중복 제거)
+                    prev_label = prev.get("label", "") or ""
+                    current_label = label
+                    if prev_label and current_label:
+                        # 두 label을 합치되, 중복 제거
+                        prev_labels = [l.strip() for l in prev_label.split(",")]
+                        current_labels = [l.strip() for l in current_label.split(",")]
+                        combined_labels = sorted(set(prev_labels + current_labels))
+                        prev["label"] = ", ".join(combined_labels)
+                    elif current_label:
+                        prev["label"] = current_label
+            else:
+                # 기타 관계 (EXTENDS, IMPLEMENTS) 처리
+                usage = rel.get("usage", "") or ""
+                key = (src, dst, rel_type, label, usage)
+                if key not in other_rels:
+                    other_rels[key] = rel
 
-            key2 = (src, dst, label)
-            prev = picked.get(key2)
-            if not prev:
-                picked[key2] = rel
-                continue
-            prev_type = self._normalize_rel_type(prev.get("relationship"))
-            if strength.get(rel_type, 0) > strength.get(prev_type, 0):
-                picked[key2] = rel
-
-        # picked 안에는 혼재(2종 키)하므로, association류만 따로 추출
-        assoc_like: List[Dict] = []
-        for k, v in picked.items():
-            if isinstance(k, tuple) and len(k) == 3:
-                assoc_like.append(v)
-
-        return passthrough + assoc_like
+        return list(ownership_map.values()) + list(dependency_map.values()) + list(other_rels.values())
     
     async def _generate_diagram(
         self,

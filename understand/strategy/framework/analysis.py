@@ -762,13 +762,8 @@ class ApplyManager:
                         f"  AND dst.user_id = '{self.user_id}'\n"
                         f"  AND dst.project_name = '{self.project_name}'\n"
                         f"  AND src <> dst\n"  # 자기 자신 의존 방지
-                        f"  AND NOT (src)-[:ASSOCIATION|AGGREGATION|COMPOSITION]->(dst)\n"
-                        f"MERGE (src)-[r:DEPENDENCY {{usage: 'local'}}]->(dst)\n"
-                        f"SET r.source_members = CASE\n"
-                        f"  WHEN r.source_members IS NULL THEN ['{escaped_source}']\n"
-                        f"  WHEN '{escaped_source}' IN r.source_members THEN r.source_members\n"
-                        f"  ELSE r.source_members + ['{escaped_source}']\n"
-                        f"END\n"
+                        f"  AND NOT (src)-[:ASSOCIATION|COMPOSITION]->(dst)\n"
+                        f"MERGE (src)-[r:DEPENDENCY {{usage: 'local', source_member: '{escaped_source}'}}]->(dst)\n"
                         f"RETURN src, dst, r"
                     )
 
@@ -1207,7 +1202,7 @@ class FrameworkAnalyzer:
             self._process_field_nodes(field_nodes, nodes),
         )
 
-        # 2단계: 메서드 처리 (ASSOCIATION → AGGREGATION/COMPOSITION 변경)
+        # 2단계: 메서드 처리 (ASSOCIATION → COMPOSITION 변경)
         await self._process_method_nodes(method_nodes)
 
         log_process("UNDERSTAND", "PREPROCESS", f"✅ 선행 처리 완료")
@@ -1343,7 +1338,7 @@ class FrameworkAnalyzer:
                 f"RETURN f"
             )
 
-            # 연관 관계 생성 (ASSOCIATION, AGGREGATION, COMPOSITION)
+            # 연관 관계 생성 (ASSOCIATION, COMPOSITION)
             # 타겟 노드: DBMS 패턴 - OPTIONAL MATCH로 기존 노드 찾고, 없으면 CREATE (대소문자 무시)
             if target_class:
                 src_match = f"MATCH (src:{node.class_kind or 'CLASS'} {{startLine: {node.parent.start_line if node.parent else node.start_line}, {self.node_base_props}}})"
@@ -1467,18 +1462,13 @@ class FrameworkAnalyzer:
                 f"  AND dst.user_id = '{self.user_id}'\n"
                 f"  AND dst.project_name = '{self.project_name}'\n"
                 f"  AND src <> dst\n"  # 자기 자신 의존 방지
-                f"  AND NOT (src)-[:ASSOCIATION|AGGREGATION|COMPOSITION]->(dst)\n"
-                f"MERGE (src)-[r:DEPENDENCY {{usage: '{usage}'}}]->(dst)\n"
-                f"SET r.source_members = CASE\n"
-                f"  WHEN r.source_members IS NULL THEN ['{method_name}']\n"
-                f"  WHEN '{method_name}' IN r.source_members THEN r.source_members\n"
-                f"  ELSE r.source_members + ['{method_name}']\n"
-                f"END,\n"
-                f"r.is_value_object = {is_value_object_cypher}\n"
+                f"  AND NOT (src)-[:ASSOCIATION|COMPOSITION]->(dst)\n"
+                f"MERGE (src)-[r:DEPENDENCY {{usage: '{usage}', source_member: '{method_name}'}}]->(dst)\n"
+                f"SET r.is_value_object = {is_value_object_cypher}\n"
                 f"RETURN src, dst, r"
             )
 
-        # 필드 할당 패턴에 따른 연관 관계 세분화 (ASSOCIATION → AGGREGATION/COMPOSITION)
+        # 필드 할당 패턴에 따른 연관 관계 세분화 (ASSOCIATION → COMPOSITION)
         field_assignments = analysis.get("field_assignments") or []
         src_start_line = node.parent.start_line if node.parent else node.start_line
         for assign in field_assignments:
@@ -1488,20 +1478,19 @@ class FrameworkAnalyzer:
             if not field_name or not value_source:
                 continue
 
-            # value_source에 따른 관계 타입 결정
-            new_rel_type = "AGGREGATION" if value_source == "parameter" else "COMPOSITION"
-
-            # FIELD 노드의 target_class가 있으면 (클래스 타입 필드) 기존 ASSOCIATION을 변경
-            queries.append(
-                f"MATCH (field:FIELD {{name: '{field_name}', {self.node_base_props}}})\n"
-                f"WHERE field.target_class IS NOT NULL\n"
-                f"MATCH (src:{node.class_kind or 'CLASS'} {{startLine: {src_start_line}, {self.node_base_props}}})"
-                f"-[r:ASSOCIATION {{source_member: '{field_name}'}}]->(dst)\n"
-                f"WITH src, dst, COALESCE(r.multiplicity, '1') AS mult, r\n"
-                f"DELETE r\n"
-                f"MERGE (src)-[r2:{new_rel_type} {{source_member: '{field_name}', multiplicity: mult}}]->(dst)\n"
-                f"RETURN src, dst, r2"
-            )
+            # value_source가 "new"인 경우에만 COMPOSITION으로 변경 (parameter는 ASSOCIATION 유지)
+            if value_source == "new":
+                # FIELD 노드의 target_class가 있으면 (클래스 타입 필드) 기존 ASSOCIATION을 COMPOSITION으로 변경
+                queries.append(
+                    f"MATCH (field:FIELD {{name: '{field_name}', {self.node_base_props}}})\n"
+                    f"WHERE field.target_class IS NOT NULL\n"
+                    f"MATCH (src:{node.class_kind or 'CLASS'} {{startLine: {src_start_line}, {self.node_base_props}}})"
+                    f"-[r:ASSOCIATION {{source_member: '{field_name}'}}]->(dst)\n"
+                    f"WITH src, dst, COALESCE(r.multiplicity, '1') AS mult, r\n"
+                    f"DELETE r\n"
+                    f"MERGE (src)-[r2:COMPOSITION {{source_member: '{field_name}', multiplicity: mult}}]->(dst)\n"
+                    f"RETURN src, dst, r2"
+                )
 
         return queries
 

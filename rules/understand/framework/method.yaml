@@ -90,7 +90,7 @@ prompt: |
      
      ⚠️ 도메인 의미 기반 최종 판단 (field.yaml의 관계 타입 판단과 동일):
      
-     이 value_source 정보는 힌트일 뿐, 최종 관계 타입(COMPOSITION/AGGREGATION/ASSOCIATION)은
+     이 value_source 정보는 힌트일 뿐, 최종 관계 타입(COMPOSITION/ASSOCIATION)은
      도메인 의미로 판단해야 합니다.
      
      도메인 의미란?
@@ -113,7 +113,7 @@ prompt: |
         - 주인 없이도 그 자체로 의미가 있는가?
         - 예: "플레이어 없이 퀘스트 로그" → 의미 없음
         - 예: "인벤토리 없이 아이템" → 의미 있음 (아이템은 독립 존재)
-        ✔ YES → 집합(AGGREGATION) 또는 연관(ASSOCIATION)
+        ✔ YES → 연관(ASSOCIATION)
         ✘ NO → 다음 질문
      
      질문 ③: "이 객체를 다른 객체로 옮겨도 말이 되는가?"
@@ -121,10 +121,10 @@ prompt: |
         - 다른 소유자에게 옮겨도 의미가 유지되는가?
         - 예: "퀘스트 로그를 다른 플레이어로" → 말이 안 됨
         - 예: "아이템을 다른 인벤토리로" → 말이 됨
-        ✔ YES → 집합(AGGREGATION) 또는 연관(ASSOCIATION)
+        ✔ YES → 연관(ASSOCIATION)
         ✘ NO → 합성(COMPOSITION)
      
-     한 줄 공식: 못 떼면 합성, 떼면 집합, 애매하면 연관
+     한 줄 공식: 못 떼면 합성, 떼면 연관, 애매하면 연관
      
      관계 타입별 의미 (도메인 관점):
      - COMPOSITION (합성, ◆): 내부 부품. 주인이 없으면 의미 없음. 다른 곳으로 이동 불가
@@ -133,18 +133,9 @@ prompt: |
          - Player의 QuestLog (플레이어 없으면 퀘스트 로그 의미 없음)
          - GameMap의 MapTile (맵 없으면 타일 의미 없음)
          - Order의 OrderLine (주문 없으면 주문 항목 의미 없음)
-           ※ 단, OrderLine을 독립 엔티티로 취급하는 도메인에서는 집합 또는 연관이 될 수 있음
+           ※ 단, OrderLine을 독립 엔티티로 취급하는 도메인에서는 연관이 될 수 있음
          - Document의 Paragraph (문서 없으면 문단 의미 없음)
        ⚠️ new로 생성했다고 무조건 합성 아님! 도메인 의미로 판단
-     
-     - AGGREGATION (집합, ◇): 같이 쓰는 것. 독립 존재 가능. 다른 곳으로 이동 가능
-       특징: 도메인 개념상 독립 존재, 생명주기 독립, 이동 가능
-       예시:
-         - Inventory의 Item (인벤토리 없어도 아이템 존재 가능, 다른 인벤토리로 이동 가능)
-         - Team의 Player (팀 해체돼도 플레이어 존재, 다른 팀으로 이동 가능)
-         - ShoppingCart의 Product (장바구니 없어도 상품 존재, 다른 장바구니로 이동 가능)
-         - Library의 Book (도서관 없어도 책 존재, 다른 도서관으로 이동 가능)
-       ⚠️ parameter로 주입받았다고 무조건 집합 아님! 도메인 의미로 판단
      
      - ASSOCIATION (연관, —): 그냥 알고 있음. 생명주기/소유 강제 없음
        특징: 단순 참조 관계, 명확한 소유 관계 아님, 애매할 때 안전한 선택
@@ -157,14 +148,14 @@ prompt: |
      ⚠️ 로직은 힌트일 뿐, 결정 기준 아님:
      - new로 생성했다고 합성 아님 (도메인 의미로 판단)
        예: this.questLog = new QuestLog(); → 도메인 의미상 합성 (Player의 부품)
-       예: this.item = new Item(); → 도메인 의미상 집합일 수도 있음 (독립 객체)
+       예: this.item = new Item(); → 도메인 의미상 연관일 수도 있음 (독립 객체)
      
-     - 생성자/세터로 주입받았다고 집합 아님 (도메인 의미로 판단)
-       예: this.inventory = inventory; → 도메인 의미상 집합 (독립 객체)
+     - 생성자/세터로 주입받았다고 연관 아님 (도메인 의미로 판단)
+       예: this.inventory = inventory; → 도메인 의미상 연관 (독립 객체)
        예: this.questLog = questLog; → 도메인 의미상 합성일 수도 있음 (Player의 부품)
      
-     - List<T>라고 집합 아님 (도메인 의미로 판단)
-       예: List<Item> items; → 도메인 의미상 집합 (독립 객체들)
+     - List<T>라고 연관 아님 (도메인 의미로 판단)
+       예: List<Item> items; → 도메인 의미상 연관 (독립 객체들)
        예: List<MapTile> tiles; → 도메인 의미상 합성일 수도 있음 (맵의 구성요소)
      
      실제 판단 예시:
@@ -182,7 +173,7 @@ prompt: |
          질문 ①: Inventory는 Player의 부품인가? → ✔ YES ("플레이어의 인벤토리")
          질문 ②: Player 없이 Inventory 의미 있나? → ✔ YES (인벤토리는 독립 존재 가능)
          질문 ③: Inventory를 다른 Player로 옮기나? → ✔ YES (가능)
-       - 최종 판단: AGGREGATION (집합)
+       - 최종 판단: ASSOCIATION (연관)
      
      예시 3: GameMap 생성자에서 this.tiles = new ArrayList<>();
        - 로직 힌트: "new" (내부 생성)
@@ -198,7 +189,7 @@ prompt: |
          질문 ①: Item은 Inventory의 부품인가? → ✔ YES ("인벤토리의 아이템")
          질문 ②: Inventory 없이 Item 의미 있나? → ✔ YES (아이템은 독립 존재)
          질문 ③: Item을 다른 Inventory로 옮기나? → ✔ YES (가능)
-       - 최종 판단: AGGREGATION (집합)
+       - 최종 판단: ASSOCIATION (연관)
      
      ⚠️ 핵심: value_source는 힌트일 뿐, 최종 판단은 항상 도메인 의미로!
   
