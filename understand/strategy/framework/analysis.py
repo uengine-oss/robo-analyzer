@@ -24,7 +24,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Tuple
 
 from util.rule_loader import RuleLoader
-from util.exception import LLMCallError, ProcessAnalyzeCodeError, UnderstandingError
+from util.exception import LLMCallError, ProcessAnalyzeCodeError, AnalysisError
 from util.utility_tool import calculate_code_token, escape_for_cypher, log_process
 
 
@@ -1150,7 +1150,7 @@ class FrameworkAnalyzer:
             log_process("UNDERSTAND", "DONE", f"✅ {self.full_directory} 분석 완료")
             await self.send_queue.put({"type": "end_analysis"})
 
-        except (UnderstandingError, LLMCallError) as exc:
+        except (AnalysisError, LLMCallError) as exc:
             log_process("UNDERSTAND", "ERROR", "❌ Understanding 파이프라인 예외", logging.ERROR, exc)
             await self.send_queue.put({"type": "error", "message": str(exc)})
             raise

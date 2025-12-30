@@ -37,23 +37,23 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
         total_files = len(file_names)
 
         try:
-            yield emit_message("DBMS 코드 분석을 시작합니다")
-            yield emit_message(f"프로젝트 '{orchestrator.project_name}'의 {total_files}개 파일을 분석합니다")
+            yield emit_message("🚀 DBMS 코드 분석을 시작합니다")
+            yield emit_message(f"📦 프로젝트 '{orchestrator.project_name}'에서 {total_files}개 파일을 분석합니다")
             
             await connection.ensure_constraints()
-            yield emit_message("데이터베이스 연결이 완료되었습니다")
+            yield emit_message("🔌 데이터베이스에 연결되었습니다")
 
             if await connection.node_exists(orchestrator.user_id, file_names):
-                yield emit_message("이전 분석 결과가 발견되어 증분 업데이트 모드로 진행합니다")
+                yield emit_message("🔄 이전 분석 결과를 업데이트합니다")
 
             ddl_files = self._list_ddl_files(orchestrator)
             if ddl_files:
                 ddl_count = len(ddl_files)
-                yield emit_message(f"테이블 스키마 정보 수집을 시작합니다 (DDL 파일 {ddl_count}개)")
+                yield emit_message(f"📊 테이블 스키마 정보를 수집합니다 ({ddl_count}개 DDL 파일)")
                 
                 ddl_dir = orchestrator.dirs["ddl"]
                 for idx, ddl_file_name in enumerate(ddl_files, 1):
-                    yield emit_message(f"DDL 파일 처리 중: {ddl_file_name} ({idx}/{ddl_count})")
+                    yield emit_message(f"   📋 [{idx}/{ddl_count}] {ddl_file_name}")
                     logging.info("DDL 파일 처리 시작: %s", ddl_file_name)
                     # DDL 처리 후 결과를 프론트엔드로 전달
                     ddl_graph = await self._process_ddl(
@@ -65,15 +65,16 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
                     if ddl_graph and (ddl_graph.get("Nodes") or ddl_graph.get("Relationships")):
                         yield emit_data(graph=ddl_graph, line_number=0, analysis_progress=0, current_file=f"DDL-{ddl_file_name}")
                 
-                yield emit_message(f"테이블 스키마 정보 수집이 완료되었습니다 ({ddl_count}개 파일)")
+                yield emit_message(f"   ✓ 스키마 정보 수집 완료 ({ddl_count}개)")
             else:
-                yield emit_message("DDL 파일이 없어 테이블 스키마 처리를 건너뜁니다")
+                yield emit_message("ℹ️ DDL 파일이 없어 스키마 처리를 건너뜁니다")
 
-            yield emit_message(f"프로시저 및 함수 코드 분석을 시작합니다 ({total_files}개 파일)")
+            yield emit_message(f"🔍 프로시저 및 함수 코드를 분석합니다 ({total_files}개 파일)")
 
             for file_idx, (directory, file_name) in enumerate(file_names, 1):
-                yield emit_message(f"파일 분석 시작: {file_name} ({file_idx}/{total_files})")
-                yield emit_message(f"경로: {directory}")
+                yield emit_message(f"📄 [{file_idx}/{total_files}] {file_name} 분석 중...")
+                if directory:
+                    yield emit_message(f"   📁 {directory}")
                 
                 async for chunk in self._analyze_file(
                     directory,
@@ -86,27 +87,27 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
                 ):
                     yield chunk
                 
-                yield emit_message(f"파일 분석 완료: {file_name} ({file_idx}/{total_files})")
+                yield emit_message(f"   ✓ {file_name} 완료")
 
-            yield emit_message(f"DBMS 코드 분석이 모두 완료되었습니다 (총 {total_files}개 파일 처리)")
+            yield emit_message(f"🎉 코드 구조 분석이 완료되었습니다 ({total_files}개 파일)")
             
             # User Story 문서 생성
-            yield emit_message("User Story 문서를 생성하고 있습니다...")
+            yield emit_message("📝 비즈니스 요구사항을 정리하고 있습니다...")
             user_story_doc = await self._generate_user_story_document(connection, orchestrator, file_names)
             if user_story_doc:
-                yield emit_message("USER_STORY_DOCUMENT")
                 yield emit_data(
                     graph={"Nodes": [], "Relationships": []},
                     line_number=0,
                     analysis_progress=100,
                     current_file="user_stories.md",
-                    user_story_document=user_story_doc
+                    user_story_document=user_story_doc,
+                    event_type="user_story_document"
                 )
-                yield emit_message("User Story 문서 생성이 완료되었습니다")
+                yield emit_message("📋 User Story 문서가 생성되었습니다")
             else:
-                yield emit_message("User Story가 발견되지 않았습니다")
+                yield emit_message("ℹ️ 추출할 User Story가 없습니다")
             
-            yield emit_message("ALL_ANALYSIS_COMPLETED")
+            yield emit_message("✅ 모든 분석이 완료되었습니다!")
         finally:
             await connection.close()
 
@@ -275,13 +276,9 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
     ) -> AsyncGenerator[bytes, None]:
         current_file = f"{directory}/{file_name}" if directory else file_name
 
-        yield emit_message("소스 파일을 읽는 중입니다")
         antlr_data, plsql_content = await self._load_assets(orchestrator, directory, file_name)
         last_line = len(plsql_content)
         plsql_raw = "".join(plsql_content)
-        yield emit_message("파일 로딩이 완료되었습니다")
-
-        yield emit_message("구문 분석기를 준비하고 있습니다")
         analyzer = Analyzer(
             antlr_data=antlr_data,
             file_content=plsql_raw,
@@ -310,10 +307,8 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
             # 분석 완료
             if event_type == "end_analysis":
                 logging.info("Understanding Completed for %s", current_file)
-                yield emit_message(f"파일별 코드 분석이 모두 끝났습니다 (구조 {static_blocks}개, AI 분석 {analyzed_blocks}개 블록 처리)")
-                yield emit_message("이제 변수 타입을 테이블 메타데이터로 정리하고 있습니다")
+                yield emit_message("   🔧 변수 타입을 정리하고 있습니다...")
                 postprocess_graph = await self._postprocess_file(connection, directory, file_name, file_pairs, orchestrator)
-                yield emit_message("변수 타입 정리가 완료되었습니다")
                 yield emit_data(graph=postprocess_graph, line_number=last_line, analysis_progress=100, current_file=current_file)
                 break
 
@@ -321,7 +316,7 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
             if event_type == "error":
                 error_message = event.get("message", f"Understanding failed for {file_name}")
                 logging.error("Understanding Failed for %s: %s", file_name, error_message)
-                yield emit_message(f"분석 중 오류가 발생했습니다: {error_message}")
+                yield emit_message(f"❌ 오류 발생: {error_message}")
                 yield emit_error(error_message)
                 return
 
@@ -331,10 +326,8 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
             # 정적 그래프 생성
             if event_type == "static_graph":
                 if static_blocks == 0:
-                    yield emit_message("1단계: 코드 구조를 분석하여 그래프 틀을 만드는 중입니다")
+                    yield emit_message("   🏗️ 코드 구조를 그래프로 구성 중...")
                 static_blocks += 1
-                if static_blocks % 2 == 0:
-                    yield emit_message(f"  → 구조 생성 중... ({static_blocks}개 처리됨)")
                 graph_result = await connection.execute_query_and_return_graph(event.get("query_data", []))
                 yield emit_data(graph=graph_result, line_number=next_line, analysis_progress=progress, current_file=current_file)
                 await events_to_analyzer.put({"type": "process_completed"})
@@ -342,22 +335,20 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
 
             # 정적 그래프 완료
             if event_type == "static_complete":
-                yield emit_message(f"1단계 완료: 코드 구조 그래프가 생성되었습니다 (총 {static_blocks}개)")
+                yield emit_message(f"   ✓ 구조 그래프 생성 완료 ({static_blocks}개)")
                 await events_to_analyzer.put({"type": "process_completed"})
                 continue
 
             # LLM 분석 시작
             if event_type == "llm_start":
                 total_llm_batches = event.get("total_batches", 0)
-                yield emit_message(f"2단계: AI가 코드의 동작과 데이터 흐름을 분석합니다 (총 {total_llm_batches}개 블록)")
+                yield emit_message(f"   🤖 AI가 코드 동작을 분석합니다 ({total_llm_batches}개 블록)")
                 await events_to_analyzer.put({"type": "process_completed"})
                 continue
 
             # LLM 분석 진행
             if event_type == "analysis_code":
                 analyzed_blocks += 1
-                msg = f"  → AI 분석 중... ({analyzed_blocks}/{total_llm_batches})" if total_llm_batches > 0 else f"  → AI 분석 중... ({analyzed_blocks}개 처리됨)"
-                yield emit_message(msg)
                 graph_result = await connection.execute_query_and_return_graph(event.get("query_data", []))
                 yield emit_data(graph=graph_result, line_number=next_line, analysis_progress=progress, current_file=current_file)
                 await events_to_analyzer.put({"type": "process_completed"})

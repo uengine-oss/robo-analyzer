@@ -314,5 +314,4 @@ def aggregate_user_stories_from_results(results):
 ## 📝 관련 문서
 
 - [Understanding 모듈 가이드](../understanding.md)
-- [프롬프트 엔지니어링 가이드](../converting.md)
 

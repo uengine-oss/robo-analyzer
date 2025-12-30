@@ -27,7 +27,7 @@ class RuleLoader:
     
     __slots__ = ('target_lang', 'domain', 'role_dir')
     
-    def __init__(self, target_lang: str = 'java', domain: str = 'convert'):
+    def __init__(self, target_lang: str = 'java', domain: str = 'understand'):
         """RuleLoader 초기화."""
         self.target_lang = target_lang
         self.domain = domain

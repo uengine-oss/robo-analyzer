@@ -1,10 +1,9 @@
-"""Understanding/Converting 파이프라인을 오케스트레이션하는 서비스 레이어."""
+"""소스 코드 분석 파이프라인을 오케스트레이션하는 서비스 레이어."""
 
 import logging
 import os
 import shutil
-import zipfile
-from typing import AsyncGenerator, List, Optional
+from typing import AsyncGenerator
 
 from fastapi import HTTPException, Request
 
@@ -60,22 +59,6 @@ def get_locale(request: Request) -> str:
     return request.headers.get('Accept-Language', 'ko')
 
 
-def parse_class_names(raw_list: list[str]) -> list[tuple[str, str]]:
-    """classNames 문자열 리스트를 (directory, className) 튜플로 변환
-    
-    예: ["game/Player", "game/Enemy"] → [("game", "Player"), ("game", "Enemy")]
-    """
-    result = []
-    for item in raw_list:
-        if '/' not in item:
-            raise HTTPException(400, f"잘못된 classNames 형식: '{item}'. 'directory/className' 형식이어야 합니다.")
-        directory, class_name = item.split('/', 1)
-        if not directory or not class_name:
-            raise HTTPException(400, f"잘못된 classNames 형식: '{item}'. directory와 className이 모두 필요합니다.")
-        result.append((directory.strip(), class_name.strip()))
-    return result
-
-
 async def create_orchestrator(request: Request, body: dict, api_key_missing_status: int = 401) -> 'ServiceOrchestrator':
     """요청에서 ServiceOrchestrator 생성 및 API 키 검증"""
     user_id = get_user_id(request)
@@ -102,7 +85,7 @@ async def create_orchestrator(request: Request, body: dict, api_key_missing_stat
 # =============================================================================
 
 class ServiceOrchestrator:
-    """Understanding과 Converting 전체 프로세스를 관리하는 오케스트레이터"""
+    """소스 코드 분석 프로세스를 관리하는 오케스트레이터"""
 
     __slots__ = ('user_id', 'api_key', 'locale', 'project_name', 'strategy', 
                  'target', 'project_name_cap', '_user_base', 'dirs')
@@ -226,49 +209,8 @@ class ServiceOrchestrator:
             yield chunk
 
     # -------------------------------------------------------------------------
-    # Converting 프로세스
+    # 데이터 정리
     # -------------------------------------------------------------------------
-
-    async def convert_project(
-        self,
-        file_names: list[tuple[str, str]],
-        directories: Optional[List[str]] = None
-    ) -> AsyncGenerator[bytes, None]:
-        """전략에 따른 코드 변환 실행
-        
-        Args:
-            file_names: [(directory, file_name), ...] 튜플 리스트
-            directories: ["dir/file.java", ...] (architecture 전략용, 파일 경로 리스트)
-        """
-        from convert.strategies.strategy_factory import StrategyFactory
-        
-        logging.info(f"Convert: strategy={self.strategy}, target={self.target}, "
-                     f"files={len(file_names)}, directories={len(directories or [])}")
-
-        strategy = StrategyFactory.create_strategy(self.strategy, target=self.target)
-        async for chunk in strategy.convert(file_names, orchestrator=self, directories=directories):
-            yield chunk
-
-    # -------------------------------------------------------------------------
-    # 파일 작업
-    # -------------------------------------------------------------------------
-
-    async def zip_project(self, source_dir: str, output_path: str) -> None:
-        """프로젝트 디렉토리를 ZIP으로 압축"""
-        try:
-            os.makedirs(os.path.dirname(output_path), exist_ok=True)
-            logging.info(f"ZIP 생성: {source_dir} → {output_path}")
-            
-            with zipfile.ZipFile(output_path, 'w', zipfile.ZIP_DEFLATED) as zf:
-                for root, _, files in os.walk(source_dir):
-                    for file in files:
-                        file_path = os.path.join(root, file)
-                        zf.write(file_path, os.path.relpath(file_path, source_dir))
-            
-            logging.info("ZIP 생성 완료")
-        except Exception as e:
-            logging.error(f"ZIP 압축 오류: {e}")
-            raise FileProcessingError(f"ZIP 압축 오류: {e}")
 
     async def cleanup_all_data(self) -> None:
         """사용자 데이터 전체 삭제 (파일 + Neo4j)"""
@@ -276,12 +218,11 @@ class ServiceOrchestrator:
         
         try:
             # 파일 시스템 정리
-            for subdir in ['data', os.path.join('target', 'java')]:
-                dir_path = os.path.join(BASE_DIR, subdir, self.user_id)
-                if os.path.exists(dir_path):
-                    shutil.rmtree(dir_path)
-                    os.makedirs(dir_path)
-                    logging.info(f"디렉토리 초기화: {dir_path}")
+            dir_path = os.path.join(BASE_DIR, 'data', self.user_id)
+            if os.path.exists(dir_path):
+                shutil.rmtree(dir_path)
+                os.makedirs(dir_path)
+                logging.info(f"디렉토리 초기화: {dir_path}")
             
             # Neo4j 데이터 삭제
             await connection.execute_queries([

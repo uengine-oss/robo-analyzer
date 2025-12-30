@@ -1,18 +1,16 @@
 """
-util_core.py - 레거시 모더나이저 유틸리티 모듈
+utility_tool.py - Robo Analyzer 유틸리티 모듈
 
-이 모듈은 Legacy-modernizer 프로젝트의 핵심 유틸리티 함수들을 제공합니다.
-파일 처리, 문자열 변환, 토큰 계산, 코드 변환 등의 기능을 포함합니다.
+소스 코드 분석을 위한 핵심 유틸리티 함수들을 제공합니다.
+토큰 계산, 스트리밍 이벤트, 문자열 처리 등의 기능을 포함합니다.
 """
 
 import os
 import logging
 import json
-import aiofiles
 import uuid
 import tiktoken
-from collections import defaultdict
-from typing import Optional, Dict, List, Tuple, Any, Union
+from typing import Optional, Dict, List, Any, Union
 
 from util.exception import UtilProcessingError
 
@@ -20,7 +18,7 @@ from util.exception import UtilProcessingError
 def log_process(context: str, stage: str, message: str, level: int = logging.INFO, exc: Exception | None = None) -> None:
     """
     공통 파이프라인 로그 출력 헬퍼.
-    - context: 'DBMS', 'UNDERSTAND' 등 서비스 이름
+    - context: 'DBMS', 'FRAMEWORK' 등 분석 타입
     - stage: 논리적 단계 이름
     - message: 사용자 친화적 설명
     - level: logging 모듈 레벨
@@ -30,69 +28,9 @@ def log_process(context: str, stage: str, message: str, level: int = logging.INF
     stage_text = (stage or "STAGE").upper()
     logging.log(level, f"[{ctx}:{stage_text}] {message}", exc_info=exc)
 
+
 # tiktoken 인코더 초기화
 ENCODER = tiktoken.get_encoding("cl100k_base")
-
-#==============================================================================
-# 파일 처리 유틸리티
-#==============================================================================
-
-async def save_file(content: str, filename: str, base_path: Optional[str] = None) -> str:
-    """파일을 비동기적으로 저장 (최적화: 경로 결합 최소화)"""
-    try:
-        os.makedirs(base_path, exist_ok=True)
-        file_path = os.path.join(base_path, filename)
-        
-        async with aiofiles.open(file_path, 'w', encoding='utf-8') as file:
-            await file.write(content)
-        
-        logging.info(f"파일 저장 성공: {file_path}")
-        return file_path
-        
-    except Exception as e:
-        err_msg = f"파일 저장 중 오류 발생: {str(e)}"
-        logging.error(err_msg)
-        raise UtilProcessingError(err_msg)
-
-
-#==============================================================================
-# 경로 유틸리티
-#==============================================================================
-
-# 모듈 레벨 캐싱 (반복 계산 방지)
-_WORKSPACE_DIR = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-def build_rule_based_path(project_name: str, user_id: str, target_lang: str, role_name: str, **kwargs) -> str:
-    """
-    Rule 파일 기반 저장 경로 생성 (다중 언어 지원)
-    
-    Args:
-        project_name: 프로젝트 이름
-        user_id: 사용자 식별자
-        target_lang: 타겟 언어 (java, python 등)
-        role_name: Rule 파일명 (entity, service 등)
-        **kwargs: 추가 변수 (dir_name 등)
-    
-    Returns:
-        str: 저장 경로
-    """
-    from util.rule_loader import RuleLoader
-    
-    # Rule 파일에서 path 정보 로드
-    rule_loader = RuleLoader(target_lang=target_lang)
-    rule_info = rule_loader._load_role_file(role_name)
-    relative_path = rule_info.get('path', '.')
-    
-    # 변수 치환 ({project_name}, {dir_name} 등)
-    format_vars = {'project_name': project_name, **kwargs}
-    relative_path = relative_path.format(**format_vars)
-    
-    # 전체 경로 생성
-    docker_ctx = os.getenv('DOCKER_COMPOSE_CONTEXT')
-    base_dir = docker_ctx if docker_ctx else _WORKSPACE_DIR
-    base_path = os.path.join(base_dir, 'target', target_lang, user_id, project_name)
-    
-    return os.path.normpath(os.path.join(base_path, relative_path))
 
 
 #==============================================================================
@@ -100,10 +38,7 @@ def build_rule_based_path(project_name: str, user_id: str, target_lang: str, rol
 #==============================================================================
 
 def emit_bytes(payload: dict) -> bytes:
-    """NDJSON 형식으로 스트림 전송용 바이트 생성.
-    - JSON Lines / NDJSON 표준: 각 JSON 객체를 \\n으로 구분
-    - json.dumps()가 내부 줄바꿈을 자동 이스케이프하므로 안전
-    """
+    """NDJSON 형식으로 스트림 전송용 바이트 생성."""
     return json.dumps(payload, default=str, ensure_ascii=False).encode('utf-8') + b'\n'
 
 
@@ -113,13 +48,7 @@ def emit_message(content: str) -> bytes:
 
 
 def emit_error(content: str, error_type: str = None, trace_id: str = None) -> bytes:
-    """에러 이벤트 전송.
-    
-    Args:
-        content: 에러 메시지
-        error_type: 예외 클래스명 (선택)
-        trace_id: 로그 추적용 ID (선택)
-    """
+    """에러 이벤트 전송."""
     payload = {"type": "error", "content": content}
     if error_type:
         payload["errorType"] = error_type
@@ -135,13 +64,61 @@ def emit_data(**fields) -> bytes:
     return emit_bytes(payload)
 
 
-def emit_status(step: int, done: bool = False) -> bytes:
-    """status 이벤트 전송. 단계 번호와 완료 여부를 전달."""
-    return emit_bytes({"type": "status", "step": int(step), "done": bool(done)})
+def emit_node_event(
+    action: str,
+    node_type: str,
+    node_name: str,
+    details: Optional[Dict[str, Any]] = None
+) -> bytes:
+    """노드 생성/수정/업데이트 이벤트 전송.
+    
+    Args:
+        action: 액션 타입 ("created", "updated", "deleted")
+        node_type: 노드 타입 (예: "CLASS", "METHOD", "PROCEDURE", "Table")
+        node_name: 노드 이름
+        details: 추가 상세 정보 (선택)
+    """
+    payload = {
+        "type": "node_event",
+        "action": action,
+        "nodeType": node_type,
+        "nodeName": node_name,
+    }
+    if details:
+        payload["details"] = details
+    return emit_bytes(payload)
+
+
+def emit_relationship_event(
+    action: str,
+    rel_type: str,
+    source: str,
+    target: str,
+    details: Optional[Dict[str, Any]] = None
+) -> bytes:
+    """관계 생성/수정/삭제 이벤트 전송.
+    
+    Args:
+        action: 액션 타입 ("created", "updated", "deleted")
+        rel_type: 관계 타입 (예: "CALLS", "PARENT_OF", "FROM", "WRITES")
+        source: 소스 노드 이름
+        target: 타겟 노드 이름
+        details: 추가 상세 정보 (선택)
+    """
+    payload = {
+        "type": "relationship_event",
+        "action": action,
+        "relType": rel_type,
+        "source": source,
+        "target": target,
+    }
+    if details:
+        payload["details"] = details
+    return emit_bytes(payload)
 
 
 def emit_complete(summary: str = None) -> bytes:
-    """스트림 완료 이벤트. 프론트에서 스트림 종료를 명확히 감지할 수 있음."""
+    """스트림 완료 이벤트."""
     payload = {"type": "complete"}
     if summary:
         payload["summary"] = summary
@@ -158,36 +135,29 @@ def build_error_body(exc: Exception, trace_id: str | None = None, message: str |
 
 
 async def stream_with_error_boundary(async_gen):
-    """스트리밍 처리 경계. 예외 발생 시 에러 이벤트 전송 후 종료.
-
-    - 모든 스트리밍 엔드포인트는 이 래퍼로 감싸서 에러를 일관 처리
-    - 정상 종료 시 complete 이벤트 전송
-    - 예외 발생 시 error 이벤트 전송 후 종료
-    """
+    """스트리밍 처리 경계. 예외 발생 시 에러 이벤트 전송 후 종료."""
     trace_id = f"stream-{uuid.uuid4().hex[:8]}"
     
     try:
         async for chunk in async_gen:
             yield chunk
-        # 정상 완료
         yield emit_complete()
     except GeneratorExit:
-        # 클라이언트가 연결을 끊은 경우 (정상적인 조기 종료)
         logging.info(f"[{trace_id}] 클라이언트 연결 종료")
     except Exception as e:
-        # 서버 측 예외 발생
         error_msg = f"{e.__class__.__name__}: {str(e)}"
         logging.error(f"[{trace_id}] 스트림 에러: {error_msg}", exc_info=True)
         yield emit_error(error_msg, error_type=e.__class__.__name__, trace_id=trace_id)
 
 
 #==============================================================================
-# 문자열/JSON/경로 보조 유틸리티
+# 문자열/JSON 유틸리티
 #==============================================================================
 
 def escape_for_cypher(text: str) -> str:
     """Cypher 쿼리용 문자열 이스케이프"""
     return str(text).replace("'", "\\'")
+
 
 def parse_json_maybe(data):
     """JSON 문자열을 파싱하거나 리스트/딕셔너리는 그대로 반환"""
@@ -195,82 +165,13 @@ def parse_json_maybe(data):
         return json.loads(data)
     return data or []
 
-def safe_join(*parts: str) -> str:
-    """안전한 경로 결합 (간단한 traversal 방지)"""
-    p = os.path.normpath(os.path.join(*parts))
-    if any(seg == '..' for seg in p.split(os.sep)):
-        raise UtilProcessingError("Invalid path traversal")
-    return p
-
 
 #==============================================================================
-# 문자열 변환 유틸리티
+# 스키마/테이블 파싱 유틸리티
 #==============================================================================
 
-def convert_to_pascal_case(snake_str: str) -> str:
-    """스네이크 케이스를 파스칼 케이스로 변환 (최적화: 조건 개선)"""
-    try:
-        if not snake_str:
-            return ""
-        if '_' not in snake_str:
-            return snake_str[0].upper() + snake_str[1:]
-        return ''.join(word.capitalize() for word in snake_str.split('_'))
-    except Exception as e:
-        err_msg = f"파스칼 케이스 변환 중 오류 발생: {str(e)}"
-        logging.error(err_msg)
-        raise UtilProcessingError("파스칼 케이스 변환 중 오류 발생")
-
-
-def convert_to_camel_case(snake_str: str) -> str:
-    """스네이크 케이스를 카멜 케이스로 변환 (최적화: 빈 체크)"""
-    try:
-        if not snake_str:
-            return ""
-        words = snake_str.split('_')
-        return words[0].lower() + ''.join(word.capitalize() for word in words[1:])
-    except Exception as e:
-        err_msg = f"카멜 케이스 변환 중 오류 발생: {str(e)}"
-        logging.error(err_msg)
-        raise UtilProcessingError("카멜 케이스 변환 중 오류 발생")
-
-
-def convert_to_upper_snake_case(camel_str: str) -> str:
-    """파스칼/카멜 케이스를 대문자 스네이크 케이스로 변환 (최적화: 리스트 사용)"""
-    try:
-        if not camel_str:
-            return ""
-        
-        result = [camel_str[0].upper()]
-        for char in camel_str[1:]:
-            if char.isupper():
-                result.append('_')
-                result.append(char)
-            else:
-                result.append(char.upper())
-        
-        return ''.join(result)
-    except Exception as e:
-        err_msg = f"대문자 스네이크 케이스 변환 중 오류 발생: {str(e)}"
-        logging.error(err_msg)
-        raise UtilProcessingError("대문자 스네이크 케이스 변환 중 오류 발생")
-
-
-def add_line_numbers(plsql: List[str]) -> Tuple[str, List[str]]:
-    """PL/SQL 코드에 라인 번호 추가 (최적화: enumerate 인덱스 조정)"""
-    try:
-        numbered_lines = [f"{i}: {line}" for i, line in enumerate(plsql, start=1)]
-        return "".join(numbered_lines), numbered_lines
-    except Exception as e:
-        err_msg = f"코드에 라인번호를 추가하는 도중 문제가 발생했습니다: {str(e)}"
-        logging.error(err_msg)
-        raise UtilProcessingError(err_msg)
-
-
-#==============================================================================
-# 스키마/테이블 파싱 & 정규화 유틸리티
-#==============================================================================
 def parse_table_identifier(qualified_table_name: str) -> tuple[str, str, str | None]:
-    """'SCHEMA.TABLE@DBLINK'에서 (schema, table, dblink) 추출 (최적화: 조건 개선)"""
+    """'SCHEMA.TABLE@DBLINK'에서 (schema, table, dblink) 추출"""
     if not qualified_table_name:
         return '', '', None
     
@@ -288,12 +189,13 @@ def parse_table_identifier(qualified_table_name: str) -> tuple[str, str, str | N
 
     return schema, table, db_link
 
+
 #==============================================================================
-# 코드 분석 및 변환 유틸리티
+# 코드 분석 유틸리티
 #==============================================================================
 
 def calculate_code_token(code: Union[str, Dict, List]) -> int:
-    """코드 토큰 길이 계산 (최적화: 중복 제거)"""
+    """코드 토큰 길이 계산"""
     try:
         if isinstance(code, str):
             text = code
@@ -306,144 +208,6 @@ def calculate_code_token(code: Union[str, Dict, List]) -> int:
         raise UtilProcessingError(err_msg)
 
 
-def build_variable_index(local_variable_nodes: List[Dict]) -> Dict:
-    """변수 노드를 startLine 기준으로 인덱싱 (최적화: split 최소화)"""
-    index = {}
-    for variable_node in local_variable_nodes:
-        node_data = variable_node.get('v', {})
-        var_name = node_data.get('name')
-        if not var_name:
-            continue
-        
-        var_info = f"{node_data.get('type', 'Unknown')}: {var_name}"
-        
-        for key in node_data:
-            if '_' in key:
-                parts = key.split('_')
-                if len(parts) == 2 and all(p.isdigit() for p in parts):
-                    start_line = int(parts[0])
-                    entry = index.setdefault(start_line, {'nodes': defaultdict(list), 'tokens': None})
-                    entry['nodes'][f"{start_line}~{int(parts[1])}"].append(var_info)
-    return index
-
-
-async def extract_used_variable_nodes(startLine: int, local_variable_nodes: List[Dict]) -> Tuple[Dict, int]:
-    """특정 라인에서 사용된 변수 추출 (최적화: 타입 체크 개선)"""
-    try:
-        # 인덱스면 그대로 사용, 리스트면 인덱스 생성
-        var_index = (local_variable_nodes if isinstance(local_variable_nodes, dict) 
-                     else build_variable_index(local_variable_nodes))
-        
-        if entry := var_index.get(startLine):
-            var_nodes = entry['nodes']
-            if entry['tokens'] is None:
-                entry['tokens'] = calculate_code_token(var_nodes)
-            return var_nodes, entry['tokens']
-        return {}, 0
-    
-    except UtilProcessingError:
-        raise
-    except Exception as e:
-        err_msg = f"사용된 변수 노드를 추출하는 도중 오류가 발생했습니다: {str(e)}"
-        logging.error(err_msg)
-        raise UtilProcessingError(err_msg)
-
-
-async def collect_variables_in_range(local_variable_nodes: List[Dict], start_line: int, end_line: int) -> List[Dict]:
-    """범위 내 변수 수집 (최적화: 딕셔너리 구조 개선)"""
-    try:
-        unique = {}
-        for variable_node in local_variable_nodes:
-            node_data = variable_node.get('v', {})
-            var_name = node_data.get('name')
-            if not var_name or var_name in unique:
-                continue
-            
-            for range_key in node_data:
-                if '_' in range_key:
-                    parts = range_key.split('_')
-                    if len(parts) == 2 and all(p.isdigit() for p in parts):
-                        v_start, v_end = int(parts[0]), int(parts[1])
-                        if start_line <= v_start and v_end <= end_line:
-                            unique[var_name] = {'type': node_data.get('type', 'Unknown'), 'name': var_name}
-                            break
-        return list(unique.values())
-    except Exception as e:
-        err_msg = f"변수 범위 수집 중 오류가 발생했습니다: {str(e)}"
-        logging.error(err_msg)
-        raise UtilProcessingError(err_msg)
-
-async def extract_used_query_methods(start_line: int, end_line: int, 
-                                   jpa_method_list: Dict, 
-                                   used_jpa_method_dict: Dict) -> Dict:
-    """범위 내 JPA 메서드 수집 (최적화: 직접 업데이트)"""
-    try:
-        for range_key, method in jpa_method_list.items():
-            method_start, method_end = map(int, range_key.split('~'))
-            if start_line <= method_start and method_end <= end_line:
-                used_jpa_method_dict[range_key] = method
-        return used_jpa_method_dict
-        
-    except Exception as e:
-        err_msg = f"JPA 쿼리 메서드를 추출하는 도중 오류가 발생했습니다: {str(e)}"
-        logging.error(err_msg)
-        raise UtilProcessingError(err_msg)
-
-
-#==============================================================================
-# Neo4j 프로시저 정보 조회 유틸리티
-#==============================================================================
-
-async def get_procedures_from_file(
-    directory: str,
-    file_name: str,
-    user_id: str,
-    project_name: str | None = None
-) -> list[str]:
-    """
-    파일의 모든 프로시저 이름을 Neo4j에서 조회합니다.
-    
-    Args:
-        directory: 디렉토리 경로
-        file_name: 파일명
-        user_id: 사용자 ID
-        project_name: 프로젝트명 (선택사항, 일관성을 위해 권장)
-        
-    Returns:
-        프로시저 이름 리스트 (startLine 순서대로 정렬)
-    """
-    from understand.neo4j_connection import Neo4jConnection
-    
-    connection = Neo4jConnection()
-    try:
-        # Neo4j 쿼리용 정규화된 directory (Windows 경로 구분자 통일)
-        directory_normalized = directory.replace('\\', '/') if directory else ''
-        # project_name 조건 추가 (있는 경우)
-        project_condition = f", project_name: '{escape_for_cypher(project_name)}'" if project_name else ""
-        
-        query = f"""
-            MATCH (p:PROCEDURE {{
-                directory: '{escape_for_cypher(directory_normalized)}',
-                file_name: '{escape_for_cypher(file_name)}',
-                user_id: '{escape_for_cypher(user_id)}'{project_condition}
-            }})
-            RETURN p.procedure_name AS procedure_name
-            ORDER BY p.startLine
-        """
-        
-        results = await connection.execute_queries([query])
-        if results and len(results) > 0 and len(results[0]) > 0:
-            procedure_names = [
-                r.get('procedure_name') 
-                for r in results[0] 
-                if r and r.get('procedure_name')
-            ]
-            return procedure_names
-        return []
-    finally:
-        await connection.close()
-
-
 #==============================================================================
 # User Story 문서 생성 유틸리티
 #==============================================================================
@@ -453,16 +217,7 @@ def generate_user_story_document(
     source_name: str = "",
     source_type: str = "프로시저"
 ) -> str:
-    """User Story와 Acceptance Criteria를 마크다운 문서로 변환합니다.
-    
-    Args:
-        user_stories: User Story 리스트 (Neo4j에서 조회된 형태)
-        source_name: 소스 이름 (프로시저명, 클래스명 등)
-        source_type: 소스 타입 ("프로시저", "클래스" 등)
-    
-    Returns:
-        마크다운 형식의 문서 문자열
-    """
+    """User Story와 Acceptance Criteria를 마크다운 문서로 변환합니다."""
     if not user_stories:
         return ""
     
@@ -537,14 +292,7 @@ def generate_user_story_document(
 
 
 def aggregate_user_stories_from_results(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-    """여러 분석 결과에서 User Story를 집계합니다.
-    
-    Args:
-        results: Neo4j 쿼리 결과 리스트
-    
-    Returns:
-        중복 제거 및 ID 재할당된 User Story 리스트
-    """
+    """여러 분석 결과에서 User Story를 집계합니다."""
     all_stories = []
     story_id_counter = 1
     
@@ -553,7 +301,6 @@ def aggregate_user_stories_from_results(results: List[Dict[str, Any]]) -> List[D
         if not user_stories_raw:
             continue
         
-        # JSON 문자열인 경우 파싱
         if isinstance(user_stories_raw, str):
             try:
                 user_stories = json.loads(user_stories_raw)
@@ -569,11 +316,9 @@ def aggregate_user_stories_from_results(results: List[Dict[str, Any]]) -> List[D
             if not isinstance(us, dict):
                 continue
             
-            # ID 재할당
             us_copy = us.copy()
             us_copy["id"] = f"US-{story_id_counter}"
             
-            # AC ID도 재할당
             acs = us_copy.get("acceptance_criteria", [])
             for ac_idx, ac in enumerate(acs, 1):
                 if isinstance(ac, dict):
