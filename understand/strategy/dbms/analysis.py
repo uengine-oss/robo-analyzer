@@ -40,6 +40,8 @@ VARIABLE_CONCURRENCY = int(os.getenv('VARIABLE_CONCURRENCY', '5'))
 LINE_NUMBER_PATTERN = re.compile(r"^\d+\s*:")
 MAX_BATCH_TOKEN = 1000
 MAX_CONCURRENCY = int(os.getenv('MAX_CONCURRENCY', '5'))
+# 대용량 summary 청크 분할 설정 (summary 개수 기준)
+MAX_SUMMARY_CHUNK_SIZE = int(os.getenv('MAX_SUMMARY_CHUNK_SIZE', '50'))
 
 
 # ==================== 데이터 클래스 ====================
@@ -256,10 +258,18 @@ def understand_dml_tables(code: str, ranges: list, api_key: str, locale: str) ->
     )
 
 
-def understand_summary(summaries: dict, api_key: str, locale: str) -> Dict[str, Any]:
+def understand_summary(summaries: dict, api_key: str, locale: str, previous_summary: str = "") -> Dict[str, Any]:
+    """프로시저/함수 전체 요약 + User Story + AC 생성.
+    
+    Args:
+        summaries: 하위 블록들의 요약 딕셔너리
+        api_key: LLM API 키
+        locale: 출력 언어
+        previous_summary: 이전 청크의 요약 결과 (대용량 처리 시)
+    """
     return _rule_loader().execute(
         "procedure_summary",
-        {"summaries": summaries, "locale": locale},
+        {"summaries": summaries, "locale": locale, "previous_summary": previous_summary},
         api_key,
     )
 
@@ -928,29 +938,92 @@ class ApplyManager:
             asyncio.create_task(self._finalize_procedure_summary(info))
 
     async def _finalize_procedure_summary(self, info: ProcedureInfo):
+        """프로시저 전체 요약 + User Story + AC 생성.
+        
+        대용량 summary가 있을 경우 청크로 나누어 처리하고,
+        이전 청크 결과를 다음 청크에 전달하여 연속성을 유지합니다.
+        """
         if info.key not in self._summary_store:
             return
         summaries = self._summary_store.pop(info.key, {})
         if not summaries:
             return
+        
         try:
-            summary_result = await asyncio.to_thread(understand_summary, summaries, self.api_key, self.locale)
+            # 대용량 처리: summary 개수가 MAX_SUMMARY_CHUNK_SIZE를 초과하면 청크로 분할
+            summary_items = list(summaries.items())
+            total_count = len(summary_items)
+            
+            if total_count <= MAX_SUMMARY_CHUNK_SIZE:
+                # 단일 청크 처리
+                summary_result = await asyncio.to_thread(
+                    understand_summary, summaries, self.api_key, self.locale
+                )
+            else:
+                # 청크 분할 처리
+                log_process("UNDERSTAND", "SUMMARY", f"📦 {info.procedure_name}: 대용량 summary ({total_count}개) 청크 분할 처리 시작")
+                
+                chunks = [
+                    dict(summary_items[i:i + MAX_SUMMARY_CHUNK_SIZE])
+                    for i in range(0, total_count, MAX_SUMMARY_CHUNK_SIZE)
+                ]
+                
+                previous_summary = ""
+                accumulated_user_stories = []
+                final_summary = ""
+                
+                for chunk_idx, chunk in enumerate(chunks, 1):
+                    log_process("UNDERSTAND", "SUMMARY", f"  → 청크 {chunk_idx}/{len(chunks)} 처리 중 ({len(chunk)}개)")
+                    
+                    chunk_result = await asyncio.to_thread(
+                        understand_summary, chunk, self.api_key, self.locale, previous_summary
+                    )
+                    
+                    if isinstance(chunk_result, dict):
+                        # summary는 마지막 청크의 것을 최종 사용
+                        final_summary = chunk_result.get('summary', '')
+                        previous_summary = final_summary
+                        
+                        # user_stories는 누적
+                        chunk_stories = chunk_result.get('user_stories', [])
+                        if chunk_stories:
+                            accumulated_user_stories.extend(chunk_stories)
+                
+                # 최종 결과 조합
+                summary_result = {
+                    'summary': final_summary,
+                    'user_stories': accumulated_user_stories
+                }
+                log_process("UNDERSTAND", "SUMMARY", f"✅ {info.procedure_name}: 청크 분할 처리 완료 (User Story {len(accumulated_user_stories)}개)")
+                
         except Exception as exc:  # pragma: no cover - defensive
             log_process("UNDERSTAND", "SUMMARY", f"❌ {info.procedure_name} 프로시저 요약 생성 중 오류 발생", logging.ERROR, exc)
             return
 
-        summary_value = summary_result.get('summary') if isinstance(summary_result, dict) else None
+        if not isinstance(summary_result, dict):
+            return
+            
+        summary_value = summary_result.get('summary')
+        user_stories = summary_result.get('user_stories', [])
+        
         if summary_value is None:
             return
 
+        # Neo4j에 summary와 user_stories 저장
         summary_json = json.dumps(summary_value, ensure_ascii=False)
+        user_stories_json = json.dumps(user_stories, ensure_ascii=False)
+        
         query = (
             f"MATCH (n:{info.procedure_type} {{procedure_name: '{escape_for_cypher(info.procedure_name)}', {self.node_base_props}}})\n"
-            f"SET n.summary = {summary_json}\n"
+            f"SET n.summary = {summary_json},\n"
+            f"    n.user_stories = {user_stories_json}\n"
             f"RETURN n"
         )
         await self._send_queries([query], info.end_line)
-        log_process("UNDERSTAND", "SUMMARY", f"✅ {info.procedure_name} 프로시저 요약을 Neo4j에 반영 완료 ({self.full_directory})")
+        
+        # User Story 개수 로깅
+        us_count = len(user_stories) if user_stories else 0
+        log_process("UNDERSTAND", "SUMMARY", f"✅ {info.procedure_name} 프로시저 요약 + User Story({us_count}개) Neo4j 반영 완료 ({self.full_directory})")
 
     async def _finalize_remaining_procedures(self):
         """아직 요약이 남아 있는 프로시저가 있다면 마지막으로 처리합니다."""

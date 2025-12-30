@@ -443,3 +443,143 @@ async def get_procedures_from_file(
     finally:
         await connection.close()
 
+
+#==============================================================================
+# User Story 문서 생성 유틸리티
+#==============================================================================
+
+def generate_user_story_document(
+    user_stories: List[Dict[str, Any]],
+    source_name: str = "",
+    source_type: str = "프로시저"
+) -> str:
+    """User Story와 Acceptance Criteria를 마크다운 문서로 변환합니다.
+    
+    Args:
+        user_stories: User Story 리스트 (Neo4j에서 조회된 형태)
+        source_name: 소스 이름 (프로시저명, 클래스명 등)
+        source_type: 소스 타입 ("프로시저", "클래스" 등)
+    
+    Returns:
+        마크다운 형식의 문서 문자열
+    """
+    if not user_stories:
+        return ""
+    
+    lines = []
+    
+    # 헤더
+    if source_name:
+        lines.append(f"# {source_name} - User Stories & Acceptance Criteria")
+    else:
+        lines.append("# User Stories & Acceptance Criteria")
+    lines.append("")
+    lines.append(f"> {source_type}에서 도출된 사용자 스토리 및 인수 조건")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    
+    # User Stories
+    for us_idx, us in enumerate(user_stories, 1):
+        us_id = us.get("id", f"US-{us_idx}")
+        role = us.get("role", "")
+        goal = us.get("goal", "")
+        benefit = us.get("benefit", "")
+        
+        lines.append(f"## {us_id}")
+        lines.append("")
+        lines.append(f"**As a** {role}")
+        lines.append("")
+        lines.append(f"**I want** {goal}")
+        lines.append("")
+        lines.append(f"**So that** {benefit}")
+        lines.append("")
+        
+        # Acceptance Criteria
+        acs = us.get("acceptance_criteria", [])
+        if acs:
+            lines.append("### Acceptance Criteria")
+            lines.append("")
+            
+            for ac in acs:
+                ac_id = ac.get("id", "")
+                ac_title = ac.get("title", "")
+                given = ac.get("given", [])
+                when = ac.get("when", [])
+                then = ac.get("then", [])
+                
+                if ac_id or ac_title:
+                    lines.append(f"#### {ac_id}. {ac_title}" if ac_id else f"#### {ac_title}")
+                    lines.append("")
+                
+                if given:
+                    lines.append("**Given**")
+                    for g in given:
+                        lines.append(f"- {g}")
+                    lines.append("")
+                
+                if when:
+                    lines.append("**When**")
+                    for w in when:
+                        lines.append(f"- {w}")
+                    lines.append("")
+                
+                if then:
+                    lines.append("**Then**")
+                    for t in then:
+                        lines.append(f"- {t}")
+                    lines.append("")
+        
+        lines.append("---")
+        lines.append("")
+    
+    return "\n".join(lines)
+
+
+def aggregate_user_stories_from_results(results: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """여러 분석 결과에서 User Story를 집계합니다.
+    
+    Args:
+        results: Neo4j 쿼리 결과 리스트
+    
+    Returns:
+        중복 제거 및 ID 재할당된 User Story 리스트
+    """
+    all_stories = []
+    story_id_counter = 1
+    
+    for result in results:
+        user_stories_raw = result.get("user_stories")
+        if not user_stories_raw:
+            continue
+        
+        # JSON 문자열인 경우 파싱
+        if isinstance(user_stories_raw, str):
+            try:
+                user_stories = json.loads(user_stories_raw)
+            except (json.JSONDecodeError, TypeError):
+                continue
+        else:
+            user_stories = user_stories_raw
+        
+        if not isinstance(user_stories, list):
+            continue
+        
+        for us in user_stories:
+            if not isinstance(us, dict):
+                continue
+            
+            # ID 재할당
+            us_copy = us.copy()
+            us_copy["id"] = f"US-{story_id_counter}"
+            
+            # AC ID도 재할당
+            acs = us_copy.get("acceptance_criteria", [])
+            for ac_idx, ac in enumerate(acs, 1):
+                if isinstance(ac, dict):
+                    ac["id"] = f"AC-{story_id_counter}-{ac_idx}"
+            
+            all_stories.append(us_copy)
+            story_id_counter += 1
+    
+    return all_stories

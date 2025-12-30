@@ -16,6 +16,7 @@ Neo4j 그래프로 구축합니다. DBMS 분석 파이프라인과 동일한 구
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 import re
@@ -43,6 +44,10 @@ FIELD_CONCURRENCY = int(os.getenv("FIELD_CONCURRENCY", "5"))
 METHOD_CONCURRENCY = int(os.getenv("METHOD_CONCURRENCY", "5"))
 STATIC_QUERY_BATCH_SIZE = 40
 LINE_NUMBER_PATTERN = re.compile(r"^(\d+)\s*:")
+# 메서드 호출 패턴: 식별자.메서드명( 형태 (ASSIGNMENT, VARIABLE 등에서 호출 감지용)
+METHOD_CALL_PATTERN = re.compile(r'\w+\.\w+\s*\(')
+# 대용량 summary 청크 분할 설정 (summary 개수 기준)
+MAX_SUMMARY_CHUNK_SIZE = int(os.getenv('MAX_SUMMARY_CHUNK_SIZE', '50'))
 
 # Java 표준 라이브러리 및 기본 타입 - 클래스 생성 제외 대상
 JAVA_BUILTIN_TYPES = frozenset([
@@ -70,6 +75,32 @@ JAVA_BUILTIN_TYPES = frozenset([
     "StringBuilder", "StringBuffer", "BigDecimal", "BigInteger",
     "Logger", "Log", "LogFactory",
 ])
+
+# 유틸리티/헬퍼 클래스 패턴 - CALLS 관계 생성 제외 대상
+# (프로젝트에 존재하더라도 비즈니스 로직 관점에서 중요하지 않은 클래스)
+UTILITY_CLASS_PATTERNS = frozenset([
+    "Debug", "Logger", "Log", "LogFactory", "LogManager",
+    "Utils", "Utility", "Utilities", "Helper", "Helpers",
+    "Constants", "Config", "Configuration", "Settings",
+    "Validator", "Validation", "Formatter", "Converter",
+    "StringUtils", "DateUtils", "NumberUtils", "CollectionUtils",
+    "Assert", "Assertions", "Preconditions", "Check",
+])
+
+# Collection/Map 타입 프리픽스 - 필드 타입 기반 method_call 필터링용
+COLLECTION_TYPE_PREFIXES = (
+    # Map 계열
+    "Map<", "HashMap<", "LinkedHashMap<", "TreeMap<", "ConcurrentHashMap<",
+    "Hashtable<", "WeakHashMap<", "IdentityHashMap<", "EnumMap<",
+    # List 계열
+    "List<", "ArrayList<", "LinkedList<", "CopyOnWriteArrayList<", "Vector<",
+    # Set 계열
+    "Set<", "HashSet<", "TreeSet<", "LinkedHashSet<", "EnumSet<",
+    "ConcurrentSkipListSet<", "CopyOnWriteArraySet<",
+    # 기타 Collection 계열
+    "Collection<", "Queue<", "Deque<", "Stack<", "PriorityQueue<",
+    "ArrayDeque<", "ConcurrentLinkedQueue<", "BlockingQueue<",
+)
 
 
 # ==================== 데이터 클래스 ====================
@@ -149,7 +180,7 @@ class StatementNode:
         - 나머지 모든 자식은 ...code...로 치환
         
         Args:
-            include_assigns: True이면 ASSIGN/NEW_INSTANCE 노드를 재귀적으로 찾아서 원문 유지
+            include_assigns: True이면 ASSIGNMENT/NEW_INSTANCE 노드를 재귀적으로 찾아서 원문 유지
                             (if문, for문 등은 제거되고 ASSIGN/NEW_INSTANCE만 남음)
         """
         if not self.children:
@@ -158,13 +189,13 @@ class StatementNode:
         # 항상 원문 유지할 노드 타입: 상속/구현 관계, 메서드 시그니처
         PRESERVE_TYPES = INHERITANCE_TYPES | METHOD_TYPES | METHOD_SIGNATURE_TYPES
         
-        # include_assigns=True이면 ASSIGN/NEW_INSTANCE를 재귀적으로 수집
+        # include_assigns=True이면 ASSIGNMENT/NEW_INSTANCE를 재귀적으로 수집
         assign_node_set: set[Tuple[int, int]] = set()
         if include_assigns:
-            ASSIGN_TYPES = {"ASSIGN", "NEW_INSTANCE"}
+            ASSIGN_TYPES = {"ASSIGNMENT", "NEW_INSTANCE"}
             
             def find_assign_nodes_recursive(node: "StatementNode") -> List["StatementNode"]:
-                """재귀적으로 ASSIGN, NEW_INSTANCE 노드를 수집합니다."""
+                """재귀적으로 ASSIGNMENT, NEW_INSTANCE 노드를 수집합니다."""
                 results = []
                 for child in node.children:
                     if child.node_type in ASSIGN_TYPES:
@@ -188,7 +219,7 @@ class StatementNode:
                 result_lines.append(f"{line_no}: {text}")
                 line_index += 1
             
-            # 원문 유지할 노드: 메서드 시그니처, 상속/구현, 또는 ASSIGN/NEW_INSTANCE
+            # 원문 유지할 노드: 메서드 시그니처, 상속/구현, 또는 ASSIGNMENT/NEW_INSTANCE
             child_span = (child.start_line, child.end_line)
             should_preserve = (
                 child.node_type in PRESERVE_TYPES or 
@@ -216,7 +247,7 @@ class StatementNode:
         return "\n".join(result_lines)
 
     def get_code_with_assigns_only(self) -> str:
-        """메서드 시그니처 + ASSIGN/NEW_INSTANCE 자식만 포함된 코드를 반환합니다.
+        """메서드 시그니처 + ASSIGNMENT/NEW_INSTANCE 자식만 포함된 코드를 반환합니다.
         
         get_placeholder_code(include_assigns=True)를 호출합니다.
         """
@@ -252,10 +283,13 @@ class AnalysisBatch:
         )
 
     def build_method_call_payload(self) -> Optional[str]:
-        """METHOD_CALL 노드만 추출하여 호출 분석 프롬프트에 전달."""
+        """메서드 호출을 포함하는 노드를 추출하여 호출 분석 프롬프트에 전달.
+        
+        METHOD_CALL 타입뿐 아니라 ASSIGNMENT, VARIABLE 등 메서드 호출 패턴을 포함하는 노드도 포함.
+        """
         method_call_nodes = [
             node for node in self.nodes 
-            if node.node_type in METHOD_CALL_TYPES
+            if node.node_type in METHOD_CALL_TYPES or METHOD_CALL_PATTERN.search(node.code)
         ]
         if not method_call_nodes:
             return None
@@ -293,6 +327,7 @@ def _is_valid_class_name_for_calls(name: str) -> bool:
     
     가짜 클래스 생성을 방지하기 위해:
     - Java 표준 라이브러리 제외
+    - 유틸리티/헬퍼 클래스 제외 (Debug, Logger, Utils 등)
     - 소문자만으로 된 짧은 이름(변수명으로 보이는 것) 제외
     - 한 글자 이름 제외
     """
@@ -301,6 +336,10 @@ def _is_valid_class_name_for_calls(name: str) -> bool:
     
     # Java 표준 라이브러리 제외
     if name in JAVA_BUILTIN_TYPES:
+        return False
+    
+    # 유틸리티/헬퍼 클래스 제외 (비즈니스 로직 관점에서 중요하지 않음)
+    if name in UTILITY_CLASS_PATTERNS:
         return False
     
     # 한 글자 이름 제외 (i, j, k, o, e 등 반복 변수)
@@ -332,11 +371,18 @@ def understand_code(code: str, ranges: list, count: int, api_key: str, locale: s
     )
 
 
-def understand_class_summary(summaries: dict, api_key: str, locale: str) -> Dict[str, Any]:
-    """클래스 전체 요약 생성."""
+def understand_class_summary(summaries: dict, api_key: str, locale: str, previous_summary: str = "") -> Dict[str, Any]:
+    """클래스 전체 요약 + User Story + AC 생성.
+    
+    Args:
+        summaries: 멤버 분석 결과 딕셔너리
+        api_key: LLM API 키
+        locale: 출력 언어
+        previous_summary: 이전 청크의 요약 결과 (대용량 처리 시)
+    """
     return _rule_loader().execute(
         "class_summary",
-        {"summaries": summaries, "locale": locale},
+        {"summaries": summaries, "locale": locale, "previous_summary": previous_summary},
         api_key,
     )
 
@@ -565,11 +611,11 @@ class BatchPlanner:
     def _create_batch(self, batch_id: int, nodes: List[StatementNode]) -> AnalysisBatch:
         """배치 ID와 노드 리스트로 AnalysisBatch 객체를 생성합니다 (DBMS 스타일과 동일)."""
         ranges = [{"startLine": node.start_line, "endLine": node.end_line} for node in nodes]
-        # METHOD_CALL 노드만 별도로 수집
+        # 메서드 호출을 포함하는 노드 수집 (METHOD_CALL 타입 또는 코드에 호출 패턴 포함)
         method_call_ranges = [
             {"startLine": node.start_line, "endLine": node.end_line, "type": node.node_type, "code": node.code}
             for node in nodes
-            if node.node_type in METHOD_CALL_TYPES
+            if node.node_type in METHOD_CALL_TYPES or METHOD_CALL_PATTERN.search(node.code)
         ]
         progress = max(node.end_line for node in nodes)
         return AnalysisBatch(
@@ -670,6 +716,9 @@ class ApplyManager:
         self._lock = asyncio.Lock()
         self._finalized_classes: set[str] = set()
         self._class_summary_store: Dict[str, Dict[str, Any]] = {key: {} for key in classes}
+        # 필드 타입 캐시: class_key → {field_name: field_type}
+        # Collection/Map 타입 필드의 메서드 호출 필터링에 사용
+        self._field_type_cache: Dict[str, Dict[str, str]] = {key: {} for key in classes}
 
     async def submit(
         self, 
@@ -785,7 +834,13 @@ class ApplyManager:
         log_process("UNDERSTAND", "APPLY", f"✅ 배치 #{result.batch.batch_id} 적용 완료")
 
     def _build_method_call_queries(self, result: BatchResult) -> List[str]:
-        """METHOD_CALL 분석 결과를 CALLS 관계 쿼리로 변환합니다."""
+        """METHOD_CALL 분석 결과를 CALLS 관계 쿼리로 변환합니다.
+        
+        필터링 순서:
+        1. targetClass 유효성 검사 (빈 값, Java 표준 라이브러리 등)
+        2. 필드 타입 기반 Collection/Map 필터링
+        3. 실제 존재하는 클래스에만 CALLS 관계 생성 (MATCH)
+        """
         queries: List[str] = []
         
         if not result.method_call_result:
@@ -802,13 +857,10 @@ class ApplyManager:
             if not target_class:
                 continue
             
-            # 유효하지 않은 클래스명 필터링
+            # 유효하지 않은 클래스명 필터링 (Java 표준 라이브러리, 유틸리티 클래스, 짧은 변수명 등)
             if not _is_valid_class_name_for_calls(target_class):
-                log_process("UNDERSTAND", "APPLY", f"⚠️ METHOD_CALL 제외: {target_class}.{method_name}")
+                log_process("UNDERSTAND", "APPLY", f"⚠️ METHOD_CALL 제외 (표준라이브러리/유틸리티/변수명): {target_class}.{method_name}")
                 continue
-            
-            escaped_target = escape_for_cypher(target_class)
-            escaped_method = escape_for_cypher(method_name or "")
             
             # 해당 라인의 부모 노드 찾기
             parent_node = None
@@ -819,6 +871,23 @@ class ApplyManager:
             
             if not parent_node:
                 continue
+            
+            # 필드 타입 기반 Collection/Map 필터링
+            # target_class가 현재 클래스의 필드명이고, 해당 필드가 Collection/Map 타입이면 제외
+            class_key = parent_node.class_key
+            if class_key and class_key in self._field_type_cache:
+                field_types = self._field_type_cache[class_key]
+                if target_class in field_types:
+                    field_type = field_types[target_class]
+                    if field_type.startswith(COLLECTION_TYPE_PREFIXES):
+                        log_process(
+                            "UNDERSTAND", "APPLY", 
+                            f"⚠️ METHOD_CALL 제외 (Collection 필드): {target_class}({field_type}).{method_name}"
+                        )
+                        continue
+            
+            escaped_target = escape_for_cypher(target_class)
+            escaped_method = escape_for_cypher(method_name or "")
             
             # 기존 클래스가 있을 때만 CALLS 관계 생성
             queries.append(
@@ -849,7 +918,11 @@ class ApplyManager:
             asyncio.create_task(self._finalize_class_summary(info))
 
     async def _finalize_class_summary(self, info: ClassInfo):
-        """클래스 요약을 생성하고 Neo4j에 반영합니다."""
+        """클래스 요약 + User Story + AC 생성.
+        
+        대용량 summary가 있을 경우 청크로 나누어 처리하고,
+        이전 청크 결과를 다음 청크에 전달하여 연속성을 유지합니다.
+        """
         if info.key in self._finalized_classes:
             return
         self._finalized_classes.add(info.key)
@@ -867,33 +940,89 @@ class ApplyManager:
             return
 
         try:
-            result = await asyncio.to_thread(
-                understand_class_summary,
-                summaries,
-                self.api_key,
-                self.locale,
-            )
+            # 대용량 처리: summary 개수가 MAX_SUMMARY_CHUNK_SIZE를 초과하면 청크로 분할
+            summary_items = list(summaries.items())
+            total_count = len(summary_items)
+            
+            if total_count <= MAX_SUMMARY_CHUNK_SIZE:
+                # 단일 청크 처리
+                result = await asyncio.to_thread(
+                    understand_class_summary,
+                    summaries,
+                    self.api_key,
+                    self.locale,
+                )
+            else:
+                # 청크 분할 처리
+                log_process("UNDERSTAND", "SUMMARY", f"📦 {info.name}: 대용량 summary ({total_count}개) 청크 분할 처리 시작")
+                
+                chunks = [
+                    dict(summary_items[i:i + MAX_SUMMARY_CHUNK_SIZE])
+                    for i in range(0, total_count, MAX_SUMMARY_CHUNK_SIZE)
+                ]
+                
+                previous_summary = ""
+                accumulated_user_stories = []
+                final_summary = ""
+                
+                for chunk_idx, chunk in enumerate(chunks, 1):
+                    log_process("UNDERSTAND", "SUMMARY", f"  → 청크 {chunk_idx}/{len(chunks)} 처리 중 ({len(chunk)}개)")
+                    
+                    chunk_result = await asyncio.to_thread(
+                        understand_class_summary, chunk, self.api_key, self.locale, previous_summary
+                    )
+                    
+                    if isinstance(chunk_result, dict):
+                        # summary는 마지막 청크의 것을 최종 사용
+                        final_summary = chunk_result.get('summary', '')
+                        previous_summary = final_summary
+                        
+                        # user_stories는 누적
+                        chunk_stories = chunk_result.get('user_stories', [])
+                        if chunk_stories:
+                            accumulated_user_stories.extend(chunk_stories)
+                
+                # 최종 결과 조합
+                result = {
+                    'summary': final_summary,
+                    'user_stories': accumulated_user_stories
+                }
+                log_process("UNDERSTAND", "SUMMARY", f"✅ {info.name}: 청크 분할 처리 완료 (User Story {len(accumulated_user_stories)}개)")
+                
         except Exception as exc:
             log_process("UNDERSTAND", "SUMMARY", f"❌ 클래스 요약 생성 오류: {info.name}", logging.ERROR, exc)
             class_node.completion_event.set()
             return
 
-        summary_value = result.get("summary") if isinstance(result, dict) else None
+        if not isinstance(result, dict):
+            class_node.completion_event.set()
+            return
+            
+        summary_value = result.get("summary")
+        user_stories = result.get("user_stories", [])
+        
         if not summary_value:
             log_process("UNDERSTAND", "SUMMARY", f"⚠️ 클래스 요약 없음: {info.name}")
             class_node.completion_event.set()
             return
 
+        # Neo4j에 summary와 user_stories 저장
         escaped_summary = escape_for_cypher(str(summary_value))
+        user_stories_json = json.dumps(user_stories, ensure_ascii=False)
+        
         query = (
-            f"MATCH (n:{info.kind} {{startLine: {info.node_start}, {self.node_base_props}}}) "
-            f"SET n.summary = '{escaped_summary}' "
+            f"MATCH (n:{info.kind} {{startLine: {info.node_start}, {self.node_base_props}}})\n"
+            f"SET n.summary = '{escaped_summary}',\n"
+            f"    n.user_stories = {user_stories_json}\n"
             f"RETURN n"
         )
         await self._send_queries([query], info.node_end)
         class_node.summary = str(summary_value)
         class_node.completion_event.set()
-        log_process("UNDERSTAND", "SUMMARY", f"✅ 클래스 요약 완료: {info.name}")
+        
+        # User Story 개수 로깅
+        us_count = len(user_stories) if user_stories else 0
+        log_process("UNDERSTAND", "SUMMARY", f"✅ 클래스 요약 + User Story({us_count}개) 완료: {info.name}")
 
     async def _finalize_remaining_classes(self):
         """남은 클래스 요약을 처리합니다."""
@@ -1328,6 +1457,12 @@ class FrameworkAnalyzer:
             if not field_name:
                 continue
 
+            # 필드 타입 캐시 업데이트 (Collection/Map 필터링용)
+            if node.class_key and node.class_key in self._field_type_cache:
+                # escape 전 원본 필드명과 타입 저장
+                original_field_name = field_info.get("field_name") or ""
+                self._field_type_cache[node.class_key][original_field_name] = field_type_raw
+
             # FIELD 노드 속성 업데이트
             # target_class가 있으면 클래스 타입 필드 (연관 관계 대상)
             target_class_set = f", f.target_class = '{target_class}'" if target_class else ""
@@ -1375,7 +1510,7 @@ class FrameworkAnalyzer:
         async def worker(node: StatementNode):
             async with semaphore:
                 try:
-                    # 메서드 시그니처 + ASSIGN 구문만 포함된 코드 전달
+                    # 메서드 시그니처 + ASSIGNMENT 구문만 포함된 코드 전달
                     code_for_analysis = node.get_code_with_assigns_only() if node.has_children else node.get_raw_code()
                     result = await asyncio.to_thread(
                         understand_method,

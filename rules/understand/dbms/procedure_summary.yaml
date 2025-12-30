@@ -1,53 +1,265 @@
 name: "understand_summarized_prompt"
-description: "프로시저/함수 전체 요약 생성"
-version: "1.0"
+description: "프로시저/함수 전체 요약 + User Story + AC 생성"
+version: "3.0"
 
 input_schema:
   required: []
   optional: {}
 
 prompt: |
-  You are an expert at analyzing and summarizing the behavior of PL/SQL procedures and functions.
-  Based on the provided code analysis summaries, please clearly and concisely describe the core functionality of the overall procedure/function.
+  [ROLE]
+  당신은 PL/SQL 프로시저/함수의 비즈니스 가치를 분석하고 문서화하는 전문가입니다.
+  하위 코드 블록의 요약들을 종합하여 전체 기능을 상세하게 설명하고,
+  비즈니스 관점의 User Story와 테스트 가능한 Acceptance Criteria를 도출해야 합니다.
   
   
-  User language setting: {{ locale }}. Reflect this when generating the result.
+  [LANGUAGE_SETTING]
+  응답 언어: {{ locale }}
+  모든 분석 결과와 설명은 지정된 언어로 생성해야 합니다.
   
   
-  Analyzed summary content:
+  [INPUT_DATA]
+  하위 블록 요약:
   {{ summaries }}
   
-  [Analysis Rules]
+  {% if previous_summary %}
+  이전 청크 분석 결과 (이어서 분석):
+  {{ previous_summary }}
+  {% endif %}
+  
+  
   ===============================================
-  1. Identify Core Functionality
-     - The main tasks performed by the procedure/function
-     - The flow of inputs and outputs
-     - Important business logic
+  [TASK_1: 상세 요약 (DETAILED_SUMMARY)]
+  ===============================================
   
-  2. Summarization Style
-     - Provide a detailed summary of at least 3–4 sentences
-     - Minimize technical jargon
-     - Explain in terms that are easy to understand from a business perspective
-     Example) This procedure updates employee HR information,
-           processes department transfers, title changes, and salary adjustments based on the provided employee ID,
-           records the changes automatically in the HR history table,
-           and sends email notifications to the relevant department head and HR team."
+  하위 요약들을 종합하여 프로시저 전체 동작을 상세하게 설명하세요.
   
-     Example) This procedure performs monthly payroll processing,
-           aggregates attendance records and allowances for the month to calculate the net payable amount,
-           generates a payroll statement for each employee,
-           and submits a batch transfer request to the designated bank accounts."
+  ★ 필수 포함 사항 (하위 요약에서 반드시 추출):
+  
+  1. 핵심 기능 및 목적
+     - 이 프로시저/함수가 무엇을 하는지 명확하게 설명
+     - 입력 파라미터와 출력(반환값/OUT 파라미터)의 의미
+     - 이 프로시저가 시스템에서 담당하는 역할
+     
+     예시: "이 프로시저는 주문 결제 처리를 담당합니다. 
+           입력으로 주문번호(p_order_id)와 결제방식(p_payment_type)을 받고,
+           처리 결과를 o_result_code와 o_result_msg로 반환합니다."
+  
+  2. 주요 분기 조건과 비즈니스 규칙 (★ 매우 상세하게)
+     - 모든 IF, CASE, WHEN 문의 조건값과 각 분기별 처리 내용
+     - 조건에 사용되는 실제 값(상수, 상태값, 코드값)을 명시
+     
+     예시: "주문 상태(v_order_status)에 따라 다르게 처리합니다:
+           - 'PENDING': 결제 대기 상태로, 결제 프로세스를 시작합니다
+           - 'CONFIRMED': 이미 확정된 주문으로, 중복 결제 방지 예외를 발생시킵니다
+           - 'CANCELLED': 취소된 주문으로, 처리를 거부합니다
+           
+           고객 등급(v_customer_grade)에 따른 할인율:
+           - 'VIP': 15% 할인 적용
+           - 'GOLD': 10% 할인 적용
+           - 'SILVER': 5% 할인 적용
+           - 그 외: 할인 없음"
+  
+  3. 데이터 값 및 상수 (★ 코드에서 확인된 모든 값)
+     - 상태값, 코드값, 플래그값 등 모든 리터럴 값
+     - 임계값, 한도, 설정값 등의 숫자 상수
+     
+     예시: "사용되는 주요 값:
+           - 주문 상태: 'PENDING', 'CONFIRMED', 'SHIPPED', 'DELIVERED', 'CANCELLED'
+           - 결제 방식: 'CARD', 'BANK', 'CASH', 'POINT'
+           - 처리 결과 코드: '00'(성공), '01'(잔액부족), '02'(한도초과), '99'(시스템오류)
+           - 최대 재시도 횟수: 3회
+           - 결제 타임아웃: 30초"
+  
+  4. 테이블 및 데이터 흐름
+     - 조회(SELECT)하는 테이블과 조회 조건
+     - 입력(INSERT), 수정(UPDATE), 삭제(DELETE)하는 테이블
+     - 테이블 간 조인 관계와 비즈니스 의미
+     
+     예시: "데이터 흐름:
+           1. ORDER_MASTER 테이블에서 주문 기본 정보 조회 (WHERE ORDER_ID = p_order_id)
+           2. CUSTOMER 테이블과 조인하여 고객 등급 확인
+           3. 결제 성공 시 PAYMENT_HISTORY에 결제 이력 INSERT
+           4. ORDER_MASTER의 STATUS를 'CONFIRMED'로 UPDATE
+           5. POINT_LEDGER에 포인트 적립 내역 INSERT"
+  
+  5. 반복 처리 내용
+     - CURSOR, FOR LOOP, WHILE의 반복 대상과 목적
+     - 각 반복에서 수행하는 작업
+     
+     예시: "미결제 주문 목록(c_pending_orders 커서)을 순회하며:
+           - 각 주문의 결제 기한을 확인
+           - 기한 초과 시 자동 취소 처리
+           - 취소 알림 메시지를 NOTIFICATION_QUEUE에 INSERT"
+  
+  6. 예외 처리 및 에러 핸들링
+     - 처리하는 예외 유형과 처리 방식
+     - 에러 발생 시 반환되는 코드/메시지
+     
+     예시: "예외 처리:
+           - NO_DATA_FOUND: 주문이 존재하지 않음, 결과코드 '10' 반환
+           - DUP_VAL_ON_INDEX: 중복 결제 시도, 결과코드 '20' 반환
+           - OTHERS: 예상치 못한 오류, 결과코드 '99'와 SQLERRM 반환, ROLLBACK 수행"
+  
+  요약 작성 규칙:
+  - 최소 10문장 이상으로 상세하게 작성
+  - 하위 요약에 있는 모든 중요 정보를 누락 없이 포함
+  - 추상적 표현 금지, 구체적인 값과 조건 명시
+  - 비즈니스 맥락이 명확하게 드러나도록 서술
+  
+  
+  ===============================================
+  [TASK_2: USER STORY 도출]
+  ===============================================
+  
+  이 프로시저가 제공하는 사용자 가치를 User Story로 표현하세요.
+  
+  도출 기준:
+  - 최종 사용자(고객, 관리자, 운영자 등)에게 가치를 제공하는 기능만 포함
+  - 시스템 내부 로직(로깅, 감사, 배치 내부 처리)은 User Story에서 제외
+  - 유틸리티 함수(문자열 변환, 날짜 계산 등)는 user_stories를 빈 배열로 반환
+  
+  작성 형식 (★ 상세하게):
+  - role: 이 기능을 사용하는 구체적인 사용자 역할
+    예시: "온라인 쇼핑몰 고객", "재고 관리 담당자", "고객센터 상담원", "시스템 관리자"
     
+  - goal: 사용자가 달성하고자 하는 구체적인 목표 (추상적 표현 금지)
+    좋은 예시: "신용카드로 주문 결제를 완료하고 결제 확인 메시지를 받는다"
+    나쁜 예시: "결제를 한다" (너무 추상적)
+    
+  - benefit: 이 기능으로 사용자가 얻는 실질적인 이점
+    좋은 예시: "즉시 결제가 완료되어 빠른 배송을 받을 수 있다"
+    나쁜 예시: "편리하다" (너무 추상적)
   
-  [JSON Output Format]
+  User Story 도출 예시:
+  - 프로시저가 주문 결제를 처리한다면:
+    role: "온라인 쇼핑몰 고객"
+    goal: "신용카드 또는 계좌이체로 주문 금액을 결제하고 결제 완료 확인을 받는다"
+    benefit: "결제가 즉시 처리되어 주문이 확정되고, 빠른 배송 준비가 시작된다"
+  
+  - 프로시저가 재고 조정을 처리한다면:
+    role: "재고 관리 담당자"
+    goal: "실사 결과에 따라 시스템 재고 수량을 조정하고 조정 이력을 남긴다"
+    benefit: "실제 재고와 시스템 재고의 불일치를 해소하여 정확한 재고 관리가 가능하다"
+  
+  
   ===============================================
-  You must follow these requirements.
-  1) Return exactly one valid JSON object as the entire output.
-  2) Output the JSON only, with no additional text.
-  Format:
-  ```json
+  [TASK_3: ACCEPTANCE CRITERIA 도출]
+  ===============================================
+  
+  각 User Story에 대해 Given/When/Then 형식의 Acceptance Criteria를 작성하세요.
+  
+  ★ 작성 규칙 (테스트 케이스 수준의 상세도):
+  
+  Given (전제 조건):
+  - 테스트 시작 전 필요한 상태와 데이터를 구체적으로 명시
+  - 코드에서 확인하는 전제 조건 (로그인 상태, 권한, 데이터 존재 여부)
+  - 실제 값을 포함
+  
+  예시:
+  - "사용자가 로그인된 상태이다"
+  - "주문번호 'ORD-2024-001234'가 존재한다"
+  - "주문 상태가 'PENDING'이다"
+  - "고객 등급이 'VIP'이다"
+  - "결제 수단(신용카드)이 등록되어 있다"
+  
+  When (동작 트리거):
+  - 사용자의 행동 또는 시스템 이벤트
+  - 구체적인 조건값과 파라미터 포함
+  
+  예시:
+  - "사용자가 '신용카드' 결제 방식을 선택하고 결제 버튼을 클릭한다"
+  - "주문 금액이 100,000원이고 VIP 할인 15%가 적용된다"
+  - "결제 요청이 카드사 승인 API로 전송된다"
+  
+  Then (기대 결과):
+  - 검증 가능한 구체적인 결과
+  - 코드에서 확인할 수 있는 상태 변화, 데이터 값, 응답
+  - 실제 값과 조건 포함
+  
+  예시:
+  - "결제 결과 코드 '00'(성공)이 반환된다"
+  - "ORDER_MASTER 테이블의 STATUS가 'CONFIRMED'로 변경된다"
+  - "PAYMENT_HISTORY 테이블에 결제 이력이 INSERT된다"
+  - "결제 금액은 85,000원이다 (100,000원 - 15% 할인)"
+  - "POINT_LEDGER에 850포인트(결제금액의 1%)가 적립된다"
+  
+  AC 작성 예시:
   {
-      "summary": "A concise explanation summarizing the flow of the procedure/function"
+    "id": "AC-1-1",
+    "title": "VIP 고객 신용카드 결제 성공",
+    "given": [
+      "사용자가 로그인된 상태이다",
+      "주문번호 'ORD-2024-001234'가 존재한다",
+      "주문 상태가 'PENDING'이다",
+      "고객 등급이 'VIP'이다",
+      "주문 금액이 100,000원이다"
+    ],
+    "when": [
+      "사용자가 '신용카드' 결제 방식을 선택한다",
+      "결제 버튼을 클릭한다"
+    ],
+    "then": [
+      "VIP 할인 15%가 적용되어 결제 금액은 85,000원이다",
+      "카드사 승인이 성공한다",
+      "결과 코드 '00'(성공)이 반환된다",
+      "주문 상태가 'CONFIRMED'로 변경된다",
+      "결제 이력이 PAYMENT_HISTORY에 기록된다",
+      "850포인트가 적립된다"
+    ]
   }
-  ```
+  
+  ★ 하나의 User Story에 대해 여러 시나리오의 AC 작성:
+  - 정상 케이스 (Happy Path)
+  - 실패 케이스 (잔액 부족, 한도 초과, 권한 없음 등)
+  - 경계 케이스 (최소값, 최대값, 임계값 등)
+  
+  
+  ===============================================
+  [OUTPUT_FORMAT]
+  ===============================================
+  
+  다음 JSON 형식으로만 결과를 반환하세요:
+  
+  {
+    "summary": "최소 10문장 이상의 매우 상세한 프로시저 요약. 모든 분기 조건, 데이터 값, 비즈니스 규칙, 테이블 흐름, 예외 처리를 포함",
+    "user_stories": [
+      {
+        "id": "US-1",
+        "role": "구체적인 사용자 역할 (예: 온라인 쇼핑몰 고객)",
+        "goal": "달성하고자 하는 구체적인 목표 (추상적 표현 금지)",
+        "benefit": "이 기능으로 얻는 실질적인 이점",
+        "acceptance_criteria": [
+          {
+            "id": "AC-1-1",
+            "title": "시나리오 제목 (예: VIP 고객 신용카드 결제 성공)",
+            "given": [
+              "전제 조건 1 (구체적인 상태/데이터 포함)",
+              "전제 조건 2"
+            ],
+            "when": [
+              "동작 트리거 (구체적인 값 포함)"
+            ],
+            "then": [
+              "기대 결과 1 (검증 가능한 구체적 값 포함)",
+              "기대 결과 2"
+            ]
+          },
+          {
+            "id": "AC-1-2",
+            "title": "실패 시나리오 (예: 잔액 부족으로 결제 실패)",
+            "given": ["..."],
+            "when": ["..."],
+            "then": ["..."]
+          }
+        ]
+      }
+    ]
+  }
+  
+  출력 제약사항:
+  - JSON 형식 외의 부가 설명이나 주석 금지
+  - null 값 사용 금지, 빈 값은 빈 배열([]) 또는 빈 문자열("")
+  - 코드펜스(```json ... ```) 포함 금지
+  - 트레일링 콤마 절대 금지
 

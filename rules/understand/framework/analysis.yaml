@@ -1,6 +1,6 @@
 name: "understand_java_prompt"
 description: "Java 코드 범위별 분석 - 클래스 다이어그램 및 Neo4j 그래프 생성용"
-version: "2.2"
+version: "2.3"
 
 input_schema:
   required: []
@@ -48,7 +48,7 @@ prompt: |
   
   
   [SECTION_1_CODE_SUMMARY]
-  코드 동작 분석 및 요약:
+  코드 동작 분석 및 상세 요약:
   
   분석 범위:
   - 각 코드 범위의 목적과 역할을 파악
@@ -60,14 +60,40 @@ prompt: |
   - 예외 처리: try-catch-finally 블록의 처리 방식과 목적
   - 객체 생성: new 연산자로 생성되는 객체와 그 목적
   
-  요약 작성 규칙:
-  - 메서드 단위: 2~3문장으로 핵심 동작 설명
-  - 제어문/블록: 1~2문장으로 분기/반복 목적 설명
-  - 비즈니스 맥락이 드러나도록 작성
+  ★ 반드시 포함해야 할 내용 (해당하는 경우):
   
-  예시 1(메서드): "주문 목록을 조회하여 활성 상태인 주문만 필터링하고 enrichment 처리 후 반환합니다."
-  예시 2(조건): "주문 총액이 10만원 이상이면 VIP 할인을 적용합니다."
-  예시 3(반복): "주문 항목 리스트를 순회하며 각 항목의 재고를 검증합니다."
+  1. 분기 조건과 비즈니스 규칙
+     - if, switch 문의 조건값과 각 분기별 처리 내용
+     - 예: "결제 방식이 'CARD'면 카드 승인 요청, 'BANK'면 계좌이체 처리"
+     - 예: "회원 등급 BRONZE/SILVER/GOLD/VIP에 따라 할인율 3%/5%/10%/15% 적용"
+  
+  2. 데이터 값과 상수
+     - enum 값, 상태값, 설정값
+     - 예: "OrderStatus.PENDING, CONFIRMED, SHIPPED, DELIVERED, CANCELLED"
+     - 예: "최대 재시도 횟수 MAX_RETRY=3"
+  
+  3. 반복 처리 대상과 목적
+     - for, while, stream의 반복 대상과 각 반복에서 수행하는 작업
+     - 예: "장바구니 아이템을 순회하며 각 상품의 재고를 확인"
+  
+  4. 예외 처리
+     - 어떤 예외를 잡아서 어떻게 처리하는지
+     - 예: "ItemNotFoundException 발생 시 빈 Optional 반환"
+  
+  요약 작성 규칙:
+  - 3~5문장으로 상세하게 작성
+  - 코드에 나온 실제 값(상태값, 조건값, 상수)을 포함
+  - 비즈니스 맥락이 드러나도록 서술
+  
+  좋은 예시:
+  "주문 서비스에서 주문을 생성합니다. 장바구니 아이템을 순회하며 각 상품의 재고를 확인하고,
+   재고가 부족하면 InsufficientStockException을 발생시킵니다.
+   결제 방식이 CARD면 paymentGateway.processCard()를 호출하고,
+   BANK면 bankService.transfer()를 호출합니다.
+   주문 상태는 OrderStatus.PENDING으로 초기화됩니다."
+  
+  나쁜 예시:
+  "주문을 생성하고 결제를 처리합니다." (너무 추상적)
   
   
   [SECTION_2_VARIABLE_IDENTIFICATION]
@@ -122,7 +148,7 @@ prompt: |
       {
         "startLine": 범위_시작_라인_번호,
         "endLine": 범위_종료_라인_번호,
-        "summary": "코드_동작_요약_설명",
+        "summary": "3~5문장의 상세한 코드 동작 요약 (분기조건, 데이터값 포함)",
         "variables": ["변수명1", "변수명2"],
         "localDependencies": [
           {"type": "타입명", "sourceMember": "발생위치(메서드명/생성자명/필드명/static)"}
@@ -137,7 +163,7 @@ prompt: |
   - "localDependencies" 배열 요소는 객체 타입 (type, sourceMember 필드)
   - analysis[i]에는 startLine/endLine이 필수
   - 빈 배열도 허용되며 null 값은 사용 금지
-  - summary는 locale에 맞는 언어로 작성하며, 핵심만 압축 표현
+  - summary는 locale에 맞는 언어로 작성하며, 위의 상세 규칙을 준수
   - 코드펜스(```json ... ``` 등) 포함 금지
   - **트레일링 콤마 절대 금지**: 마지막 요소 뒤에 콤마(,)를 붙이지 말 것
   - **유효한 JSON만 출력**: 반드시 json.loads()로 파싱 가능한 형식이어야 함

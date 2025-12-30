@@ -17,6 +17,8 @@ from util.utility_tool import (
     escape_for_cypher,
     parse_table_identifier,
     parse_json_maybe,
+    generate_user_story_document,
+    aggregate_user_stories_from_results,
 )
 
 class DbmsUnderstandStrategy(UnderstandStrategy):
@@ -87,6 +89,23 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
                 yield emit_message(f"파일 분석 완료: {file_name} ({file_idx}/{total_files})")
 
             yield emit_message(f"DBMS 코드 분석이 모두 완료되었습니다 (총 {total_files}개 파일 처리)")
+            
+            # User Story 문서 생성
+            yield emit_message("User Story 문서를 생성하고 있습니다...")
+            user_story_doc = await self._generate_user_story_document(connection, orchestrator, file_names)
+            if user_story_doc:
+                yield emit_message("USER_STORY_DOCUMENT")
+                yield emit_data(
+                    graph={"Nodes": [], "Relationships": []},
+                    line_number=0,
+                    analysis_progress=100,
+                    current_file="user_stories.md",
+                    user_story_document=user_story_doc
+                )
+                yield emit_message("User Story 문서 생성이 완료되었습니다")
+            else:
+                yield emit_message("User Story가 발견되지 않았습니다")
+            
             yield emit_message("ALL_ANALYSIS_COMPLETED")
         finally:
             await connection.close()
@@ -418,4 +437,47 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
             return await connection.execute_query_and_return_graph(update_queries)
 
         return {"Nodes": [], "Relationships": []}
+
+    async def _generate_user_story_document(
+        self,
+        connection: Neo4jConnection,
+        orchestrator: Any,
+        file_names: list,
+    ) -> str:
+        """분석된 모든 프로시저/함수에서 User Story를 수집하여 문서를 생성합니다."""
+        try:
+            # 모든 프로시저/함수의 user_stories 속성 조회
+            query = f"""
+                MATCH (n)
+                WHERE (n:PROCEDURE OR n:FUNCTION OR n:TRIGGER)
+                  AND n.user_id = '{escape_for_cypher(orchestrator.user_id)}'
+                  AND n.project_name = '{escape_for_cypher(orchestrator.project_name)}'
+                  AND n.user_stories IS NOT NULL
+                RETURN n.procedure_name AS name, n.user_stories AS user_stories, labels(n)[0] AS type
+                ORDER BY n.file_name, n.startLine
+            """
+            
+            results = await connection.execute_queries([query])
+            
+            if not results or not results[0]:
+                return ""
+            
+            # 모든 User Story 집계
+            all_user_stories = aggregate_user_stories_from_results(results[0])
+            
+            if not all_user_stories:
+                return ""
+            
+            # 문서 생성
+            document = generate_user_story_document(
+                user_stories=all_user_stories,
+                source_name=orchestrator.project_name,
+                source_type="DBMS 프로시저/함수"
+            )
+            
+            return document
+            
+        except Exception as exc:
+            logging.error("User Story 문서 생성 중 오류: %s", exc)
+            return ""
 

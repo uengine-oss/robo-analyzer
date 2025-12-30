@@ -1,6 +1,6 @@
 name: "method_call_prompt"
 description: "METHOD_CALL 노드에서 호출 대상 클래스/메서드 추출"
-version: "1.0"
+version: "1.1"
 
 input_schema:
   required:
@@ -23,13 +23,18 @@ prompt: |
   
   [RULES]
   각 METHOD_CALL에서 다음을 추출:
-  - targetClass: 호출 대상 (점 앞 부분)
+  - targetClass: 호출 대상 (점 앞 부분 - 변수명 또는 클래스명)
   - methodName: 메서드명 (점 뒤 부분)
+  
+  ⚠️ 모든 메서드 호출을 수집합니다 (필터링은 코드 레벨에서 처리).
   
   예시:
   - this.repository.save() → targetClass: "repository", methodName: "save"
   - orderService.findAll() → targetClass: "orderService", methodName: "findAll"
   - Math.max() → targetClass: "Math", methodName: "max"
+  - salesMap.put("key", "value") → targetClass: "salesMap", methodName: "put"
+  - myObject.put(data) → targetClass: "myObject", methodName: "put"
+  - items.add(item) → targetClass: "items", methodName: "add"
   
   
   [OUTPUT_FORMAT]
@@ -38,7 +43,7 @@ prompt: |
       {
         "startLine": 라인번호,
         "endLine": 라인번호,
-        "targetClass": "대상클래스명",
+        "targetClass": "대상명",
         "methodName": "메서드명"
       }
     ]
