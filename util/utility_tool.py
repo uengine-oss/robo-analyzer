@@ -213,29 +213,105 @@ def calculate_code_token(code: Union[str, Dict, List]) -> int:
 #==============================================================================
 
 def generate_user_story_document(
-    user_stories: List[Dict[str, Any]],
+    results: List[Dict[str, Any]],
     source_name: str = "",
     source_type: str = "프로시저"
 ) -> str:
-    """User Story와 Acceptance Criteria를 마크다운 문서로 변환합니다."""
-    if not user_stories:
+    """Summary와 User Story를 포함한 상세한 마크다운 문서를 생성합니다.
+    
+    Args:
+        results: Neo4j 쿼리 결과 리스트 (name, summary, user_stories, type 포함)
+        source_name: 소스 이름 (프로젝트명 등)
+        source_type: 소스 타입 ("DBMS 프로시저/함수", "Java 클래스/인터페이스" 등)
+    
+    Returns:
+        마크다운 형식의 상세 문서 문자열
+    """
+    if not results:
         return ""
     
     lines = []
     
     # 헤더
     if source_name:
-        lines.append(f"# {source_name} - User Stories & Acceptance Criteria")
+        lines.append(f"# {source_name} - 요구사항 분석 문서")
     else:
-        lines.append("# User Stories & Acceptance Criteria")
+        lines.append("# 요구사항 분석 문서")
     lines.append("")
-    lines.append(f"> {source_type}에서 도출된 사용자 스토리 및 인수 조건")
+    lines.append(f"> {source_type}에서 도출된 상세 요약, 사용자 스토리 및 인수 조건")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append("## 📋 목차")
+    lines.append("")
+    lines.append("1. [프로시저/클래스별 상세 요약](#프로시저클래스별-상세-요약)")
+    lines.append("2. [User Stories & Acceptance Criteria](#user-stories--acceptance-criteria)")
     lines.append("")
     lines.append("---")
     lines.append("")
     
-    # User Stories
-    for us_idx, us in enumerate(user_stories, 1):
+    # 1. 프로시저/클래스별 상세 요약
+    lines.append("## 프로시저/클래스별 상세 요약")
+    lines.append("")
+    
+    for result in results:
+        name = result.get("name", "")
+        summary_raw = result.get("summary", "")
+        result_type = result.get("type", "")
+        
+        if not name:
+            continue
+        
+        # Summary 파싱 (JSON 문자열일 수 있음)
+        summary = ""
+        if summary_raw:
+            if isinstance(summary_raw, str):
+                try:
+                    summary_parsed = json.loads(summary_raw)
+                    if isinstance(summary_parsed, str):
+                        summary = summary_parsed
+                    else:
+                        summary = summary_raw
+                except (json.JSONDecodeError, TypeError):
+                    summary = summary_raw
+            else:
+                summary = str(summary_raw)
+        
+        if summary:
+            lines.append(f"### {name} ({result_type})")
+            lines.append("")
+            # Summary를 문단별로 나누어 가독성 향상
+            summary_paragraphs = summary.split('\n\n')
+            for para in summary_paragraphs:
+                para = para.strip()
+                if para:
+                    lines.append(para)
+                    lines.append("")
+            lines.append("---")
+            lines.append("")
+    
+    # 2. User Stories & Acceptance Criteria
+    lines.append("## User Stories & Acceptance Criteria")
+    lines.append("")
+    
+    # 모든 User Story 집계
+    all_user_stories = aggregate_user_stories_from_results(results)
+    
+    if not all_user_stories:
+        lines.append("> User Story가 도출되지 않았습니다.")
+        lines.append("")
+        return "\n".join(lines)
+    
+    # 통계 정보
+    total_stories = len(all_user_stories)
+    total_ac = sum(len(us.get("acceptance_criteria", [])) for us in all_user_stories)
+    lines.append(f"**총 {total_stories}개의 User Story, {total_ac}개의 Acceptance Criteria가 도출되었습니다.**")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    
+    # User Stories 상세 내용
+    for us_idx, us in enumerate(all_user_stories, 1):
         us_id = us.get("id", f"US-{us_idx}")
         role = us.get("role", "")
         goal = us.get("goal", "")
@@ -264,7 +340,8 @@ def generate_user_story_document(
                 then = ac.get("then", [])
                 
                 if ac_id or ac_title:
-                    lines.append(f"#### {ac_id}. {ac_title}" if ac_id else f"#### {ac_title}")
+                    title_text = f"{ac_id}. {ac_title}" if (ac_id and ac_title) else (ac_id or ac_title)
+                    lines.append(f"#### {title_text}")
                     lines.append("")
                 
                 if given:
@@ -287,6 +364,13 @@ def generate_user_story_document(
         
         lines.append("---")
         lines.append("")
+    
+    # 푸터
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+    lines.append(f"*이 문서는 {source_type} 코드 분석을 통해 자동으로 생성되었습니다.*")
+    lines.append("")
     
     return "\n".join(lines)
 

@@ -371,7 +371,7 @@ def understand_code(code: str, ranges: list, count: int, api_key: str, locale: s
     )
 
 
-def understand_class_summary(summaries: dict, api_key: str, locale: str, previous_summary: str = "") -> Dict[str, Any]:
+def understand_class_summary(summaries: dict, api_key: str, locale: str, previous_summary: str = "", previous_user_stories: list = None) -> Dict[str, Any]:
     """클래스 전체 요약 + User Story + AC 생성.
     
     Args:
@@ -379,10 +379,16 @@ def understand_class_summary(summaries: dict, api_key: str, locale: str, previou
         api_key: LLM API 키
         locale: 출력 언어
         previous_summary: 이전 청크의 요약 결과 (대용량 처리 시)
+        previous_user_stories: 이전 청크의 User Story 리스트 (대용량 처리 시, 중복 방지용)
     """
     return _rule_loader().execute(
         "class_summary",
-        {"summaries": summaries, "locale": locale, "previous_summary": previous_summary},
+        {
+            "summaries": summaries, 
+            "locale": locale, 
+            "previous_summary": previous_summary,
+            "previous_user_stories": previous_user_stories or []
+        },
         api_key,
     )
 
@@ -756,6 +762,9 @@ class ApplyManager:
         """LLM 결과를 Neo4j 쿼리로 변환하고 적용합니다."""
         queries: List[str] = []
         analysis_list = (result.general_result.get("analysis") or []) if result.general_result else []
+        
+        # 분석 정보 수집 (스트림 메시지용)
+        analyzed_node_info: Optional[Dict[str, Any]] = None
 
         for node, analysis in zip(result.batch.nodes, analysis_list):
             if not analysis:
@@ -772,6 +781,15 @@ class ApplyManager:
                 f"RETURN n"
             )
             log_process("UNDERSTAND", "APPLY", f"✅ {node.start_line}~{node.end_line} 구간 요약 반영")
+            
+            # 첫 번째 분석 결과의 정보 저장
+            if not analyzed_node_info:
+                analyzed_node_info = {
+                    "type": node.node_type,
+                    "name": node.class_name or f"Line {node.start_line}",
+                    "summary": str(summary)[:100],
+                    "line_range": f"{node.start_line}-{node.end_line}",
+                }
 
             # 로컬 변수 의존 관계 (DEPENDENCY) - 연관 관계가 없을 때만
             # localDependencies는 객체 배열: [{"type": "타입명", "sourceMember": "메서드명"}]
@@ -830,7 +848,7 @@ class ApplyManager:
             queries.extend(method_call_queries)
 
         if queries:
-            await self._send_queries(queries, result.batch.progress_line)
+            await self._send_queries(queries, result.batch.progress_line, analyzed_node_info)
         log_process("UNDERSTAND", "APPLY", f"✅ 배치 #{result.batch.batch_id} 적용 완료")
 
     def _build_method_call_queries(self, result: BatchResult) -> List[str]:
@@ -962,32 +980,41 @@ class ApplyManager:
                 ]
                 
                 previous_summary = ""
-                accumulated_user_stories = []
+                previous_user_stories = []
                 final_summary = ""
+                all_user_stories = []  # 모든 청크의 User Story 누적
                 
                 for chunk_idx, chunk in enumerate(chunks, 1):
                     log_process("UNDERSTAND", "SUMMARY", f"  → 청크 {chunk_idx}/{len(chunks)} 처리 중 ({len(chunk)}개)")
                     
                     chunk_result = await asyncio.to_thread(
-                        understand_class_summary, chunk, self.api_key, self.locale, previous_summary
+                        understand_class_summary, 
+                        chunk, 
+                        self.api_key, 
+                        self.locale, 
+                        previous_summary,
+                        previous_user_stories
                     )
                     
                     if isinstance(chunk_result, dict):
-                        # summary는 마지막 청크의 것을 최종 사용
+                        # summary는 마지막 청크의 것을 최종 사용 (이전 summary를 포함한 전체 요약)
                         final_summary = chunk_result.get('summary', '')
                         previous_summary = final_summary
                         
-                        # user_stories는 누적
+                        # user_stories는 누적 (LLM이 이전 것과 중복 제거하며 생성)
                         chunk_stories = chunk_result.get('user_stories', [])
                         if chunk_stories:
-                            accumulated_user_stories.extend(chunk_stories)
+                            # 이전 User Story를 다음 청크에 전달 (중복 방지용)
+                            previous_user_stories = chunk_stories
+                            # 모든 청크의 User Story 누적
+                            all_user_stories.extend(chunk_stories)
                 
-                # 최종 결과 조합
+                # 최종 결과 조합 (마지막 summary + 모든 청크의 User Story)
                 result = {
                     'summary': final_summary,
-                    'user_stories': accumulated_user_stories
+                    'user_stories': all_user_stories
                 }
-                log_process("UNDERSTAND", "SUMMARY", f"✅ {info.name}: 청크 분할 처리 완료 (User Story {len(accumulated_user_stories)}개)")
+                log_process("UNDERSTAND", "SUMMARY", f"✅ {info.name}: 청크 분할 처리 완료 (User Story {len(all_user_stories)}개)")
                 
         except Exception as exc:
             log_process("UNDERSTAND", "SUMMARY", f"❌ 클래스 요약 생성 오류: {info.name}", logging.ERROR, exc)
@@ -1030,15 +1057,23 @@ class ApplyManager:
             if info.pending_nodes == 0 and key not in self._finalized_classes:
                 await self._finalize_class_summary(info)
 
-    async def _send_queries(self, queries: List[str], progress_line: int):
+    async def _send_queries(
+        self,
+        queries: List[str],
+        progress_line: int,
+        analysis_info: Optional[Dict[str, Any]] = None
+    ):
         """쿼리를 전송하고 완료를 대기합니다."""
         if not queries:
             return
-        await self.send_queue.put({
+        event = {
             "type": "analysis_code",
             "query_data": queries,
             "line_number": progress_line,
-        })
+        }
+        if analysis_info:
+            event["analysis_info"] = analysis_info
+        await self.send_queue.put(event)
         while True:
             resp = await self.receive_queue.get()
             if resp.get("type") == "process_completed":
@@ -1192,13 +1227,46 @@ class FrameworkAnalyzer:
     async def _create_static_nodes(self, nodes: List[StatementNode]):
         """각 StatementNode에 대응하는 기본 노드를 Neo4j에 생성합니다."""
         queries: List[str] = []
+        current_batch_nodes: List[StatementNode] = []
+        
         for node in nodes:
             queries.extend(self._build_static_node_queries(node))
+            current_batch_nodes.append(node)
+            
             if len(queries) >= STATIC_QUERY_BATCH_SIZE:
-                await self._send_static_queries(queries, node.end_line)
+                node_info = self._build_batch_node_info(current_batch_nodes)
+                await self._send_static_queries(queries, node.end_line, node_info)
                 queries.clear()
+                current_batch_nodes.clear()
+                
         if queries:
-            await self._send_static_queries(queries, nodes[-1].end_line)
+            node_info = self._build_batch_node_info(current_batch_nodes)
+            await self._send_static_queries(queries, nodes[-1].end_line, node_info)
+
+    def _build_batch_node_info(self, nodes: List[StatementNode]) -> Dict[str, Any]:
+        """배치의 노드들 정보를 요약합니다."""
+        if not nodes:
+            return {}
+        
+        # 노드 타입별 집계
+        type_counts: Dict[str, int] = {}
+        for node in nodes:
+            type_counts[node.node_type] = type_counts.get(node.node_type, 0) + 1
+        
+        # 첫 번째 의미 있는 노드 정보 (CLASS, INTERFACE, METHOD 등)
+        first_node = nodes[0]
+        for node in nodes:
+            if node.node_type in CLASS_TYPES or node.class_name:
+                first_node = node
+                break
+        
+        return {
+            "type": first_node.node_type,
+            "name": first_node.class_name or f"Line {first_node.start_line}",
+            "start_line": first_node.start_line,
+            "node_count": len(nodes),
+            "type_summary": type_counts,
+        }
 
     def _build_static_node_queries(self, node: StatementNode) -> List[str]:
         """정적 노드 생성 쿼리 리스트를 반환합니다."""
@@ -1302,15 +1370,23 @@ class FrameworkAnalyzer:
         curr_match = f"MATCH (current:{current_node.node_type} {{startLine: {current_node.start_line}, {self.node_base_props}}})"
         return f"{prev_match}\n{curr_match}\nMERGE (prev)-[r:NEXT]->(current)\nRETURN prev, current, r"
 
-    async def _send_static_queries(self, queries: List[str], progress_line: int):
+    async def _send_static_queries(
+        self,
+        queries: List[str],
+        progress_line: int,
+        node_info: Optional[Dict[str, Any]] = None
+    ):
         """정적 그래프 쿼리 전송."""
         if not queries:
             return
-        await self.send_queue.put({
-            "type": "static_graph",  # 정적 그래프 초기화는 별도 타입으로 구분
+        event = {
+            "type": "static_graph",
             "query_data": queries,
             "line_number": progress_line,
-        })
+        }
+        if node_info:
+            event["node_info"] = node_info
+        await self.send_queue.put(event)
         while True:
             resp = await self.receive_queue.get()
             if resp.get("type") == "process_completed":

@@ -1,3 +1,5 @@
+"""DBMS 코드 분석 전략 - PL/SQL, 프로시저, 함수 등"""
+
 import asyncio
 import json
 import logging
@@ -21,6 +23,7 @@ from util.utility_tool import (
     aggregate_user_stories_from_results,
 )
 
+
 class DbmsUnderstandStrategy(UnderstandStrategy):
     """DBMS 이해 전략: DDL 처리 → Analyzer 실행 → 후처리."""
 
@@ -28,6 +31,38 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
     def _calculate_progress(current_line: int, total_lines: int) -> int:
         """현재 진행률을 계산합니다 (0-99%)."""
         return min(int((current_line / total_lines) * 100), 99) if current_line > 0 else 0
+
+    @staticmethod
+    def _describe_graph_result(graph: dict) -> str:
+        """그래프 결과를 사람이 읽기 쉬운 문자열로 변환합니다."""
+        nodes = graph.get("Nodes", [])
+        rels = graph.get("Relationships", [])
+        
+        if not nodes and not rels:
+            return ""
+        
+        # 노드 타입별 집계
+        node_types = {}
+        for node in nodes:
+            labels = node.get("labels", [])
+            label = labels[0] if labels else "Unknown"
+            node_types[label] = node_types.get(label, 0) + 1
+        
+        # 관계 타입별 집계
+        rel_types = {}
+        for rel in rels:
+            rel_type = rel.get("type", "Unknown")
+            rel_types[rel_type] = rel_types.get(rel_type, 0) + 1
+        
+        parts = []
+        if node_types:
+            node_desc = ", ".join(f"{t}({c})" for t, c in node_types.items())
+            parts.append(f"노드: {node_desc}")
+        if rel_types:
+            rel_desc = ", ".join(f"{t}({c})" for t, c in rel_types.items())
+            parts.append(f"관계: {rel_desc}")
+        
+        return " | ".join(parts)
 
     async def understand(self, file_names: list, orchestrator: Any, **kwargs) -> AsyncGenerator[bytes, None]:
         connection = Neo4jConnection()
@@ -38,43 +73,76 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
 
         try:
             yield emit_message("🚀 DBMS 코드 분석을 시작합니다")
-            yield emit_message(f"📦 프로젝트 '{orchestrator.project_name}'에서 {total_files}개 파일을 분석합니다")
+            yield emit_message(f"📦 프로젝트: {orchestrator.project_name}")
+            yield emit_message(f"📊 분석 대상: {total_files}개 SQL 파일")
             
             await connection.ensure_constraints()
-            yield emit_message("🔌 데이터베이스에 연결되었습니다")
+            yield emit_message("🔌 Neo4j 데이터베이스 연결 완료")
 
+            # 기존 분석 결과 확인
             if await connection.node_exists(orchestrator.user_id, file_names):
-                yield emit_message("🔄 이전 분석 결과를 업데이트합니다")
+                yield emit_message("🔄 이전 분석 결과 발견 → 증분 업데이트 모드")
+            else:
+                yield emit_message("🆕 새로운 분석 시작")
 
+            # ========== DDL 처리 ==========
             ddl_files = self._list_ddl_files(orchestrator)
             if ddl_files:
                 ddl_count = len(ddl_files)
-                yield emit_message(f"📊 테이블 스키마 정보를 수집합니다 ({ddl_count}개 DDL 파일)")
+                yield emit_message(f"")
+                yield emit_message(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                yield emit_message(f"📋 [1단계] 테이블 스키마 수집 ({ddl_count}개 DDL)")
+                yield emit_message(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
                 
                 ddl_dir = orchestrator.dirs["ddl"]
+                total_tables = 0
+                total_columns = 0
+                total_fks = 0
+                
                 for idx, ddl_file_name in enumerate(ddl_files, 1):
-                    yield emit_message(f"   📋 [{idx}/{ddl_count}] {ddl_file_name}")
-                    logging.info("DDL 파일 처리 시작: %s", ddl_file_name)
-                    # DDL 처리 후 결과를 프론트엔드로 전달
-                    ddl_graph = await self._process_ddl(
+                    yield emit_message(f"")
+                    yield emit_message(f"📄 [{idx}/{ddl_count}] {ddl_file_name}")
+                    
+                    ddl_graph, stats = await self._process_ddl_with_stats(
                         ddl_file_path=os.path.join(ddl_dir, ddl_file_name),
                         connection=connection,
                         file_name=ddl_file_name,
                         orchestrator=orchestrator,
                     )
+                    
+                    # 상세 통계 출력
+                    if stats["tables"]:
+                        yield emit_message(f"   ✓ Table 노드 생성/업데이트: {stats['tables']}개")
+                        total_tables += stats["tables"]
+                    if stats["columns"]:
+                        yield emit_message(f"   ✓ Column 노드 생성/업데이트: {stats['columns']}개")
+                        total_columns += stats["columns"]
+                    if stats["fks"]:
+                        yield emit_message(f"   ✓ FK 관계 생성: {stats['fks']}개")
+                        total_fks += stats["fks"]
+                    
                     if ddl_graph and (ddl_graph.get("Nodes") or ddl_graph.get("Relationships")):
                         yield emit_data(graph=ddl_graph, line_number=0, analysis_progress=0, current_file=f"DDL-{ddl_file_name}")
                 
-                yield emit_message(f"   ✓ 스키마 정보 수집 완료 ({ddl_count}개)")
+                yield emit_message(f"")
+                yield emit_message(f"📊 DDL 처리 완료 요약:")
+                yield emit_message(f"   • 테이블: {total_tables}개")
+                yield emit_message(f"   • 컬럼: {total_columns}개")
+                yield emit_message(f"   • FK 관계: {total_fks}개")
             else:
-                yield emit_message("ℹ️ DDL 파일이 없어 스키마 처리를 건너뜁니다")
+                yield emit_message("ℹ️ DDL 파일 없음 → 스키마 처리 건너뜀")
 
-            yield emit_message(f"🔍 프로시저 및 함수 코드를 분석합니다 ({total_files}개 파일)")
+            # ========== 소스 파일 분석 ==========
+            yield emit_message(f"")
+            yield emit_message(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            yield emit_message(f"🔍 [2단계] 프로시저/함수 코드 분석 ({total_files}개 파일)")
+            yield emit_message(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
             for file_idx, (directory, file_name) in enumerate(file_names, 1):
-                yield emit_message(f"📄 [{file_idx}/{total_files}] {file_name} 분석 중...")
+                yield emit_message(f"")
+                yield emit_message(f"📄 [{file_idx}/{total_files}] {file_name}")
                 if directory:
-                    yield emit_message(f"   📁 {directory}")
+                    yield emit_message(f"   📁 디렉토리: {directory}")
                 
                 async for chunk in self._analyze_file(
                     directory,
@@ -86,13 +154,13 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
                     orchestrator,
                 ):
                     yield chunk
-                
-                yield emit_message(f"   ✓ {file_name} 완료")
 
-            yield emit_message(f"🎉 코드 구조 분석이 완료되었습니다 ({total_files}개 파일)")
+            # ========== User Story 생성 ==========
+            yield emit_message(f"")
+            yield emit_message(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            yield emit_message(f"📝 [3단계] User Story 문서 생성")
+            yield emit_message(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             
-            # User Story 문서 생성
-            yield emit_message("📝 비즈니스 요구사항을 정리하고 있습니다...")
             user_story_doc = await self._generate_user_story_document(connection, orchestrator, file_names)
             if user_story_doc:
                 yield emit_data(
@@ -103,11 +171,14 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
                     user_story_document=user_story_doc,
                     event_type="user_story_document"
                 )
-                yield emit_message("📋 User Story 문서가 생성되었습니다")
+                yield emit_message("   ✓ User Story 문서 생성 완료")
             else:
-                yield emit_message("ℹ️ 추출할 User Story가 없습니다")
+                yield emit_message("   ℹ️ 추출할 User Story 없음")
             
+            yield emit_message(f"")
+            yield emit_message(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             yield emit_message("✅ 모든 분석이 완료되었습니다!")
+            yield emit_message(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         finally:
             await connection.close()
 
@@ -132,13 +203,16 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
             antlr_data, plsql_content = await asyncio.gather(antlr_file.read(), plsql_file.readlines())
             return json.loads(antlr_data), plsql_content
 
-    async def _process_ddl(
+    async def _process_ddl_with_stats(
         self,
         ddl_file_path: str,
         connection: Neo4jConnection,
         file_name: str,
         orchestrator,
-    ) -> dict:
+    ) -> tuple[dict, dict]:
+        """DDL 처리 및 통계 반환"""
+        stats = {"tables": 0, "columns": 0, "fks": 0}
+        
         async with aiofiles.open(ddl_file_path, "r", encoding="utf-8") as ddl_file:
             ddl_content = await ddl_file.read()
             loader = self._rule_loader()
@@ -190,6 +264,7 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
                 }
                 t_set_str = ", ".join(f"t.`{k}` = '{v}'" for k, v in t_set_props.items())
                 cypher_queries.append(f"MERGE (t:Table {{{t_merge_str}}}) SET {t_set_str} RETURN t")
+                stats["tables"] += 1
 
                 for col in columns:
                     if not (col_name := (col.get("name") or "").strip()):
@@ -218,6 +293,7 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
                     cypher_queries.append(
                         f"MATCH (t:Table {{{t_merge_str}}})\nMATCH (c:Column {{{c_merge_str}}})\nMERGE (t)-[r:HAS_COLUMN]->(c) RETURN t, r, c"
                     )
+                    stats["columns"] += 1
 
                 for fk in foreign_list:
                     src_col = (fk.get("column") or "").strip()
@@ -259,10 +335,12 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
                     cypher_queries.append(
                         f"MATCH (sc:Column {{{src_c_str}}})\nMATCH (dc:Column {{{ref_c_str}}})\nMERGE (sc)-[r:FK_TO]->(dc) RETURN sc, r, dc"
                     )
+                    stats["fks"] += 1
 
             result = await connection.execute_query_and_return_graph(cypher_queries)
-            logging.info("DDL 파일 처리 완료: %s", file_name)
-            return result
+            logging.info("DDL 파일 처리 완료: %s (테이블: %d, 컬럼: %d, FK: %d)", 
+                        file_name, stats["tables"], stats["columns"], stats["fks"])
+            return result, stats
 
     async def _analyze_file(
         self,
@@ -298,25 +376,39 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
         analyzed_blocks = 0
         static_blocks = 0
         total_llm_batches = 0
+        total_nodes_created = 0
+        total_rels_created = 0
 
         while True:
             event = await events_from_analyzer.get()
             event_type = event.get("type")
-            logging.info("Analysis Event: %s, type: %s", current_file, event_type)
 
             # 분석 완료
             if event_type == "end_analysis":
-                logging.info("Understanding Completed for %s", current_file)
-                yield emit_message("   🔧 변수 타입을 정리하고 있습니다...")
+                yield emit_message("   🔧 변수 타입 해석 중 (테이블 메타데이터 기반)...")
                 postprocess_graph = await self._postprocess_file(connection, directory, file_name, file_pairs, orchestrator)
+                
+                # 후처리 결과 통계
+                post_nodes = len(postprocess_graph.get("Nodes", []))
+                if post_nodes:
+                    yield emit_message(f"   ✓ Variable 노드 타입 해석 완료: {post_nodes}개")
+                
                 yield emit_data(graph=postprocess_graph, line_number=last_line, analysis_progress=100, current_file=current_file)
+                
+                # 파일 분석 완료 요약
+                yield emit_message(f"   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                yield emit_message(f"   📊 파일 분석 완료: {file_name}")
+                yield emit_message(f"      • 정적 구조 블록: {static_blocks}개")
+                yield emit_message(f"      • AI 분석 블록: {analyzed_blocks}개")
+                yield emit_message(f"      • 생성된 노드: {total_nodes_created}개")
+                yield emit_message(f"      • 생성된 관계: {total_rels_created}개")
                 break
 
             # 오류 발생
             if event_type == "error":
                 error_message = event.get("message", f"Understanding failed for {file_name}")
                 logging.error("Understanding Failed for %s: %s", file_name, error_message)
-                yield emit_message(f"❌ 오류 발생: {error_message}")
+                yield emit_message(f"   ❌ 오류 발생: {error_message}")
                 yield emit_error(error_message)
                 return
 
@@ -325,31 +417,69 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
 
             # 정적 그래프 생성
             if event_type == "static_graph":
-                if static_blocks == 0:
-                    yield emit_message("   🏗️ 코드 구조를 그래프로 구성 중...")
                 static_blocks += 1
-                graph_result = await connection.execute_query_and_return_graph(event.get("query_data", []))
+                query_data = event.get("query_data", [])
+                graph_result = await connection.execute_query_and_return_graph(query_data)
+                
+                # 노드/관계 집계
+                nodes_count = len(graph_result.get("Nodes", []))
+                rels_count = len(graph_result.get("Relationships", []))
+                total_nodes_created += nodes_count
+                total_rels_created += rels_count
+                
+                # 첫 번째 블록일 때 단계 시작 메시지
+                if static_blocks == 1:
+                    yield emit_message("   🏗️ [Phase 1] 코드 구조 그래프 생성 중...")
+                
+                # 노드 타입별 상세 정보
+                node_info = event.get("node_info", {})
+                if node_info:
+                    node_type = node_info.get("type", "Unknown")
+                    node_name = node_info.get("name", "")
+                    start_line = node_info.get("start_line", 0)
+                    yield emit_message(f"      → {node_type} 노드 생성: {node_name} (Line {start_line})")
+                
                 yield emit_data(graph=graph_result, line_number=next_line, analysis_progress=progress, current_file=current_file)
                 await events_to_analyzer.put({"type": "process_completed"})
                 continue
 
             # 정적 그래프 완료
             if event_type == "static_complete":
-                yield emit_message(f"   ✓ 구조 그래프 생성 완료 ({static_blocks}개)")
+                yield emit_message(f"   ✓ Phase 1 완료: 구조 노드 {static_blocks}개 생성")
                 await events_to_analyzer.put({"type": "process_completed"})
                 continue
 
             # LLM 분석 시작
             if event_type == "llm_start":
                 total_llm_batches = event.get("total_batches", 0)
-                yield emit_message(f"   🤖 AI가 코드 동작을 분석합니다 ({total_llm_batches}개 블록)")
+                yield emit_message(f"   🤖 [Phase 2] AI 분석 시작 ({total_llm_batches}개 블록)")
                 await events_to_analyzer.put({"type": "process_completed"})
                 continue
 
             # LLM 분석 진행
             if event_type == "analysis_code":
                 analyzed_blocks += 1
-                graph_result = await connection.execute_query_and_return_graph(event.get("query_data", []))
+                query_data = event.get("query_data", [])
+                graph_result = await connection.execute_query_and_return_graph(query_data)
+                
+                # 노드/관계 집계
+                nodes_count = len(graph_result.get("Nodes", []))
+                rels_count = len(graph_result.get("Relationships", []))
+                total_nodes_created += nodes_count
+                total_rels_created += rels_count
+                
+                # 분석 상세 정보
+                analysis_info = event.get("analysis_info", {})
+                if analysis_info:
+                    node_type = analysis_info.get("type", "")
+                    node_name = analysis_info.get("name", "")
+                    summary_preview = analysis_info.get("summary", "")[:50]
+                    if summary_preview:
+                        yield emit_message(f"      → [{analyzed_blocks}/{total_llm_batches}] {node_type} 분석: {node_name}")
+                        yield emit_message(f"         요약: {summary_preview}...")
+                else:
+                    yield emit_message(f"      → [{analyzed_blocks}/{total_llm_batches}] 블록 분석 완료")
+                
                 yield emit_data(graph=graph_result, line_number=next_line, analysis_progress=progress, current_file=current_file)
                 await events_to_analyzer.put({"type": "process_completed"})
 
@@ -364,7 +494,6 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
         orchestrator: Any,
     ) -> dict:
         """변수 타입을 테이블 메타데이터 기반으로 해결하는 후처리 단계."""
-        # Neo4j 쿼리용 정규화된 directory (Windows 경로 구분자 통일)
         directory_normalized = directory.replace('\\', '/') if directory else ''
         directory_esc, file_esc = escape_for_cypher(directory_normalized), escape_for_cypher(file_name)
 
@@ -435,16 +564,19 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
         orchestrator: Any,
         file_names: list,
     ) -> str:
-        """분석된 모든 프로시저/함수에서 User Story를 수집하여 문서를 생성합니다."""
+        """분석된 모든 프로시저/함수에서 Summary와 User Story를 수집하여 상세 문서를 생성합니다."""
         try:
-            # 모든 프로시저/함수의 user_stories 속성 조회
+            # summary와 user_stories를 모두 조회
             query = f"""
                 MATCH (n)
                 WHERE (n:PROCEDURE OR n:FUNCTION OR n:TRIGGER)
                   AND n.user_id = '{escape_for_cypher(orchestrator.user_id)}'
                   AND n.project_name = '{escape_for_cypher(orchestrator.project_name)}'
-                  AND n.user_stories IS NOT NULL
-                RETURN n.procedure_name AS name, n.user_stories AS user_stories, labels(n)[0] AS type
+                  AND (n.summary IS NOT NULL OR n.user_stories IS NOT NULL)
+                RETURN n.procedure_name AS name, 
+                       n.summary AS summary,
+                       n.user_stories AS user_stories, 
+                       labels(n)[0] AS type
                 ORDER BY n.file_name, n.startLine
             """
             
@@ -453,15 +585,17 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
             if not results or not results[0]:
                 return ""
             
-            # 모든 User Story 집계
-            all_user_stories = aggregate_user_stories_from_results(results[0])
+            # summary가 있거나 user_stories가 있는 결과만 필터링
+            filtered_results = [
+                r for r in results[0] 
+                if r.get("summary") or r.get("user_stories")
+            ]
             
-            if not all_user_stories:
+            if not filtered_results:
                 return ""
             
-            # 문서 생성
             document = generate_user_story_document(
-                user_stories=all_user_stories,
+                results=filtered_results,
                 source_name=orchestrator.project_name,
                 source_type="DBMS 프로시저/함수"
             )
@@ -471,4 +605,3 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
         except Exception as exc:
             logging.error("User Story 문서 생성 중 오류: %s", exc)
             return ""
-

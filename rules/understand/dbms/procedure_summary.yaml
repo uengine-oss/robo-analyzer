@@ -24,7 +24,15 @@ prompt: |
   
   {% if previous_summary %}
   이전 청크 분석 결과 (이어서 분석):
-  {{ previous_summary }}
+  - Summary: {{ previous_summary }}
+  {% endif %}
+  
+  {% if previous_user_stories %}
+  이전 청크에서 도출된 User Stories (중복 방지 참고용):
+  {{ previous_user_stories }}
+  
+  ⚠️ 중요: 이전 청크의 User Story와 중복되지 않도록 새로운 User Story만 도출하세요.
+  이전에 이미 도출된 기능은 제외하고, 현재 청크에서만 발견되는 새로운 기능만 포함하세요.
   {% endif %}
   
   

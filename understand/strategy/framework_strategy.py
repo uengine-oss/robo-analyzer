@@ -1,3 +1,5 @@
+"""Framework 코드 분석 전략 - Java, Kotlin 등"""
+
 import asyncio
 import json
 import logging
@@ -35,20 +37,33 @@ class FrameworkUnderstandStrategy(UnderstandStrategy):
 
         try:
             yield emit_message("🚀 프레임워크 코드 분석을 시작합니다")
-            yield emit_message(f"📦 프로젝트 '{orchestrator.project_name}'에서 {total_files}개 파일을 분석합니다")
+            yield emit_message(f"📦 프로젝트: {orchestrator.project_name}")
+            yield emit_message(f"📊 분석 대상: {total_files}개 Java 파일")
             
             await connection.ensure_constraints()
-            yield emit_message("🔌 데이터베이스에 연결되었습니다")
+            yield emit_message("🔌 Neo4j 데이터베이스 연결 완료")
 
+            # 기존 분석 결과 확인
             if await connection.node_exists(orchestrator.user_id, file_names):
-                yield emit_message("🔄 이전 분석 결과를 업데이트합니다")
+                yield emit_message("🔄 이전 분석 결과 발견 → 증분 업데이트 모드")
+            else:
+                yield emit_message("🆕 새로운 분석 시작")
 
-            yield emit_message(f"🔍 클래스 및 인터페이스 구조를 분석합니다 ({total_files}개 파일)")
+            # ========== 소스 파일 분석 ==========
+            yield emit_message(f"")
+            yield emit_message(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            yield emit_message(f"🔍 [1단계] 클래스 및 인터페이스 분석 ({total_files}개 파일)")
+            yield emit_message(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+            total_classes = 0
+            total_methods = 0
+            total_fields = 0
 
             for file_idx, (directory, file_name) in enumerate(file_names, 1):
-                yield emit_message(f"📄 [{file_idx}/{total_files}] {file_name} 분석 중...")
+                yield emit_message(f"")
+                yield emit_message(f"📄 [{file_idx}/{total_files}] {file_name}")
                 if directory:
-                    yield emit_message(f"   📁 {directory}")
+                    yield emit_message(f"   📁 디렉토리: {directory}")
                 
                 async for chunk in self._analyze_file(
                     directory,
@@ -60,13 +75,13 @@ class FrameworkUnderstandStrategy(UnderstandStrategy):
                     orchestrator,
                 ):
                     yield chunk
-                
-                yield emit_message(f"   ✓ {file_name} 완료")
 
-            yield emit_message(f"🎉 코드 구조 분석이 완료되었습니다 ({total_files}개 파일)")
+            # ========== User Story 생성 ==========
+            yield emit_message(f"")
+            yield emit_message(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+            yield emit_message(f"📝 [2단계] User Story 문서 생성")
+            yield emit_message(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             
-            # User Story 문서 생성
-            yield emit_message("📝 비즈니스 요구사항을 정리하고 있습니다...")
             user_story_doc = await self._generate_user_story_document(connection, orchestrator)
             if user_story_doc:
                 yield emit_data(
@@ -77,11 +92,14 @@ class FrameworkUnderstandStrategy(UnderstandStrategy):
                     user_story_document=user_story_doc,
                     event_type="user_story_document"
                 )
-                yield emit_message("📋 User Story 문서가 생성되었습니다")
+                yield emit_message("   ✓ User Story 문서 생성 완료")
             else:
-                yield emit_message("ℹ️ 추출할 User Story가 없습니다")
+                yield emit_message("   ℹ️ 추출할 User Story 없음")
             
+            yield emit_message(f"")
+            yield emit_message(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
             yield emit_message("✅ 모든 분석이 완료되었습니다!")
+            yield emit_message(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
         finally:
             await connection.close()
 
@@ -129,15 +147,23 @@ class FrameworkUnderstandStrategy(UnderstandStrategy):
         analyzed_blocks = 0
         static_blocks = 0
         total_llm_batches = 0
+        total_nodes_created = 0
+        total_rels_created = 0
 
         while True:
             event = await events_from_analyzer.get()
             event_type = event.get("type")
-            logging.info("Analysis Event: %s, type: %s", current_file, event_type)
 
             # 분석 완료
             if event_type == "end_analysis":
-                logging.info("Understanding Completed for %s", current_file)
+                # 파일 분석 완료 요약
+                yield emit_message(f"   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+                yield emit_message(f"   📊 파일 분석 완료: {file_name}")
+                yield emit_message(f"      • 정적 구조 블록: {static_blocks}개")
+                yield emit_message(f"      • AI 분석 블록: {analyzed_blocks}개")
+                yield emit_message(f"      • 생성된 노드: {total_nodes_created}개")
+                yield emit_message(f"      • 생성된 관계: {total_rels_created}개")
+                
                 yield emit_data(graph={"Nodes": [], "Relationships": []}, line_number=last_line, analysis_progress=100, current_file=current_file)
                 break
 
@@ -145,7 +171,7 @@ class FrameworkUnderstandStrategy(UnderstandStrategy):
             if event_type == "error":
                 error_message = event.get("message", f"Understanding failed for {file_name}")
                 logging.error("Understanding Failed for %s: %s", file_name, error_message)
-                yield emit_message(f"❌ 오류 발생: {error_message}")
+                yield emit_message(f"   ❌ 오류 발생: {error_message}")
                 yield emit_error(error_message)
                 return
 
@@ -154,31 +180,69 @@ class FrameworkUnderstandStrategy(UnderstandStrategy):
 
             # 정적 그래프 생성
             if event_type == "static_graph":
-                if static_blocks == 0:
-                    yield emit_message("   🏗️ 클래스/메서드 구조를 그래프로 구성 중...")
                 static_blocks += 1
-                graph_result = await connection.execute_query_and_return_graph(event.get("query_data", []))
+                query_data = event.get("query_data", [])
+                graph_result = await connection.execute_query_and_return_graph(query_data)
+                
+                # 노드/관계 집계
+                nodes_count = len(graph_result.get("Nodes", []))
+                rels_count = len(graph_result.get("Relationships", []))
+                total_nodes_created += nodes_count
+                total_rels_created += rels_count
+                
+                # 첫 번째 블록일 때 단계 시작 메시지
+                if static_blocks == 1:
+                    yield emit_message("   🏗️ [Phase 1] 클래스/메서드 구조 그래프 생성 중...")
+                
+                # 노드 타입별 상세 정보
+                node_info = event.get("node_info", {})
+                if node_info:
+                    node_type = node_info.get("type", "Unknown")
+                    node_name = node_info.get("name", "")
+                    start_line = node_info.get("start_line", 0)
+                    yield emit_message(f"      → {node_type} 노드 생성: {node_name} (Line {start_line})")
+                
                 yield emit_data(graph=graph_result, line_number=next_line, analysis_progress=progress, current_file=current_file)
                 await events_to_analyzer.put({"type": "process_completed"})
                 continue
 
             # 정적 그래프 완료
             if event_type == "static_complete":
-                yield emit_message(f"   ✓ 구조 그래프 생성 완료 ({static_blocks}개)")
+                yield emit_message(f"   ✓ Phase 1 완료: 구조 노드 {static_blocks}개 생성")
                 await events_to_analyzer.put({"type": "process_completed"})
                 continue
 
             # LLM 분석 시작
             if event_type == "llm_start":
                 total_llm_batches = event.get("total_batches", 0)
-                yield emit_message(f"   🤖 AI가 비즈니스 로직을 분석합니다 ({total_llm_batches}개 블록)")
+                yield emit_message(f"   🤖 [Phase 2] AI 분석 시작 ({total_llm_batches}개 블록)")
                 await events_to_analyzer.put({"type": "process_completed"})
                 continue
 
             # LLM 분석 진행
             if event_type == "analysis_code":
                 analyzed_blocks += 1
-                graph_result = await connection.execute_query_and_return_graph(event.get("query_data", []))
+                query_data = event.get("query_data", [])
+                graph_result = await connection.execute_query_and_return_graph(query_data)
+                
+                # 노드/관계 집계
+                nodes_count = len(graph_result.get("Nodes", []))
+                rels_count = len(graph_result.get("Relationships", []))
+                total_nodes_created += nodes_count
+                total_rels_created += rels_count
+                
+                # 분석 상세 정보
+                analysis_info = event.get("analysis_info", {})
+                if analysis_info:
+                    node_type = analysis_info.get("type", "")
+                    node_name = analysis_info.get("name", "")
+                    summary_preview = analysis_info.get("summary", "")[:50]
+                    if summary_preview:
+                        yield emit_message(f"      → [{analyzed_blocks}/{total_llm_batches}] {node_type} 분석: {node_name}")
+                        yield emit_message(f"         요약: {summary_preview}...")
+                else:
+                    yield emit_message(f"      → [{analyzed_blocks}/{total_llm_batches}] 블록 분석 완료")
+                
                 yield emit_data(graph=graph_result, line_number=next_line, analysis_progress=progress, current_file=current_file)
                 await events_to_analyzer.put({"type": "process_completed"})
 
@@ -189,16 +253,19 @@ class FrameworkUnderstandStrategy(UnderstandStrategy):
         connection: Neo4jConnection,
         orchestrator,
     ) -> str:
-        """분석된 모든 클래스에서 User Story를 수집하여 문서를 생성합니다."""
+        """분석된 모든 클래스에서 Summary와 User Story를 수집하여 상세 문서를 생성합니다."""
         try:
-            # 모든 클래스/인터페이스의 user_stories 속성 조회
+            # summary와 user_stories를 모두 조회
             query = f"""
                 MATCH (n)
                 WHERE (n:CLASS OR n:INTERFACE)
                   AND n.user_id = '{escape_for_cypher(orchestrator.user_id)}'
                   AND n.project_name = '{escape_for_cypher(orchestrator.project_name)}'
-                  AND n.user_stories IS NOT NULL
-                RETURN n.class_name AS name, n.user_stories AS user_stories, labels(n)[0] AS type
+                  AND (n.summary IS NOT NULL OR n.user_stories IS NOT NULL)
+                RETURN n.class_name AS name, 
+                       n.summary AS summary,
+                       n.user_stories AS user_stories, 
+                       labels(n)[0] AS type
                 ORDER BY n.file_name, n.startLine
             """
             
@@ -207,15 +274,18 @@ class FrameworkUnderstandStrategy(UnderstandStrategy):
             if not results or not results[0]:
                 return ""
             
-            # 모든 User Story 집계
-            all_user_stories = aggregate_user_stories_from_results(results[0])
+            # summary가 있거나 user_stories가 있는 결과만 필터링
+            filtered_results = [
+                r for r in results[0] 
+                if r.get("summary") or r.get("user_stories")
+            ]
             
-            if not all_user_stories:
+            if not filtered_results:
                 return ""
             
             # 문서 생성
             document = generate_user_story_document(
-                user_stories=all_user_stories,
+                results=filtered_results,
                 source_name=orchestrator.project_name,
                 source_type="Java 클래스/인터페이스"
             )
@@ -225,4 +295,3 @@ class FrameworkUnderstandStrategy(UnderstandStrategy):
         except Exception as exc:
             logging.error("User Story 문서 생성 중 오류: %s", exc)
             return ""
-

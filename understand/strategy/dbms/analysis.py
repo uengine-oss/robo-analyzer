@@ -258,7 +258,7 @@ def understand_dml_tables(code: str, ranges: list, api_key: str, locale: str) ->
     )
 
 
-def understand_summary(summaries: dict, api_key: str, locale: str, previous_summary: str = "") -> Dict[str, Any]:
+def understand_summary(summaries: dict, api_key: str, locale: str, previous_summary: str = "", previous_user_stories: list = None) -> Dict[str, Any]:
     """프로시저/함수 전체 요약 + User Story + AC 생성.
     
     Args:
@@ -266,10 +266,16 @@ def understand_summary(summaries: dict, api_key: str, locale: str, previous_summ
         api_key: LLM API 키
         locale: 출력 언어
         previous_summary: 이전 청크의 요약 결과 (대용량 처리 시)
+        previous_user_stories: 이전 청크의 User Story 리스트 (대용량 처리 시, 중복 방지용)
     """
     return _rule_loader().execute(
         "procedure_summary",
-        {"summaries": summaries, "locale": locale, "previous_summary": previous_summary},
+        {
+            "summaries": summaries, 
+            "locale": locale, 
+            "previous_summary": previous_summary,
+            "previous_user_stories": previous_user_stories or []
+        },
         api_key,
     )
 
@@ -614,6 +620,10 @@ class ApplyManager:
         cypher_queries: List[str] = []
         summary_nodes = list(zip(result.batch.nodes, general_items))
         processed_nodes: set[int] = set()
+        
+        # 분석 정보 수집 (스트림 메시지용)
+        analyzed_node_info: Optional[Dict[str, Any]] = None
+        first_summary: str = ""
 
         for node, analysis in summary_nodes:
             if not analysis:
@@ -621,6 +631,17 @@ class ApplyManager:
                 node.completion_event.set()
                 continue
             log_process("UNDERSTAND", "APPLY", f"✅ {node.start_line}~{node.end_line} 구간 요약을 Neo4j 그래프에 반영")
+            
+            # 첫 번째 분석 결과의 정보 저장
+            if not analyzed_node_info:
+                first_summary = str(analysis.get('summary', ''))[:100]
+                analyzed_node_info = {
+                    "type": node.node_type,
+                    "name": node.procedure_name or node.name or f"Line {node.start_line}",
+                    "summary": first_summary,
+                    "line_range": f"{node.start_line}-{node.end_line}",
+                }
+            
             # LLM 결과를 Neo4j 쿼리로 변환하고 내부 요약 저장소를 갱신합니다.
             cypher_queries.extend(self._build_node_queries(node, analysis))
             self._update_summary_store(node, analysis)
@@ -637,7 +658,7 @@ class ApplyManager:
 
         if cypher_queries:
             log_process("UNDERSTAND", "APPLY", f"📤 {self.full_directory}에 Cypher 쿼리 {len(cypher_queries)}건 전송")
-        await self._send_queries(cypher_queries, result.batch.progress_line)
+        await self._send_queries(cypher_queries, result.batch.progress_line, analyzed_node_info)
         log_process("UNDERSTAND", "APPLY", f"✅ 배치 #{result.batch.batch_id} 적용 완료: 노드 {len(result.batch.nodes)}개, 테이블 분석 {'있음' if result.table_result else '없음'}")
 
     def _build_node_queries(self, node: StatementNode, analysis: Dict[str, Any]) -> List[str]:
@@ -969,32 +990,41 @@ class ApplyManager:
                 ]
                 
                 previous_summary = ""
-                accumulated_user_stories = []
+                previous_user_stories = []
                 final_summary = ""
+                all_user_stories = []  # 모든 청크의 User Story 누적
                 
                 for chunk_idx, chunk in enumerate(chunks, 1):
                     log_process("UNDERSTAND", "SUMMARY", f"  → 청크 {chunk_idx}/{len(chunks)} 처리 중 ({len(chunk)}개)")
                     
                     chunk_result = await asyncio.to_thread(
-                        understand_summary, chunk, self.api_key, self.locale, previous_summary
+                        understand_summary, 
+                        chunk, 
+                        self.api_key, 
+                        self.locale, 
+                        previous_summary,
+                        previous_user_stories
                     )
                     
                     if isinstance(chunk_result, dict):
-                        # summary는 마지막 청크의 것을 최종 사용
+                        # summary는 마지막 청크의 것을 최종 사용 (이전 summary를 포함한 전체 요약)
                         final_summary = chunk_result.get('summary', '')
                         previous_summary = final_summary
                         
-                        # user_stories는 누적
+                        # user_stories는 누적 (LLM이 이전 것과 중복 제거하며 생성)
                         chunk_stories = chunk_result.get('user_stories', [])
                         if chunk_stories:
-                            accumulated_user_stories.extend(chunk_stories)
+                            # 이전 User Story를 다음 청크에 전달 (중복 방지용)
+                            previous_user_stories = chunk_stories
+                            # 모든 청크의 User Story 누적
+                            all_user_stories.extend(chunk_stories)
                 
-                # 최종 결과 조합
+                # 최종 결과 조합 (마지막 summary + 모든 청크의 User Story)
                 summary_result = {
                     'summary': final_summary,
-                    'user_stories': accumulated_user_stories
+                    'user_stories': all_user_stories
                 }
-                log_process("UNDERSTAND", "SUMMARY", f"✅ {info.procedure_name}: 청크 분할 처리 완료 (User Story {len(accumulated_user_stories)}개)")
+                log_process("UNDERSTAND", "SUMMARY", f"✅ {info.procedure_name}: 청크 분할 처리 완료 (User Story {len(final_user_stories)}개)")
                 
         except Exception as exc:  # pragma: no cover - defensive
             log_process("UNDERSTAND", "SUMMARY", f"❌ {info.procedure_name} 프로시저 요약 생성 중 오류 발생", logging.ERROR, exc)
@@ -1031,15 +1061,23 @@ class ApplyManager:
             if info.pending_nodes == 0 and key in self._summary_store and self._summary_store[key]:
                 await self._finalize_procedure_summary(info)
 
-    async def _send_queries(self, queries: List[str], progress_line: int):
+    async def _send_queries(
+        self,
+        queries: List[str],
+        progress_line: int,
+        analysis_info: Optional[Dict[str, Any]] = None
+    ):
         """분석 큐에 쿼리를 전달하고 처리가 끝날 때까지 대기합니다."""
         if not queries:
             return
-        await self.send_queue.put({
+        event = {
             "type": "analysis_code",
             "query_data": queries,
             "line_number": progress_line,
-        })
+        }
+        if analysis_info:
+            event["analysis_info"] = analysis_info
+        await self.send_queue.put(event)
         while True:
             response = await self.receive_queue.get()
             if response.get('type') == 'process_completed':
@@ -1250,16 +1288,49 @@ class Analyzer:
     async def _create_static_nodes(self, nodes: List[StatementNode]):
         """각 StatementNode에 대응하는 기본 노드를 Neo4j에 생성합니다."""
         queries: List[str] = []
+        current_batch_nodes: List[StatementNode] = []
+        
         for node in nodes:
             # StatementNode 단위로 MERGE 쿼리 묶음을 생성합니다.
             queries.extend(self._build_static_node_queries(node))
+            current_batch_nodes.append(node)
+            
             if len(queries) >= STATIC_QUERY_BATCH_SIZE:
                 # 일정량이 쌓이면 즉시 전송하여 큐를 비웁니다.
-                await self._send_static_queries(queries, node.end_line)
+                node_info = self._build_batch_node_info(current_batch_nodes)
+                await self._send_static_queries(queries, node.end_line, node_info)
                 queries.clear()
+                current_batch_nodes.clear()
+                
         if queries:
             # 마지막 남은 쿼리 묶음도 전송합니다.
-            await self._send_static_queries(queries, nodes[-1].end_line)
+            node_info = self._build_batch_node_info(current_batch_nodes)
+            await self._send_static_queries(queries, nodes[-1].end_line, node_info)
+
+    def _build_batch_node_info(self, nodes: List[StatementNode]) -> Dict[str, Any]:
+        """배치의 노드들 정보를 요약합니다."""
+        if not nodes:
+            return {}
+        
+        # 노드 타입별 집계
+        type_counts: Dict[str, int] = {}
+        for node in nodes:
+            type_counts[node.node_type] = type_counts.get(node.node_type, 0) + 1
+        
+        # 첫 번째 의미 있는 노드 정보
+        first_node = nodes[0]
+        for node in nodes:
+            if node.node_type not in ("FILE",):
+                first_node = node
+                break
+        
+        return {
+            "type": first_node.node_type,
+            "name": first_node.procedure_name or first_node.name or f"Line {first_node.start_line}",
+            "start_line": first_node.start_line,
+            "node_count": len(nodes),
+            "type_summary": type_counts,
+        }
 
     def _build_static_node_queries(self, node: StatementNode) -> List[str]:
         """정적 노드 생성을 위한 Cypher 쿼리 리스트를 반환합니다."""
@@ -1426,15 +1497,23 @@ class Analyzer:
 
         return queries
 
-    async def _send_static_queries(self, queries: List[str], progress_line: int):
+    async def _send_static_queries(
+        self,
+        queries: List[str],
+        progress_line: int,
+        node_info: Optional[Dict[str, Any]] = None
+    ):
         """정적 그래프 초기화 쿼리를 큐로 전송하고 완료 시까지 기다립니다."""
         if not queries:
             return
-        await self.send_queue.put({
-            "type": "static_graph",  # 정적 그래프 초기화는 별도 타입으로 구분
+        event = {
+            "type": "static_graph",
             "query_data": queries,
             "line_number": progress_line,
-        })
+        }
+        if node_info:
+            event["node_info"] = node_info
+        await self.send_queue.put(event)
         while True:
             response = await self.receive_queue.get()
             if response.get('type') == 'process_completed':
