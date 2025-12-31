@@ -37,6 +37,8 @@ METHOD_TYPES = frozenset(["METHOD", "CONSTRUCTOR"])
 METHOD_SIGNATURE_TYPES = frozenset(["METHOD_SIGNATURE"])
 # METHOD_CALL 타입 노드 - CALLS 관계 생성을 위해 별도 처리
 METHOD_CALL_TYPES = frozenset(["METHOD_CALL", "METHOD_INVOCATION", "CALL"])
+# 메서드 호출이 나타날 수 있는 노드 타입들 (패턴 검사 대상)
+METHOD_CALL_CANDIDATE_TYPES = frozenset(["ASSIGNMENT", "RETURN", "VARIABLE"])
 MAX_BATCH_TOKEN = int(os.getenv("FRAMEWORK_MAX_BATCH_TOKEN", "1000"))
 MAX_CONCURRENCY = int(os.getenv("FRAMEWORK_MAX_CONCURRENCY", "5"))
 INHERITANCE_CONCURRENCY = int(os.getenv("INHERITANCE_CONCURRENCY", "5"))
@@ -44,10 +46,10 @@ FIELD_CONCURRENCY = int(os.getenv("FIELD_CONCURRENCY", "5"))
 METHOD_CONCURRENCY = int(os.getenv("METHOD_CONCURRENCY", "5"))
 STATIC_QUERY_BATCH_SIZE = 40
 LINE_NUMBER_PATTERN = re.compile(r"^(\d+)\s*:")
-# 메서드 호출 패턴: 식별자.메서드명( 형태 (ASSIGNMENT, VARIABLE 등에서 호출 감지용)
+# 메서드 호출 패턴: 식별자.메서드명( 형태 (ASSIGNMENT, RETURN, VARIABLE 등에서 호출 감지용)
 METHOD_CALL_PATTERN = re.compile(r'\w+\.\w+\s*\(')
-# 대용량 summary 청크 분할 설정 (summary 개수 기준)
-MAX_SUMMARY_CHUNK_SIZE = int(os.getenv('MAX_SUMMARY_CHUNK_SIZE', '50'))
+# 대용량 summary 청크 분할 설정 (토큰 기준, 한글 기준 약 8천~1만 2천 자)
+MAX_SUMMARY_CHUNK_TOKEN = int(os.getenv('MAX_SUMMARY_CHUNK_TOKEN', '5000'))
 
 # Java 표준 라이브러리 및 기본 타입 - 클래스 생성 제외 대상
 JAVA_BUILTIN_TYPES = frozenset([
@@ -283,14 +285,8 @@ class AnalysisBatch:
         )
 
     def build_method_call_payload(self) -> Optional[str]:
-        """메서드 호출을 포함하는 노드를 추출하여 호출 분석 프롬프트에 전달.
-        
-        METHOD_CALL 타입뿐 아니라 ASSIGNMENT, VARIABLE 등 메서드 호출 패턴을 포함하는 노드도 포함.
-        """
-        method_call_nodes = [
-            node for node in self.nodes 
-            if node.node_type in METHOD_CALL_TYPES or METHOD_CALL_PATTERN.search(node.code)
-        ]
+        """메서드 호출을 포함하는 노드를 추출하여 호출 분석 프롬프트에 전달."""
+        method_call_nodes = [node for node in self.nodes if _is_method_call_node(node)]
         if not method_call_nodes:
             return None
         return "\n\n".join(
@@ -322,6 +318,19 @@ class BatchResult:
 
 
 # ==================== 헬퍼 함수 ====================
+def _is_method_call_node(node: StatementNode) -> bool:
+    """노드가 메서드 호출을 포함하는지 확인합니다.
+    
+    - METHOD_CALL 타입 노드 (직접적인 메서드 호출)
+    - 메서드 호출이 나타날 수 있는 노드 타입이면서 메서드 호출 패턴이 포함된 노드
+    """
+    if node.node_type in METHOD_CALL_TYPES:
+        return True
+    if node.node_type in METHOD_CALL_CANDIDATE_TYPES:
+        return METHOD_CALL_PATTERN.search(node.code) is not None
+    return False
+
+
 def _is_valid_class_name_for_calls(name: str) -> bool:
     """calls 관계 생성에 유효한 클래스명인지 검증.
     
@@ -371,24 +380,33 @@ def understand_code(code: str, ranges: list, count: int, api_key: str, locale: s
     )
 
 
-def understand_class_summary(summaries: dict, api_key: str, locale: str, previous_summary: str = "", previous_user_stories: list = None) -> Dict[str, Any]:
-    """클래스 전체 요약 + User Story + AC 생성.
+def understand_class_summary_only(summaries: dict, api_key: str, locale: str, previous_summary: str = "") -> Dict[str, Any]:
+    """클래스 전체 요약 생성 (Summary만).
     
     Args:
         summaries: 멤버 분석 결과 딕셔너리
         api_key: LLM API 키
         locale: 출력 언어
         previous_summary: 이전 청크의 요약 결과 (대용량 처리 시)
-        previous_user_stories: 이전 청크의 User Story 리스트 (대용량 처리 시, 중복 방지용)
     """
     return _rule_loader().execute(
-        "class_summary",
-        {
-            "summaries": summaries, 
-            "locale": locale, 
-            "previous_summary": previous_summary,
-            "previous_user_stories": previous_user_stories or []
-        },
+        "class_summary_only",
+        {"summaries": summaries, "locale": locale, "previous_summary": previous_summary},
+        api_key,
+    )
+
+
+def understand_class_user_story(summary: str, api_key: str, locale: str) -> Dict[str, Any]:
+    """클래스 User Story + AC 생성.
+    
+    Args:
+        summary: 클래스의 상세 요약
+        api_key: LLM API 키
+        locale: 출력 언어
+    """
+    return _rule_loader().execute(
+        "class_user_story",
+        {"summary": summary, "locale": locale},
         api_key,
     )
 
@@ -617,11 +635,10 @@ class BatchPlanner:
     def _create_batch(self, batch_id: int, nodes: List[StatementNode]) -> AnalysisBatch:
         """배치 ID와 노드 리스트로 AnalysisBatch 객체를 생성합니다 (DBMS 스타일과 동일)."""
         ranges = [{"startLine": node.start_line, "endLine": node.end_line} for node in nodes]
-        # 메서드 호출을 포함하는 노드 수집 (METHOD_CALL 타입 또는 코드에 호출 패턴 포함)
         method_call_ranges = [
             {"startLine": node.start_line, "endLine": node.end_line, "type": node.node_type, "code": node.code}
             for node in nodes
-            if node.node_type in METHOD_CALL_TYPES or METHOD_CALL_PATTERN.search(node.code)
+            if _is_method_call_node(node)
         ]
         progress = max(node.end_line for node in nodes)
         return AnalysisBatch(
@@ -957,98 +974,207 @@ class ApplyManager:
             class_node.completion_event.set()
             return
 
+        all_user_stories = []
+        final_summary = ""
+
         try:
-            # 대용량 처리: summary 개수가 MAX_SUMMARY_CHUNK_SIZE를 초과하면 청크로 분할
-            summary_items = list(summaries.items())
-            total_count = len(summary_items)
+            # 1단계: 토큰 기준으로 청크 분할
+            def _split_summaries_by_token(summaries: dict, max_token: int) -> List[dict]:
+                """토큰 기준으로 summaries를 청크로 분할합니다."""
+                if not summaries:
+                    return []
+                
+                chunks = []
+                current_chunk = {}
+                current_tokens = 0
+                
+                for key, value in summaries.items():
+                    item_text = f"{key}: {value}"
+                    item_tokens = calculate_code_token(item_text)
+                    
+                    if current_tokens + item_tokens > max_token and current_chunk:
+                        chunks.append(current_chunk)
+                        current_chunk = {}
+                        current_tokens = 0
+                    
+                    current_chunk[key] = value
+                    current_tokens += item_tokens
+                
+                if current_chunk:
+                    chunks.append(current_chunk)
+                
+                return chunks
             
-            if total_count <= MAX_SUMMARY_CHUNK_SIZE:
-                # 단일 청크 처리
-                result = await asyncio.to_thread(
-                    understand_class_summary,
-                    summaries,
+            chunks = _split_summaries_by_token(summaries, MAX_SUMMARY_CHUNK_TOKEN)
+            
+            if not chunks:
+                class_node.completion_event.set()
+                return
+            
+            log_process("UNDERSTAND", "SUMMARY", f"📦 {info.name}: summary 청크 분할 완료 ({len(chunks)}개 청크)")
+            
+            # 2단계: 각 청크를 병렬로 처리하여 summary 생성 및 User Story 생성
+            async def process_chunk(chunk_idx: int, chunk: dict) -> Tuple[str, List[Dict[str, Any]]]:
+                """청크를 처리하여 summary와 User Story 생성 (병렬 처리용)."""
+                chunk_tokens = calculate_code_token(json.dumps(chunk, ensure_ascii=False))
+                log_process("UNDERSTAND", "SUMMARY", f"  → 청크 {chunk_idx + 1}/{len(chunks)} 처리 시작 (토큰: {chunk_tokens})")
+                
+                # Summary 생성
+                summary_result = await asyncio.to_thread(
+                    understand_class_summary_only,
+                    chunk,
                     self.api_key,
                     self.locale,
+                    ""  # 병렬 처리이므로 이전 summary 없음
                 )
-            else:
-                # 청크 분할 처리
-                log_process("UNDERSTAND", "SUMMARY", f"📦 {info.name}: 대용량 summary ({total_count}개) 청크 분할 처리 시작")
                 
-                chunks = [
-                    dict(summary_items[i:i + MAX_SUMMARY_CHUNK_SIZE])
-                    for i in range(0, total_count, MAX_SUMMARY_CHUNK_SIZE)
-                ]
+                if isinstance(summary_result, dict):
+                    chunk_summary = summary_result.get('summary', '')
+                else:
+                    chunk_summary = ""
                 
-                previous_summary = ""
-                previous_user_stories = []
-                final_summary = ""
-                all_user_stories = []  # 모든 청크의 User Story 누적
-                
-                for chunk_idx, chunk in enumerate(chunks, 1):
-                    log_process("UNDERSTAND", "SUMMARY", f"  → 청크 {chunk_idx}/{len(chunks)} 처리 중 ({len(chunk)}개)")
-                    
-                    chunk_result = await asyncio.to_thread(
-                        understand_class_summary, 
-                        chunk, 
-                        self.api_key, 
-                        self.locale, 
-                        previous_summary,
-                        previous_user_stories
+                # 각 청크의 summary로 User Story 생성
+                chunk_user_stories = []
+                if chunk_summary:
+                    user_story_result = await asyncio.to_thread(
+                        understand_class_user_story,
+                        chunk_summary,
+                        self.api_key,
+                        self.locale
                     )
-                    
-                    if isinstance(chunk_result, dict):
-                        # summary는 마지막 청크의 것을 최종 사용 (이전 summary를 포함한 전체 요약)
-                        final_summary = chunk_result.get('summary', '')
-                        previous_summary = final_summary
-                        
-                        # user_stories는 누적 (LLM이 이전 것과 중복 제거하며 생성)
-                        chunk_stories = chunk_result.get('user_stories', [])
-                        if chunk_stories:
-                            # 이전 User Story를 다음 청크에 전달 (중복 방지용)
-                            previous_user_stories = chunk_stories
-                            # 모든 청크의 User Story 누적
-                            all_user_stories.extend(chunk_stories)
+                    if isinstance(user_story_result, dict):
+                        chunk_user_stories = user_story_result.get('user_stories', []) or []
                 
-                # 최종 결과 조합 (마지막 summary + 모든 청크의 User Story)
-                result = {
-                    'summary': final_summary,
-                    'user_stories': all_user_stories
-                }
-                log_process("UNDERSTAND", "SUMMARY", f"✅ {info.name}: 청크 분할 처리 완료 (User Story {len(all_user_stories)}개)")
+                return chunk_summary, chunk_user_stories
+            
+            # 모든 청크를 병렬로 처리
+            chunk_tasks = [process_chunk(idx, chunk) for idx, chunk in enumerate(chunks)]
+            chunk_results_raw = await asyncio.gather(*chunk_tasks)
+            
+            # 결과 추출
+            chunk_results = []
+            for chunk_summary, chunk_user_stories in chunk_results_raw:
+                if chunk_summary:
+                    chunk_results.append(chunk_summary)
+                if chunk_user_stories:
+                    all_user_stories.extend(chunk_user_stories)
+            
+            if not chunk_results:
+                class_node.completion_event.set()
+                return
+            
+            # 3단계: 모든 청크의 summary를 하나로 합치기
+            if len(chunk_results) == 1:
+                final_summary = chunk_results[0]
+            else:
+                # 여러 청크의 summary를 딕셔너리로 변환하여 합치기
+                combined_summaries = {}
+                for idx, chunk_summary in enumerate(chunk_results):
+                    combined_summaries[f"CHUNK_{idx + 1}"] = chunk_summary
+                
+                # 합친 summary를 다시 LLM에 전달하여 최종 요약 생성
+                final_summary_result = await asyncio.to_thread(
+                    understand_class_summary_only,
+                    combined_summaries,
+                    self.api_key,
+                    self.locale,
+                    ""
+                )
+                if isinstance(final_summary_result, dict):
+                    final_summary = final_summary_result.get('summary', "\n\n".join(chunk_results))
+                else:
+                    final_summary = "\n\n".join(chunk_results)
+            
+            log_process("UNDERSTAND", "SUMMARY", f"✅ {info.name}: summary 통합 완료")
+            
+            # 4단계: 최종 summary로도 User Story 생성 (청크별 User Story와 함께 수집)
+            final_user_story_result = await asyncio.to_thread(
+                understand_class_user_story,
+                final_summary,
+                self.api_key,
+                self.locale
+            )
+            
+            if isinstance(final_user_story_result, dict):
+                final_user_stories = final_user_story_result.get('user_stories', []) or []
+                all_user_stories.extend(final_user_stories)
+            
+            if all_user_stories:
+                log_process("UNDERSTAND", "SUMMARY", f"✅ {info.name}: User Story {len(all_user_stories)}개")
+            else:
+                log_process("UNDERSTAND", "SUMMARY", f"✅ {info.name}: User Story 없음")
                 
         except Exception as exc:
             log_process("UNDERSTAND", "SUMMARY", f"❌ 클래스 요약 생성 오류: {info.name}", logging.ERROR, exc)
             class_node.completion_event.set()
             return
 
-        if not isinstance(result, dict):
-            class_node.completion_event.set()
-            return
-            
-        summary_value = result.get("summary")
-        user_stories = result.get("user_stories", [])
-        
-        if not summary_value:
-            log_process("UNDERSTAND", "SUMMARY", f"⚠️ 클래스 요약 없음: {info.name}")
+        if not final_summary:
             class_node.completion_event.set()
             return
 
-        # Neo4j에 summary와 user_stories 저장
-        escaped_summary = escape_for_cypher(str(summary_value))
-        user_stories_json = json.dumps(user_stories, ensure_ascii=False)
+        # Neo4j에 summary 저장 및 User Story/AC를 노드와 관계로 저장
+        escaped_summary = escape_for_cypher(str(final_summary))
         
-        query = (
+        # Summary 저장
+        summary_query = (
             f"MATCH (n:{info.kind} {{startLine: {info.node_start}, {self.node_base_props}}})\n"
-            f"SET n.summary = '{escaped_summary}',\n"
-            f"    n.user_stories = {user_stories_json}\n"
+            f"SET n.summary = '{escaped_summary}'\n"
             f"RETURN n"
         )
-        await self._send_queries([query], info.node_end)
-        class_node.summary = str(summary_value)
+        
+        queries = [summary_query]
+        
+        # User Story와 AC를 노드와 관계로 저장 (유효한 User Story가 있는 경우만)
+        if all_user_stories:
+            class_name_escaped = escape_for_cypher(info.name)
+            for us_idx, us in enumerate(all_user_stories, 1):
+                us_id = us.get('id', f"US-{us_idx}")
+                role = escape_for_cypher(us.get('role', ''))
+                goal = escape_for_cypher(us.get('goal', ''))
+                benefit = escape_for_cypher(us.get('benefit', ''))
+                
+                # User Story 노드 생성 및 관계
+                us_query = (
+                    f"MATCH (c:{info.kind} {{startLine: {info.node_start}, {self.node_base_props}}})\n"
+                    f"MERGE (us:UserStory {{id: '{us_id}', class_name: '{class_name_escaped}', {self.node_base_props}}})\n"
+                    f"SET us.role = '{role}',\n"
+                    f"    us.goal = '{goal}',\n"
+                    f"    us.benefit = '{benefit}'\n"
+                    f"MERGE (c)-[r:HAS_USER_STORY]->(us)\n"
+                    f"RETURN c, us, r"
+                )
+                queries.append(us_query)
+                
+                # Acceptance Criteria 노드 생성 및 관계
+                acs = us.get('acceptance_criteria', [])
+                for ac_idx, ac in enumerate(acs, 1):
+                    if not isinstance(ac, dict):
+                        continue
+                    ac_id = ac.get('id', f"AC-{us_idx}-{ac_idx}")
+                    ac_title = escape_for_cypher(ac.get('title', ''))
+                    ac_given = json.dumps(ac.get('given', []), ensure_ascii=False)
+                    ac_when = json.dumps(ac.get('when', []), ensure_ascii=False)
+                    ac_then = json.dumps(ac.get('then', []), ensure_ascii=False)
+                    
+                    ac_query = (
+                        f"MATCH (us:UserStory {{id: '{us_id}', {self.node_base_props}}})\n"
+                        f"MERGE (ac:AcceptanceCriteria {{id: '{ac_id}', user_story_id: '{us_id}', {self.node_base_props}}})\n"
+                        f"SET ac.title = '{ac_title}',\n"
+                        f"    ac.given = {ac_given},\n"
+                        f"    ac.when = {ac_when},\n"
+                        f"    ac.then = {ac_then}\n"
+                        f"MERGE (us)-[r:HAS_AC]->(ac)\n"
+                        f"RETURN us, ac, r"
+                    )
+                    queries.append(ac_query)
+        
+        await self._send_queries(queries, info.node_end)
+        class_node.summary = str(final_summary)
         class_node.completion_event.set()
         
         # User Story 개수 로깅
-        us_count = len(user_stories) if user_stories else 0
+        us_count = len(all_user_stories) if all_user_stories else 0
         log_process("UNDERSTAND", "SUMMARY", f"✅ 클래스 요약 + User Story({us_count}개) 완료: {info.name}")
 
     async def _finalize_remaining_classes(self):

@@ -397,16 +397,26 @@ def aggregate_user_stories_from_results(results: List[Dict[str, Any]]) -> List[D
             continue
         
         for us in user_stories:
-            if not isinstance(us, dict):
+            # Neo4j 쿼리 결과에서 null 값 필터링
+            if not us or not isinstance(us, dict) or not us.get("id"):
                 continue
             
             us_copy = us.copy()
-            us_copy["id"] = f"US-{story_id_counter}"
+            # ID가 이미 있으면 유지, 없으면 새로 생성
+            if not us_copy.get("id"):
+                us_copy["id"] = f"US-{story_id_counter}"
             
+            # Acceptance Criteria 처리 (Neo4j에서 collect로 묶인 배열)
             acs = us_copy.get("acceptance_criteria", [])
-            for ac_idx, ac in enumerate(acs, 1):
-                if isinstance(ac, dict):
-                    ac["id"] = f"AC-{story_id_counter}-{ac_idx}"
+            if acs:
+                # null 값 필터링
+                acs = [ac for ac in acs if ac and isinstance(ac, dict) and ac.get("id")]
+                us_copy["acceptance_criteria"] = acs
+                
+                # AC ID 재할당 (필요시)
+                for ac_idx, ac in enumerate(acs, 1):
+                    if isinstance(ac, dict) and not ac.get("id"):
+                        ac["id"] = f"AC-{story_id_counter}-{ac_idx}"
             
             all_stories.append(us_copy)
             story_id_counter += 1

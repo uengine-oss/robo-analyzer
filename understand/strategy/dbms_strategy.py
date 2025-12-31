@@ -154,7 +154,7 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
                     orchestrator,
                 ):
                     yield chunk
-
+                
             # ========== User Story 생성 ==========
             yield emit_message(f"")
             yield emit_message(f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
@@ -566,16 +566,32 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
     ) -> str:
         """분석된 모든 프로시저/함수에서 Summary와 User Story를 수집하여 상세 문서를 생성합니다."""
         try:
-            # summary와 user_stories를 모두 조회
+            # summary와 user_stories를 노드와 관계로 조회
             query = f"""
                 MATCH (n)
                 WHERE (n:PROCEDURE OR n:FUNCTION OR n:TRIGGER)
                   AND n.user_id = '{escape_for_cypher(orchestrator.user_id)}'
                   AND n.project_name = '{escape_for_cypher(orchestrator.project_name)}'
-                  AND (n.summary IS NOT NULL OR n.user_stories IS NOT NULL)
+                  AND n.summary IS NOT NULL
+                OPTIONAL MATCH (n)-[:HAS_USER_STORY]->(us:UserStory)
+                OPTIONAL MATCH (us)-[:HAS_AC]->(ac:AcceptanceCriteria)
+                WITH n, 
+                     collect(DISTINCT {{
+                         id: us.id,
+                         role: us.role,
+                         goal: us.goal,
+                         benefit: us.benefit,
+                         acceptance_criteria: collect(DISTINCT {{
+                             id: ac.id,
+                             title: ac.title,
+                             given: ac.given,
+                             when: ac.when,
+                             then: ac.then
+                         }})
+                     }}) AS user_stories
                 RETURN n.procedure_name AS name, 
                        n.summary AS summary,
-                       n.user_stories AS user_stories, 
+                       user_stories AS user_stories, 
                        labels(n)[0] AS type
                 ORDER BY n.file_name, n.startLine
             """
@@ -586,10 +602,12 @@ class DbmsUnderstandStrategy(UnderstandStrategy):
                 return ""
             
             # summary가 있거나 user_stories가 있는 결과만 필터링
-            filtered_results = [
-                r for r in results[0] 
-                if r.get("summary") or r.get("user_stories")
-            ]
+            filtered_results = []
+            for r in results[0]:
+                user_stories = r.get("user_stories")
+                # 빈 배열이 아닌 실제 User Story가 있는 경우만 포함
+                if r.get("summary") or (user_stories and len(user_stories) > 0):
+                    filtered_results.append(r)
             
             if not filtered_results:
                 return ""
