@@ -1,18 +1,32 @@
-"""
-utility_tool.py - Robo Analyzer 유틸리티 모듈
+"""ROBO Analyzer 유틸리티 모듈
 
-소스 코드 분석을 위한 핵심 유틸리티 함수들을 제공합니다.
-토큰 계산, 스트리밍 이벤트, 문자열 처리 등의 기능을 포함합니다.
+핵심 유틸리티 함수:
+- 토큰 계산
+- 문자열 처리 (Cypher 이스케이프)
+- User Story 문서 생성
+- 스트리밍 이벤트 (stream_utils에서 re-export)
 """
 
-import os
 import logging
 import json
 import uuid
 import tiktoken
 from typing import Optional, Dict, List, Any, Union
 
-from util.exception import UtilProcessingError
+from util.exception import RoboAnalyzerError
+
+# 스트리밍 유틸리티 (stream_utils.py에서 import)
+from util.stream_utils import (
+    emit_bytes,
+    emit_message,
+    emit_error,
+    emit_data,
+    emit_node_event,
+    emit_relationship_event,
+    emit_complete,
+    build_error_body,
+    stream_with_error_boundary,
+)
 
 
 def log_process(context: str, stage: str, message: str, level: int = logging.INFO, exc: Exception | None = None) -> None:
@@ -31,123 +45,6 @@ def log_process(context: str, stage: str, message: str, level: int = logging.INF
 
 # tiktoken 인코더 초기화
 ENCODER = tiktoken.get_encoding("cl100k_base")
-
-
-#==============================================================================
-# 스트리밍/이벤트 유틸리티 (NDJSON 표준)
-#==============================================================================
-
-def emit_bytes(payload: dict) -> bytes:
-    """NDJSON 형식으로 스트림 전송용 바이트 생성."""
-    return json.dumps(payload, default=str, ensure_ascii=False).encode('utf-8') + b'\n'
-
-
-def emit_message(content: str) -> bytes:
-    """message 이벤트 전송."""
-    return emit_bytes({"type": "message", "content": content})
-
-
-def emit_error(content: str, error_type: str = None, trace_id: str = None) -> bytes:
-    """에러 이벤트 전송."""
-    payload = {"type": "error", "content": content}
-    if error_type:
-        payload["errorType"] = error_type
-    if trace_id:
-        payload["traceId"] = trace_id
-    return emit_bytes(payload)
-
-
-def emit_data(**fields) -> bytes:
-    """data 이벤트 전송. fields는 최상위 필드로 포함됨."""
-    payload = {"type": "data"}
-    payload.update({k: v for k, v in fields.items() if v is not None})
-    return emit_bytes(payload)
-
-
-def emit_node_event(
-    action: str,
-    node_type: str,
-    node_name: str,
-    details: Optional[Dict[str, Any]] = None
-) -> bytes:
-    """노드 생성/수정/업데이트 이벤트 전송.
-    
-    Args:
-        action: 액션 타입 ("created", "updated", "deleted")
-        node_type: 노드 타입 (예: "CLASS", "METHOD", "PROCEDURE", "Table")
-        node_name: 노드 이름
-        details: 추가 상세 정보 (선택)
-    """
-    payload = {
-        "type": "node_event",
-        "action": action,
-        "nodeType": node_type,
-        "nodeName": node_name,
-    }
-    if details:
-        payload["details"] = details
-    return emit_bytes(payload)
-
-
-def emit_relationship_event(
-    action: str,
-    rel_type: str,
-    source: str,
-    target: str,
-    details: Optional[Dict[str, Any]] = None
-) -> bytes:
-    """관계 생성/수정/삭제 이벤트 전송.
-    
-    Args:
-        action: 액션 타입 ("created", "updated", "deleted")
-        rel_type: 관계 타입 (예: "CALLS", "PARENT_OF", "FROM", "WRITES")
-        source: 소스 노드 이름
-        target: 타겟 노드 이름
-        details: 추가 상세 정보 (선택)
-    """
-    payload = {
-        "type": "relationship_event",
-        "action": action,
-        "relType": rel_type,
-        "source": source,
-        "target": target,
-    }
-    if details:
-        payload["details"] = details
-    return emit_bytes(payload)
-
-
-def emit_complete(summary: str = None) -> bytes:
-    """스트림 완료 이벤트."""
-    payload = {"type": "complete"}
-    if summary:
-        payload["summary"] = summary
-    return emit_bytes(payload)
-
-
-def build_error_body(exc: Exception, trace_id: str | None = None, message: str | None = None) -> dict:
-    """비스트리밍 500 응답용 표준 에러 바디 생성."""
-    return {
-        "errorType": exc.__class__.__name__,
-        "message": message or str(exc),
-        "traceId": trace_id or f"req-{uuid.uuid4()}"
-    }
-
-
-async def stream_with_error_boundary(async_gen):
-    """스트리밍 처리 경계. 예외 발생 시 에러 이벤트 전송 후 종료."""
-    trace_id = f"stream-{uuid.uuid4().hex[:8]}"
-    
-    try:
-        async for chunk in async_gen:
-            yield chunk
-        yield emit_complete()
-    except GeneratorExit:
-        logging.info(f"[{trace_id}] 클라이언트 연결 종료")
-    except Exception as e:
-        error_msg = f"{e.__class__.__name__}: {str(e)}"
-        logging.error(f"[{trace_id}] 스트림 에러: {error_msg}", exc_info=True)
-        yield emit_error(error_msg, error_type=e.__class__.__name__, trace_id=trace_id)
 
 
 #==============================================================================
@@ -205,7 +102,7 @@ def calculate_code_token(code: Union[str, Dict, List]) -> int:
     except Exception as e:
         err_msg = f"토큰 계산 도중 문제가 발생: {str(e)}"
         logging.error(err_msg)
-        raise UtilProcessingError(err_msg)
+        raise RoboAnalyzerError(err_msg)
 
 
 #==============================================================================

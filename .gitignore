@@ -23,6 +23,7 @@ langchain.db
 .env
 /neo4j
 /logs/
+/doc/
 # Ignore src and target folders
 /src/
 /target/

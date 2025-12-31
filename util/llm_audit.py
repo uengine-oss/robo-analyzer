@@ -1,3 +1,8 @@
+"""LLM 호출 감사 로깅
+
+LLM 호출을 기록하고 디버깅을 위한 로그를 생성합니다.
+"""
+
 import json
 import os
 import re
@@ -10,6 +15,8 @@ try:
 except ImportError:  # pragma: no cover
     from langchain.callbacks import get_openai_callback
 
+from config.settings import settings
+
 __all__ = [
     "reset_audit_log",
     "log_llm_interaction",
@@ -17,10 +24,8 @@ __all__ = [
     "ainvoke_with_audit",
 ]
 
-
-_BASE_DIR = os.getenv("DOCKER_COMPOSE_CONTEXT") or os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-_AUDIT_DIR = os.getenv("LLM_AUDIT_DIR") or os.path.join(_BASE_DIR, "logs")
-_PROMPT_LOG_DIR = os.path.join(_AUDIT_DIR, "llm_prompts")
+_AUDIT_DIR = settings.path.audit_dir
+_PROMPT_LOG_DIR = settings.path.prompt_log_dir
 _FILE_LOCK = threading.Lock()
 _CLEARED_PROMPTS: set[str] = set()
 

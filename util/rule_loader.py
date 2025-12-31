@@ -1,152 +1,170 @@
+"""YAML 기반 프롬프트 로더
+
+LLM 프롬프트를 YAML 파일로 관리하고 Jinja2로 렌더링합니다.
+
+사용법:
+    loader = RuleLoader(target_lang="dbms")
+    result = loader.execute("analysis", {"code": "..."}, api_key="...")
+    
+디렉토리 구조:
+    rules/
+    ├── dbms/
+    │   ├── analysis.yaml
+    │   └── ddl.yaml
+    └── framework/
+        ├── analysis.yaml
+        └── field.yaml
+"""
+
 import json
-import os
-import yaml
 import logging
-from typing import Dict, Any
-from jinja2 import Template, TemplateError
+import os
 from functools import lru_cache
+from typing import Any, Dict
+
+import yaml
+from jinja2 import Template, TemplateError
+from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnablePassthrough
-from langchain_core.output_parsers import JsonOutputParser
-from util.llm_client import get_llm
-from util.llm_audit import invoke_with_audit
+
 from util.exception import LLMCallError
+from util.llm_audit import invoke_with_audit
+from util.llm_client import get_llm
+
+logger = logging.getLogger(__name__)
 
 
-# ===== Helpers =====
 def _safe_copy(value: Any) -> Any:
+    """JSON 직렬화 가능한 형태로 깊은 복사"""
     try:
         return json.loads(json.dumps(value, ensure_ascii=False))
     except (TypeError, ValueError):
         return value
 
 
-# ===== RuleLoader =====
 class RuleLoader:
-    """YAML 기반 프롬프트/템플릿 로더."""
+    """YAML 기반 프롬프트/템플릿 로더
     
-    __slots__ = ('target_lang', 'domain', 'role_dir')
+    Args:
+        target_lang: 타겟 언어 (dbms, framework)
+    """
     
-    def __init__(self, target_lang: str = 'java', domain: str = 'understand'):
-        """RuleLoader 초기화."""
+    __slots__ = ("target_lang", "rule_dir")
+    
+    def __init__(self, target_lang: str = "framework"):
         self.target_lang = target_lang
-        self.domain = domain
-        self.role_dir = os.path.join(
-            os.path.dirname(os.path.dirname(__file__)),
-            'rules',
-            domain,
-            target_lang
-        )
-        if not os.path.exists(self.role_dir):
-            raise FileNotFoundError(f"Role 디렉토리가 존재하지 않습니다: {self.role_dir}")
+        
+        base_dir = os.path.dirname(os.path.dirname(__file__))
+        self.rule_dir = os.path.join(base_dir, "rules", target_lang)
+        
+        if not os.path.exists(self.rule_dir):
+            raise FileNotFoundError(f"Rule 디렉토리가 존재하지 않습니다: {self.rule_dir}")
     
     @lru_cache(maxsize=32)
-    def _load_role_file(self, role_name: str) -> Dict[str, Any]:
-        """Role 파일 로드 (캐싱)."""
-        role_path = os.path.join(self.role_dir, f"{role_name}.yaml")
-        if not os.path.exists(role_path):
-            raise FileNotFoundError(f"Role 파일이 존재하지 않습니다: {role_path}")
+    def _load_rule(self, rule_name: str) -> Dict[str, Any]:
+        """Rule YAML 파일 로드 (캐싱)"""
+        rule_path = os.path.join(self.rule_dir, f"{rule_name}.yaml")
+        
+        if not os.path.exists(rule_path):
+            raise FileNotFoundError(f"Rule 파일이 존재하지 않습니다: {rule_path}")
         
         try:
-            with open(role_path, 'r', encoding='utf-8') as f:
+            with open(rule_path, "r", encoding="utf-8") as f:
                 return yaml.safe_load(f)
         except yaml.YAMLError as e:
-            raise ValueError(f"YAML 파싱 오류 ({role_path}): {str(e)}")
-        except Exception as e:
-            raise ValueError(f"Role 파일 로드 오류 ({role_path}): {str(e)}")
+            raise ValueError(f"YAML 파싱 오류 ({rule_path}): {e}")
     
-    def validate_inputs(self, role: Dict[str, Any], inputs: Dict[str, Any]) -> Dict[str, Any]:
-        """입력값 검증 및 기본값 설정."""
+    def validate_inputs(self, rule: Dict[str, Any], inputs: Dict[str, Any]) -> Dict[str, Any]:
+        """입력값 검증 및 기본값 설정"""
         validated = inputs.copy()
-        required_fields = role.get('input_schema', {}).get('required', [])
-        for field in required_fields:
-            if field not in validated:
-                raise ValueError(f"필수 필드 누락: {field}")
         
-        optional_fields = role.get('input_schema', {}).get('optional', {})
-        for field, spec in optional_fields.items():
-            if field not in validated and isinstance(spec, dict) and 'default' in spec:
-                validated[field] = spec['default']
+        # 필수 필드 검증
+        required = rule.get("input_schema", {}).get("required", [])
+        missing = [f for f in required if f not in validated]
+        if missing:
+            raise ValueError(f"필수 필드 누락: {', '.join(missing)}")
+        
+        # 선택 필드 기본값 설정
+        optional = rule.get("input_schema", {}).get("optional", {})
+        for field, spec in optional.items():
+            if field not in validated and isinstance(spec, dict) and "default" in spec:
+                validated[field] = spec["default"]
         
         return validated
     
-    def render_template(self, role_name: str, inputs: Dict[str, Any]) -> str:
-        """템플릿 렌더링 (LLM 미호출)."""
-        role = self._load_role_file(role_name)
-        validated_inputs = self.validate_inputs(role, inputs)
+    def render_template(self, rule_name: str, inputs: Dict[str, Any]) -> str:
+        """템플릿 렌더링 (LLM 미호출)"""
+        rule = self._load_rule(rule_name)
+        validated = self.validate_inputs(rule, inputs)
+        
+        template_content = rule.get("template", "")
+        if not template_content:
+            raise ValueError(f"템플릿이 정의되지 않았습니다: {rule_name}")
         
         try:
-            # Jinja2 템플릿 렌더링
-            template_content = role.get('template', '')
-            if not template_content:
-                raise ValueError(f"템플릿이 정의되지 않았습니다: {role_name}")
+            return Template(template_content).render(**validated)
+        except TemplateError as e:
+            raise ValueError(f"템플릿 렌더링 오류 ({rule_name}): {e}")
+    
+    def render_prompt(self, rule_name: str, inputs: Dict[str, Any]) -> str:
+        """프롬프트 렌더링 (LLM 미호출)"""
+        rule = self._load_rule(rule_name)
+        validated = self.validate_inputs(rule, inputs)
+        
+        try:
+            return Template(rule["prompt"]).render(**validated)
+        except TemplateError as e:
+            raise ValueError(f"프롬프트 렌더링 오류 ({rule_name}): {e}")
+    
+    def execute(self, rule_name: str, inputs: Dict[str, Any], api_key: str) -> Dict[str, Any]:
+        """프롬프트 실행 (LLM 호출)
+        
+        Args:
+            rule_name: 규칙 이름 (YAML 파일명, 확장자 제외)
+            inputs: 프롬프트 입력값
+            api_key: LLM API 키
             
-            template = Template(template_content)
-            return template.render(**validated_inputs)
-        except TemplateError as e:
-            raise ValueError(f"템플릿 렌더링 오류 ({role_name}): {str(e)}")
-        except KeyError as e:
-            raise ValueError(f"템플릿에 필요한 키 누락 ({role_name}): {str(e)}")
-    
-    def render_prompt(self, role_name: str, inputs: Dict[str, Any]) -> str:
-        """프롬프트 템플릿 렌더링 (LLM 미호출)."""
-        role = self._load_role_file(role_name)
-        validated_inputs = self.validate_inputs(role, inputs)
-        
+        Returns:
+            LLM 응답 (JSON 파싱됨)
+        """
         try:
-            # Jinja2 템플릿 렌더링
-            template = Template(role['prompt'])
-            return template.render(**validated_inputs)
-        except TemplateError as e:
-            raise ValueError(f"프롬프트 템플릿 렌더링 오류 ({role_name}): {str(e)}")
-        except KeyError as e:
-            raise ValueError(f"프롬프트 템플릿에 필요한 키 누락 ({role_name}): {str(e)}")
-    
-    def execute(self, role_name: str, inputs: Dict[str, Any], api_key: str) -> Dict[str, Any]:
-        """프롬프트 실행 (LLM 호출)."""
-        try:
-            _ = self._load_role_file(role_name)
-            prompt_text = self.render_prompt(role_name, inputs)
+            _ = self._load_rule(rule_name)
+            prompt_text = self.render_prompt(rule_name, inputs)
+            rule_path = os.path.join(self.rule_dir, f"{rule_name}.yaml")
 
-            role_path = os.path.join(self.role_dir, f"{role_name}.yaml")
-
-            # LLM 호출 (파라미터는 llm_client에서 일괄 관리)
             llm = get_llm(api_key=api_key)
-
-            # Langchain 체인 구성
-            langchain_prompt = PromptTemplate.from_template("{prompt}")
             chain = (
                 RunnablePassthrough()
-                | langchain_prompt
+                | PromptTemplate.from_template("{prompt}")
                 | llm
                 | JsonOutputParser()
             )
 
-            payload = {"prompt": prompt_text}
-            metadata = {
-                "role": role_name,
-                "targetLang": self.target_lang,
-                "domain": self.domain,
-                "rulePath": role_path,
-            }
-
             result = invoke_with_audit(
                 chain,
-                payload,
-                prompt_name=f"rules/{self.domain}/{self.target_lang}/{role_name}",
+                {"prompt": prompt_text},
+                prompt_name=f"rules/{self.target_lang}/{rule_name}",
                 input_payload={
                     "inputs": _safe_copy(inputs),
                     "renderedPrompt": prompt_text,
                 },
-                metadata=metadata,
+                metadata={
+                    "rule": rule_name,
+                    "targetLang": self.target_lang,
+                    "rulePath": rule_path,
+                },
             )
             return result
             
         except Exception as e:
-            err_msg = f"{role_name} 프롬프트 실행 중 오류: {e}"
-            logging.error(err_msg, exc_info=True)
-            raise LLMCallError(err_msg)
+            logger.error("[RULE] 프롬프트 실행 실패 | rule=%s | error=%s", rule_name, e)
+            raise LLMCallError(
+                f"{rule_name} 프롬프트 실행 중 오류: {e}",
+                prompt_name=rule_name,
+                cause=e,
+            )
     
     def clear_cache(self):
         """캐시 초기화"""
-        self._load_role_file.cache_clear()
+        self._load_rule.cache_clear()

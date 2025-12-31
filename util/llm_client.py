@@ -1,90 +1,87 @@
-"""LLM 클라이언트 생성 모듈"""
+"""LLM 클라이언트 팩토리
 
-import os
-from typing import Any
+OpenAI 호환 API 또는 커스텀 LLM 클라이언트를 생성합니다.
+
+사용법:
+    llm = get_llm(api_key="...")
+    response = llm.invoke("안녕하세요")
+"""
+
+import logging
+from typing import Optional
+
 from langchain_openai import ChatOpenAI
+
+from config.settings import settings
 from util.custom_llm_client import CustomLLMClient
 
-# =========================
-# 상수 정의
-# =========================
-DEFAULT_BASE_URL = "https://api.openai.com/v1"
-DEFAULT_API_KEY = ""
-DEFAULT_MODEL = "gpt-4.1"
-DEFAULT_MAX_TOKENS = 32768
 
-# 커스텀 LLM 클래스 딕셔너리
-CUSTOM_LLM_CLASSES = {
-    "custom": CustomLLMClient,
-}
-
-# OpenAI 추론(reasoning) 모델 리스트
-REASONING_MODELS: set[str] = {
-    "gpt-5",
-    "gpt-5.1",
-    "gpt-5.1-thinking",
-    "gpt-5.1-instant",
-    "gpt-5-pro",
-    "o1",
-    "o1-mini",
-    "o3-mini",
-    "o4-mini",
-}
+# 추론 모델 (thinking 기반)
+REASONING_MODELS = frozenset({
+    "gpt-5", "o1", "o1-pro", "o1-mini", "o1-preview", "o3", "o3-mini", "o4-mini"
+})
 
 
-def _is_reasoning_model(model_name: str) -> bool:
-    """추론 모델 여부 판별"""
-    if model_name in REASONING_MODELS:
-        return True
-    reasoning_prefixes = ("gpt-5", "o1", "o3", "o4")
-    return any(model_name.startswith(p) for p in reasoning_prefixes)
+def _is_reasoning_model(model: str) -> bool:
+    """추론 모델 여부 확인"""
+    model_lower = model.lower() if model else ""
+    return any(rm in model_lower for rm in REASONING_MODELS)
 
 
 def get_llm(
-    model: str | None = None,
-    temperature: float = 0.1,
-    max_tokens: int | None = None,
-    api_key: str | None = None,
-    base_url: str | None = None,
-    is_custom_llm: bool = False,
-    company_name: str | None = None,
-) -> Any:
-    """
-    LLM 클라이언트 생성
+    *,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+    model: Optional[str] = None,
+    max_tokens: Optional[int] = None,
+    is_custom_llm: Optional[bool] = None,
+    company_name: Optional[str] = None,
+):
+    """LLM 클라이언트 생성
     
-    - 일반 모델(gpt-4.1, gpt-4o 등): temperature 사용
-    - 추론 모델(gpt-5.*, o3-mini 등): reasoning_effort 사용
+    Args:
+        api_key: API 키 (기본: 환경변수)
+        base_url: API 기본 URL (기본: 환경변수)
+        model: 모델명 (기본: 환경변수)
+        max_tokens: 최대 토큰 (기본: 환경변수)
+        is_custom_llm: 커스텀 LLM 사용 여부 (기본: 환경변수)
+        company_name: 커스텀 LLM 회사명 (기본: 환경변수)
+    
+    Returns:
+        ChatOpenAI 또는 CustomLLMClient 인스턴스
     """
-    base_url = base_url or os.getenv("LLM_API_BASE", DEFAULT_BASE_URL)
-    api_key = api_key or os.getenv("LLM_API_KEY", DEFAULT_API_KEY)
-    model = model or os.getenv("LLM_MODEL", DEFAULT_MODEL)
-    max_tokens = max_tokens or int(os.getenv("LLM_MAX_TOKENS", DEFAULT_MAX_TOKENS))
-    is_custom_llm = is_custom_llm or bool(os.getenv("IS_CUSTOM_LLM", None))
-    company_name = company_name or os.getenv("COMPANY_NAME", None)
+    config = settings.llm
+    
+    # 매개변수 기본값 설정
+    base_url = base_url or config.api_base
+    api_key = api_key or config.api_key
+    model = model or config.model
+    max_tokens = max_tokens or config.max_tokens
+    is_custom_llm = is_custom_llm if is_custom_llm is not None else config.is_custom
+    company_name = company_name if company_name is not None else config.company_name
 
-    # 커스텀 LLM 분기
     if is_custom_llm:
-        cls = CUSTOM_LLM_CLASSES.get(company_name or "custom", CustomLLMClient)
-        return cls(
-            model=model,
-            temperature=temperature,
-            max_tokens=max_tokens,
+        logging.debug("CustomLLM 사용: model=%s, company=%s", model, company_name)
+        return CustomLLMClient(
             api_key=api_key,
+            model=model,
             base_url=base_url,
+            max_tokens=max_tokens,
+            company_name=company_name,
         )
 
-    # OpenAI LLM (ChatOpenAI)
-    kwargs: dict[str, Any] = dict(
-        model=model,
-        openai_api_key=api_key,
-        openai_api_base=base_url,
-        max_tokens=max_tokens,
-    )
+    # OpenAI 호환 클라이언트
+    kwargs = {
+        "model": model,
+        "base_url": base_url,
+        "api_key": api_key,
+        "max_tokens": max_tokens,
+        "temperature": 0.2,
+    }
 
+    # 추론 모델 특수 처리
     if _is_reasoning_model(model):
-        default_effort = os.getenv("LLM_REASONING_EFFORT", "medium")
-        kwargs["reasoning_effort"] = default_effort
-    else:
-        kwargs["temperature"] = temperature
+        kwargs["reasoning_effort"] = config.reasoning_effort
+        logging.debug("추론 모델 사용: model=%s, effort=%s", model, kwargs["reasoning_effort"])
 
     return ChatOpenAI(**kwargs)

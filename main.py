@@ -1,41 +1,84 @@
-import logging
+"""ROBO Analyzer 메인 애플리케이션
+
+FastAPI 기반 소스 코드 분석 서버.
+
+시작 방법:
+    uvicorn main:app --host 0.0.0.0 --port 5502 --reload
+"""
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
-from service.router import router  # service.router.py 파일에서 정의한 라우터 가져오기
-from util.llm_audit import reset_audit_log
 
-# API 엔드포인트를 정의하고 요청을 처리하기 위해 FastAPI 애플리케이션을 생성
-reset_audit_log()
-app = FastAPI()
+from api.router import router
+from config.settings import settings
+from util.logger import setup_logging, get_logger
 
-# CORS 미들웨어 추가: 다른 도메인에서의 요청을 허용하기 위한 설정
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  # 모든 도메인에서의 요청을 허용
-    allow_credentials=True,
-    allow_methods=["*"],  # 모든 HTTP 메소드를 허용
-    allow_headers=["*"],  # 모든 헤더를 허용
+
+# 로깅 초기화
+setup_logging()
+logger = get_logger(__name__)
+
+
+# =============================================================================
+# FastAPI 앱 설정
+# =============================================================================
+
+app = FastAPI(
+    title="ROBO Analyzer",
+    description="소스 코드 분석 및 Neo4j 그래프 변환 서비스",
+    version="2.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc",
 )
 
-# 라우터를 FastAPI 애플리케이션 인스턴스에 등록
+# CORS 미들웨어
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# 라우터 등록
 app.include_router(router)
 
 
-# 로깅 설정
-logging.basicConfig(
-    level=logging.INFO,
-    format='%(levelname)s: %(message)s',
-    force=True  # 기존 로깅 설정을 덮어쓰기
-)
+# =============================================================================
+# 헬스체크 및 유틸리티 엔드포인트
+# =============================================================================
 
-
-# 헬스 체크 엔드포인트 추가 (루트 경로)
 @app.get("/")
 async def health_check():
-    return {"status": "ok"}
+    """헬스체크 엔드포인트"""
+    return {"status": "ok", "service": "robo-analyzer", "version": "2.0.0"}
 
 
-# 애플리케이션 실행: 개발 시 uvicorn을 사용하여 로컬 서버를 실행
+@app.get("/health")
+async def health():
+    """상세 헬스체크"""
+    return {
+        "status": "healthy",
+        "service": "robo-analyzer",
+        "version": "2.0.0",
+        "config": {
+            "file_concurrency": settings.concurrency.file_concurrency,
+            "max_concurrency": settings.concurrency.max_concurrency,
+        },
+    }
+
+
+# =============================================================================
+# 서버 시작
+# =============================================================================
+
 if __name__ == "__main__":
-    uvicorn.run(app, host="0.0.0.0", port=5502)
+    import uvicorn
+    
+    logger.info("ROBO Analyzer starting on %s:%d", settings.host, settings.port)
+    uvicorn.run(
+        "main:app",
+        host=settings.host,
+        port=settings.port,
+        reload=True,
+    )
