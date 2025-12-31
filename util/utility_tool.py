@@ -163,13 +163,17 @@ def generate_user_story_document(
         summary = ""
         if summary_raw:
             if isinstance(summary_raw, str):
-                try:
-                    summary_parsed = json.loads(summary_raw)
-                    if isinstance(summary_parsed, str):
-                        summary = summary_parsed
-                    else:
-                        summary = summary_raw
-                except (json.JSONDecodeError, TypeError):
+                # summary가 JSON 문자열이면 파싱, 아니면 그대로 사용
+                if summary_raw.startswith('{') or summary_raw.startswith('['):
+                    try:
+                        summary_parsed = json.loads(summary_raw)
+                        if isinstance(summary_parsed, str):
+                            summary = summary_parsed
+                        else:
+                            raise ValueError(f"Summary JSON이 문자열이 아닙니다: {type(summary_parsed)}")
+                    except (json.JSONDecodeError, TypeError) as e:
+                        raise ValueError(f"Summary JSON 파싱 실패: {summary_raw[:100]}...") from e
+                else:
                     summary = summary_raw
             else:
                 summary = str(summary_raw)
@@ -285,13 +289,13 @@ def aggregate_user_stories_from_results(results: List[Dict[str, Any]]) -> List[D
         if isinstance(user_stories_raw, str):
             try:
                 user_stories = json.loads(user_stories_raw)
-            except (json.JSONDecodeError, TypeError):
-                continue
+            except (json.JSONDecodeError, TypeError) as e:
+                raise ValueError(f"User Story JSON 파싱 실패: {user_stories_raw[:100]}...") from e
         else:
             user_stories = user_stories_raw
         
         if not isinstance(user_stories, list):
-            continue
+            raise ValueError(f"User Story가 리스트 형식이 아닙니다: {type(user_stories)}")
         
         for us in user_stories:
             # Neo4j 쿼리 결과에서 null 값 필터링

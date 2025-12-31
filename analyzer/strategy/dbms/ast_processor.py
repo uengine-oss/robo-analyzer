@@ -551,7 +551,8 @@ class LLMInvoker:
             return await general_task, None
         if table_task:
             return None, await table_task
-        return None, None
+        # 분석할 대상이 없으면 예외 발생
+        raise AnalysisError("LLM 분석 대상이 없습니다 (일반 분석 및 테이블 분석 모두 없음)")
 
 
 # ==================== 적용 매니저 ====================
@@ -775,12 +776,16 @@ class ApplyManager:
             try:
                 start_line = int(start_line_raw)
                 end_line = int(end_line_raw)
-            except (TypeError, ValueError):
-                continue
+            except (TypeError, ValueError) as e:
+                raise AnalysisError(
+                    f"LLM 응답의 라인 번호가 유효하지 않습니다: startLine={start_line_raw}, endLine={end_line_raw}"
+                ) from e
 
             node = node_map.get((start_line, end_line))
             if not node:
-                continue
+                raise AnalysisError(
+                    f"LLM 응답의 라인 범위에 해당하는 노드를 찾을 수 없습니다: {start_line}~{end_line}"
+                )
 
             if node.node_type == 'CREATE_TEMP_TABLE':
                 for entry in tables:
@@ -1594,7 +1599,7 @@ class DbmsAstProcessor:
     def _build_variable_queries(self, node: StatementNode, analysis: Dict[str, Any]) -> List[str]:
         """변수 분석 결과를 Neo4j 쿼리로 변환합니다."""
         if not isinstance(analysis, dict):
-            return []
+            raise AnalysisError(f"변수 분석 결과가 유효하지 않습니다 (node={node.start_line}): {type(analysis)}")
 
         variables = analysis.get("variables") or []
         summary_payload = analysis.get("summary")

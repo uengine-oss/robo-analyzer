@@ -649,7 +649,7 @@ class LLMInvoker:
             분석 결과 딕셔너리 (analysis 배열 포함, 각 요소에 calls 배열 포함)
         """
         if not batch.ranges:
-            return None
+            raise AnalysisError(f"배치 #{batch.batch_id}에 분석할 범위가 없습니다")
 
         result = await asyncio.to_thread(
             analyze_code,
@@ -1025,7 +1025,7 @@ class ApplyManager:
         except Exception as exc:
             log_process("ANALYZE", "SUMMARY", f"❌ 클래스 요약 생성 오류: {info.name}", logging.ERROR, exc)
             class_node.completion_event.set()
-            return
+            raise AnalysisError(f"클래스 요약 생성 실패 ({info.name}): {exc}") from exc
 
         if not final_summary:
             class_node.completion_event.set()
@@ -1190,8 +1190,7 @@ class FrameworkAstProcessor:
         self._nodes, self._classes = collector.collect()
         
         if not self._nodes:
-            log_process("ANALYZE", "PHASE1", f"⚠️ {self.full_directory}: 분석 대상 노드 없음")
-            return []
+            raise AnalysisError(f"분석 대상 노드가 없습니다: {self.full_directory}")
         
         # 정적 노드 쿼리 생성
         queries: List[str] = []
@@ -1401,9 +1400,8 @@ class FrameworkAstProcessor:
                     )
                     return self._build_inheritance_queries(node, result)
                 except Exception as e:
-                    # 개별 노드 실패는 허용 - 다른 노드는 계속 처리
-                    log_process("ANALYZE", "INHERITANCE", f"⚠️ 상속 분석 실패 (node={node.start_line}): {e}", logging.WARNING, e)
-                    return []
+                    log_process("ANALYZE", "INHERITANCE", f"❌ 상속 분석 실패 (node={node.start_line}): {e}", logging.ERROR, e)
+                    raise
         
         results = await asyncio.gather(*[analyze_one(n) for n in nodes])
         for r in results:
@@ -1424,9 +1422,8 @@ class FrameworkAstProcessor:
                     )
                     return self._build_field_queries(node, result)
                 except Exception as e:
-                    # 개별 노드 실패는 허용 - 다른 노드는 계속 처리
-                    log_process("ANALYZE", "FIELD", f"⚠️ 필드 분석 실패 (node={node.start_line}): {e}", logging.WARNING, e)
-                    return []
+                    log_process("ANALYZE", "FIELD", f"❌ 필드 분석 실패 (node={node.start_line}): {e}", logging.ERROR, e)
+                    raise
         
         results = await asyncio.gather(*[analyze_one(n) for n in nodes])
         for r in results:
@@ -1447,9 +1444,8 @@ class FrameworkAstProcessor:
                     )
                     return self._build_method_queries(node, result)
                 except Exception as e:
-                    # 개별 노드 실패는 허용 - 다른 노드는 계속 처리
-                    log_process("ANALYZE", "METHOD", f"⚠️ 메서드 분석 실패 (node={node.start_line}): {e}", logging.WARNING, e)
-                    return []
+                    log_process("ANALYZE", "METHOD", f"❌ 메서드 분석 실패 (node={node.start_line}): {e}", logging.ERROR, e)
+                    raise
         
         results = await asyncio.gather(*[analyze_one(n) for n in nodes])
         for r in results:
@@ -1755,7 +1751,7 @@ class FrameworkAstProcessor:
                     )
                 except Exception as exc:
                     log_process("ANALYZE", "INHERITANCE", f"❌ 상속/구현 분석 오류: 라인 {node.start_line}", logging.ERROR, exc)
-                    return
+                    raise
 
                 queries = self._build_inheritance_queries(node, result)
                 if queries:
@@ -1767,7 +1763,7 @@ class FrameworkAstProcessor:
     def _build_inheritance_queries(self, node: StatementNode, analysis: Dict[str, Any]) -> List[str]:
         """상속/구현 분석 결과를 Neo4j 쿼리로 변환합니다."""
         if not isinstance(analysis, dict):
-            return []
+            raise AnalysisError(f"상속 분석 결과가 유효하지 않습니다 (node={node.start_line}): {type(analysis)}")
 
         queries: List[str] = []
         relations = analysis.get("relations") or []
@@ -1816,7 +1812,7 @@ class FrameworkAstProcessor:
                     )
                 except Exception as exc:
                     log_process("ANALYZE", "FIELD", f"❌ 필드 분석 오류: 라인 {node.start_line}", logging.ERROR, exc)
-                    return
+                    raise
 
                 queries = self._build_field_queries(node, result)
                 if queries:
@@ -1828,7 +1824,7 @@ class FrameworkAstProcessor:
     def _build_field_queries(self, node: StatementNode, analysis: Dict[str, Any]) -> List[str]:
         """필드 분석 결과를 Neo4j 쿼리로 변환합니다."""
         if not isinstance(analysis, dict):
-            return []
+            raise AnalysisError(f"필드 분석 결과가 유효하지 않습니다 (node={node.start_line}): {type(analysis)}")
 
         queries: List[str] = []
         fields = analysis.get("fields") or []
@@ -1901,7 +1897,7 @@ class FrameworkAstProcessor:
                     )
                 except Exception as exc:
                     log_process("ANALYZE", "METHOD", f"❌ 메서드 분석 오류: 라인 {node.start_line}", logging.ERROR, exc)
-                    return
+                    raise
 
                 queries = self._build_method_queries(node, result)
                 if queries:
@@ -1913,7 +1909,7 @@ class FrameworkAstProcessor:
     def _build_method_queries(self, node: StatementNode, analysis: Dict[str, Any]) -> List[str]:
         """메서드 분석 결과를 Neo4j 쿼리로 변환합니다."""
         if not isinstance(analysis, dict):
-            return []
+            raise AnalysisError(f"메서드 분석 결과가 유효하지 않습니다 (node={node.start_line}): {type(analysis)}")
 
         queries: List[str] = []
         

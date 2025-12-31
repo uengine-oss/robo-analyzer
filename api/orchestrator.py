@@ -173,12 +173,10 @@ class AnalysisOrchestrator:
         analysis_dir = self.dirs.get("analysis", "")
         
         if not source_dir or not os.path.isdir(source_dir):
-            logging.warning("source 디렉토리 없음: %s", source_dir)
-            return []
+            raise FileProcessError(f"source 디렉토리가 존재하지 않습니다: {source_dir}")
         
         if not analysis_dir or not os.path.isdir(analysis_dir):
-            logging.warning("analysis 디렉토리 없음: %s", analysis_dir)
-            return []
+            raise FileProcessError(f"analysis 디렉토리가 존재하지 않습니다: {analysis_dir}")
         
         extensions = STRATEGY_EXTENSIONS.get(self.strategy, DEFAULT_EXTENSIONS)
         result = []

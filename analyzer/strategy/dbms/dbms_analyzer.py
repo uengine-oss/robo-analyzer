@@ -18,10 +18,10 @@ from typing import Any, AsyncGenerator
 import aiofiles
 
 from analyzer.neo4j_client import Neo4jClient
-from analyzer.parallel_executor import AnalysisTask, ParallelExecutor, ChunkBatcher
 from analyzer.strategy.base_analyzer import AnalyzerStrategy
 from analyzer.strategy.dbms.ast_processor import DbmsAstProcessor
 from config.settings import settings
+from util.exception import AnalysisError
 from util.rule_loader import RuleLoader
 from util.stream_utils import (
     emit_data,
@@ -174,24 +174,28 @@ class DbmsAnalyzer(AnalyzerStrategy):
         return RuleLoader(target_lang="dbms")
 
     def _list_ddl_files(self, orchestrator: Any) -> list[str]:
-        """DDL 파일 목록 조회"""
+        """DDL 파일 목록 조회
+        
+        DDL 디렉토리가 설정되지 않은 경우 빈 리스트 반환 (정상 케이스).
+        설정되었으나 읽기 실패 시 예외 발생.
+        """
         ddl_dir = orchestrator.dirs.get("ddl", "")
         if not ddl_dir:
-            logging.debug("[ANALYZE] DDL 디렉토리 설정 없음 - 건너뜀")
-            return []
+            logging.info("[ANALYZE] DDL 디렉토리 설정 없음 - DDL 처리 생략")
+            return []  # DDL 없이도 분석 가능 (정상)
         if not os.path.isdir(ddl_dir):
-            logging.debug("[ANALYZE] DDL 디렉토리 없음: %s - 건너뜀", ddl_dir)
-            return []
+            raise AnalysisError(f"DDL 디렉토리가 존재하지 않습니다: {ddl_dir}")
         try:
             files = sorted(
                 f for f in os.listdir(ddl_dir)
                 if os.path.isfile(os.path.join(ddl_dir, f))
             )
+            if not files:
+                raise AnalysisError(f"DDL 디렉토리에 파일이 없습니다: {ddl_dir}")
             logging.info("[ANALYZE] DDL 파일 발견: %d개", len(files))
             return files
         except OSError as e:
-            logging.warning("[ANALYZE] DDL 디렉토리 읽기 실패: %s | error=%s", ddl_dir, e)
-            return []
+            raise AnalysisError(f"DDL 디렉토리 읽기 실패: {ddl_dir}") from e
 
     async def _load_file_assets(
         self,
@@ -512,8 +516,7 @@ class DbmsAnalyzer(AnalyzerStrategy):
             results = await client.execute_queries([query])
             
             if not results or not results[0]:
-                logging.info("[ANALYZE] User Story 생성 대상 없음 (쿼리 결과 없음)")
-                return ""
+                raise AnalysisError("User Story 생성을 위한 분석 결과가 없습니다")
             
             filtered = [
                 r for r in results[0]
@@ -521,8 +524,7 @@ class DbmsAnalyzer(AnalyzerStrategy):
             ]
             
             if not filtered:
-                logging.info("[ANALYZE] User Story 생성 대상 없음 (요약 없는 프로시저만 존재)")
-                return ""
+                raise AnalysisError("User Story 생성 대상이 없습니다 (요약된 프로시저 없음)")
             
             logging.info("[ANALYZE] User Story 생성 | 대상=%d개 프로시저", len(filtered))
             return generate_user_story_document(
@@ -532,7 +534,6 @@ class DbmsAnalyzer(AnalyzerStrategy):
             )
             
         except Exception as exc:
-            # User Story 생성 실패는 전체 분석을 중단하지 않음 (부분 실패 허용)
             logging.error("[ANALYZE] User Story 문서 생성 실패 | error=%s", exc, exc_info=True)
-            return ""
+            raise AnalysisError(f"User Story 생성 실패: {exc}") from exc
 

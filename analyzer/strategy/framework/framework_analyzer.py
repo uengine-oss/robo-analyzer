@@ -416,8 +416,7 @@ class FrameworkAnalyzer(AnalyzerStrategy):
                 results = await client.execute_queries([query])
             
             if not results or not results[0]:
-                log_process("ANALYZE", "USER_STORY", "User Story 생성 대상 없음 (쿼리 결과 없음)")
-                return ""
+                raise AnalysisError("User Story 생성을 위한 분석 결과가 없습니다")
             
             filtered = [
                 r for r in results[0]
@@ -425,8 +424,7 @@ class FrameworkAnalyzer(AnalyzerStrategy):
             ]
             
             if not filtered:
-                log_process("ANALYZE", "USER_STORY", "User Story 생성 대상 없음 (요약 없는 클래스만 존재)")
-                return ""
+                raise AnalysisError("User Story 생성 대상이 없습니다 (요약된 클래스 없음)")
             
             log_process("ANALYZE", "USER_STORY", f"User Story 생성 | 대상={len(filtered)}개 클래스")
             return generate_user_story_document(
@@ -436,11 +434,10 @@ class FrameworkAnalyzer(AnalyzerStrategy):
             )
             
         except Exception as exc:
-            # User Story 생성 실패는 전체 분석을 중단하지 않음 (부분 실패 허용 - 명시적 로깅)
             log_process(
                 "ANALYZE", "USER_STORY", 
-                f"User Story 문서 생성 실패 (분석은 계속됨): {exc}",
-                logging.WARNING, exc
+                f"User Story 문서 생성 실패: {exc}",
+                logging.ERROR, exc
             )
-            return ""
+            raise AnalysisError(f"User Story 생성 실패: {exc}") from exc
 
