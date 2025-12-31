@@ -391,20 +391,20 @@ class FrameworkAnalyzer(AnalyzerStrategy):
                   AND n.summary IS NOT NULL
                 OPTIONAL MATCH (n)-[:HAS_USER_STORY]->(us:UserStory)
                 OPTIONAL MATCH (us)-[:HAS_AC]->(ac:AcceptanceCriteria)
-                WITH n, 
-                     collect(DISTINCT {{
-                         id: us.id,
-                         role: us.role,
-                         goal: us.goal,
-                         benefit: us.benefit,
-                         acceptance_criteria: collect(DISTINCT {{
-                             id: ac.id,
-                             title: ac.title,
-                             given: ac.given,
-                             when: ac.when,
-                             then: ac.then
-                         }})
-                     }}) AS user_stories
+                WITH n, us, collect(DISTINCT {{
+                    id: ac.id,
+                    title: ac.title,
+                    given: ac.given,
+                    when: ac.when,
+                    then: ac.then
+                }}) AS acceptance_criteria
+                WITH n, collect(DISTINCT {{
+                    id: us.id,
+                    role: us.role,
+                    goal: us.goal,
+                    benefit: us.benefit,
+                    acceptance_criteria: acceptance_criteria
+                }}) AS user_stories
                 RETURN n.class_name AS name, 
                        n.summary AS summary,
                        user_stories AS user_stories, 
@@ -416,7 +416,12 @@ class FrameworkAnalyzer(AnalyzerStrategy):
                 results = await client.execute_queries([query])
             
             if not results or not results[0]:
-                raise AnalysisError("User Story 생성을 위한 분석 결과가 없습니다")
+                log_process(
+                    "ANALYZE", "USER_STORY",
+                    f"⚠️ Neo4j 쿼리 결과가 비어있습니다. 클래스/인터페이스에 summary가 설정되었는지 확인하세요.",
+                    logging.WARNING
+                )
+                raise AnalysisError("User Story 생성을 위한 분석 결과가 없습니다 (Neo4j에 summary가 있는 클래스/인터페이스가 없음)")
             
             filtered = [
                 r for r in results[0]

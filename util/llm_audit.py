@@ -7,7 +7,7 @@ import json
 import os
 import re
 import threading
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 try:
@@ -115,7 +115,7 @@ def log_llm_interaction(
     sort_key: Optional[Any] = None,
 ) -> None:
     entry = {
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "prompt": prompt_name,
         "input": _safe_serialize(input_payload),
         "output": _safe_serialize(output_payload),

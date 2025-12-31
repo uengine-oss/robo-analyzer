@@ -18,6 +18,7 @@ class CustomLLMClient(BaseChatModel):
     max_tokens: Optional[int] = None
     timeout: int = 500
     verify_ssl: bool = False
+    company_name: Optional[str] = None
 
     def __init__(
         self,
@@ -28,6 +29,7 @@ class CustomLLMClient(BaseChatModel):
         max_tokens: Optional[int] = None,
         timeout: int = 500,
         verify_ssl: bool = False,
+        company_name: Optional[str] = None,
     ):
         super().__init__(
             api_key=api_key.strip(),
@@ -37,6 +39,7 @@ class CustomLLMClient(BaseChatModel):
             max_tokens=max_tokens,
             timeout=timeout,
             verify_ssl=verify_ssl,
+            company_name=company_name,
         )
 
     def _llm_type(self) -> str:

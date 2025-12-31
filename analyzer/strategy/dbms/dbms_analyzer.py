@@ -492,20 +492,20 @@ class DbmsAnalyzer(AnalyzerStrategy):
                   AND n.summary IS NOT NULL
                 OPTIONAL MATCH (n)-[:HAS_USER_STORY]->(us:UserStory)
                 OPTIONAL MATCH (us)-[:HAS_AC]->(ac:AcceptanceCriteria)
-                WITH n, 
-                     collect(DISTINCT {{
-                         id: us.id,
-                         role: us.role,
-                         goal: us.goal,
-                         benefit: us.benefit,
-                         acceptance_criteria: collect(DISTINCT {{
-                             id: ac.id,
-                             title: ac.title,
-                             given: ac.given,
-                             when: ac.when,
-                             then: ac.then
-                         }})
-                     }}) AS user_stories
+                WITH n, us, collect(DISTINCT {{
+                    id: ac.id,
+                    title: ac.title,
+                    given: ac.given,
+                    when: ac.when,
+                    then: ac.then
+                }}) AS acceptance_criteria
+                WITH n, collect(DISTINCT {{
+                    id: us.id,
+                    role: us.role,
+                    goal: us.goal,
+                    benefit: us.benefit,
+                    acceptance_criteria: acceptance_criteria
+                }}) AS user_stories
                 RETURN n.procedure_name AS name, 
                        n.summary AS summary,
                        user_stories AS user_stories, 

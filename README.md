@@ -27,6 +27,12 @@ pip install -r requirements.txt
 # 환경변수 설정
 cp env.example .env
 # .env 파일을 편집하여 API 키 및 Neo4j 연결 정보 설정
+
+# 필수 설정:
+# - NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD (Neo4j 연결)
+# - LLM_API_KEY (LLM API 키)
+# 
+# 자세한 내용은 docs/ENV_SETUP.md 참조
 ```
 
 ### 실행

@@ -11,10 +11,18 @@ from typing import Optional
 
 
 def _get_base_dir() -> str:
-    """프로젝트 루트 디렉토리 경로 반환"""
-    return os.getenv("DOCKER_COMPOSE_CONTEXT") or str(
-        Path(__file__).resolve().parents[1]
-    )
+    """프로젝트 루트 디렉토리 경로 반환
+    
+    DOCKER_COMPOSE_CONTEXT가 설정되지 않은 경우,
+    robo_analyzer_core와 같은 레벨에 있는 data 폴더를 찾기 위해
+    robo_analyzer_core의 부모 디렉토리를 반환합니다.
+    """
+    if os.getenv("DOCKER_COMPOSE_CONTEXT"):
+        return os.getenv("DOCKER_COMPOSE_CONTEXT")
+    
+    # config/settings.py -> robo_analyzer_core -> robo_analyzer
+    # robo_analyzer_core와 같은 레벨에 있는 data 폴더를 찾기 위해 부모 디렉토리 반환
+    return str(Path(__file__).resolve().parents[2])
 
 
 @dataclass(frozen=True)
@@ -34,7 +42,7 @@ class LLMConfig:
     model: str = field(default_factory=lambda: os.getenv("LLM_MODEL", "gpt-4.1"))
     max_tokens: int = field(default_factory=lambda: int(os.getenv("LLM_MAX_TOKENS", "32768")))
     reasoning_effort: str = field(default_factory=lambda: os.getenv("LLM_REASONING_EFFORT", "medium"))
-    is_custom: bool = field(default_factory=lambda: bool(os.getenv("IS_CUSTOM_LLM")))
+    is_custom: bool = field(default_factory=lambda: os.getenv("IS_CUSTOM_LLM", "").lower() == "true")
     company_name: Optional[str] = field(default_factory=lambda: os.getenv("COMPANY_NAME"))
 
 

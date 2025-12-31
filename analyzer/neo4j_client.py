@@ -40,7 +40,7 @@ class Neo4jClient:
             result = await client.execute_queries([query])
     """
 
-    __slots__ = ("_driver", "_lock", "_config")
+    __slots__ = ("_driver", "_lock", "_config", "_database")
 
     # 유니크 제약조건 쿼리
     _CONSTRAINT_QUERIES = [
@@ -50,9 +50,14 @@ class Neo4jClient:
         "REQUIRE (c.user_id, c.project_name, c.fqn) IS UNIQUE",
     ]
 
-    def __init__(self):
-        """환경변수에서 연결 정보를 읽어 드라이버 초기화"""
+    def __init__(self, database: Optional[str] = None):
+        """환경변수에서 연결 정보를 읽어 드라이버 초기화
+        
+        Args:
+            database: 사용할 데이터베이스 이름. None이면 settings.neo4j.database 사용
+        """
         self._config = settings.neo4j
+        self._database = database if database is not None else self._config.database
         self._driver = AsyncGraphDatabase.driver(
             self._config.uri,
             auth=(self._config.user, self._config.password),
@@ -91,7 +96,7 @@ class Neo4jClient:
         
         try:
             results = []
-            async with self._driver.session(database=self._config.database) as session:
+            async with self._driver.session(database=self._database) as session:
                 for query in queries:
                     query_result = await session.run(query)
                     results.append(await query_result.data())
@@ -127,7 +132,7 @@ class Neo4jClient:
             nodes: dict[str, dict] = {}
             relationships: dict[str, dict] = {}
 
-            async with self._driver.session(database=self._config.database) as session:
+            async with self._driver.session(database=self._database) as session:
                 for query in queries:
                     graph = await (await session.run(query)).graph()
 
@@ -177,7 +182,7 @@ class Neo4jClient:
     async def ensure_constraints(self) -> None:
         """MERGE 시 중복/충돌 방지를 위한 유니크 제약조건 생성"""
         try:
-            async with self._driver.session(database=self._config.database) as session:
+            async with self._driver.session(database=self._database) as session:
                 for query in self._CONSTRAINT_QUERIES:
                     try:
                         await session.run(query)
@@ -216,7 +221,7 @@ class Neo4jClient:
             pairs = [{"directory": d, "file_name": f} for d, f in file_names]
             params = {"pairs": pairs, "user_id": user_id}
 
-            async with self._driver.session(database=self._config.database) as session:
+            async with self._driver.session(database=self._database) as session:
                 result = await session.run(query, params)
                 record = await result.single()
                 return record["exists"] if record else False

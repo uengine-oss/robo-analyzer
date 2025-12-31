@@ -1,5 +1,5 @@
 """
-Neo4j execute_query_and_return_graph 메서드 테스트
+Neo4j run_graph_query 메서드 테스트
 
 실제 DBMS 로직에서 사용하는 모든 Cypher 쿼리 패턴을 테스트합니다.
 """
@@ -13,15 +13,10 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from understand.neo4j_connection import Neo4jConnection
+from analyzer.neo4j_client import Neo4jClient
 
 # 한글 로그가 깨지지 않도록 UTF-8 인코딩
 os.environ.setdefault("PYTHONIOENCODING", "utf-8")
-
-
-class TestNeo4jConnection(Neo4jConnection):
-    """테스트용 Neo4j 연결 - 'test' 데이터베이스 사용"""
-    DATABASE_NAME = "test"
 
 
 def print_json(data, indent=2):
@@ -31,7 +26,7 @@ def print_json(data, indent=2):
 
 async def main():
     """메인 테스트 실행 - 실제 DBMS 로직의 모든 쿼리 패턴 테스트"""
-    connection = TestNeo4jConnection()
+    connection = Neo4jClient()
     
     # 테스트용 상수 (실제 로직과 동일한 형식)
     test_user_id = "test_user"
@@ -58,7 +53,7 @@ async def main():
         for q in queries1:
             print(f"  {q}")
         print("\n결과:")
-        result1 = await connection.execute_query_and_return_graph(queries1)
+        result1 = await connection.run_graph_query(queries1)
         print_json(result1)
         
         # ========== 2. 리프 노드 생성 (실제 로직: _build_static_node_queries - 리프) ==========
@@ -80,7 +75,7 @@ async def main():
         for q in queries2:
             print(f"  {q}")
         print("\n결과:")
-        result2 = await connection.execute_query_and_return_graph(queries2)
+        result2 = await connection.run_graph_query(queries2)
         print_json(result2)
         
         # ========== 3. 부모 노드 생성 (실제 로직: _build_static_node_queries - 부모) ==========
@@ -97,7 +92,7 @@ async def main():
         for q in queries3:
             print(f"  {q}")
         print("\n결과:")
-        result3 = await connection.execute_query_and_return_graph(queries3)
+        result3 = await connection.run_graph_query(queries3)
         print_json(result3)
         
         # ========== 4. 노드 업데이트 (실제 로직: _build_node_queries - summary 포함) ==========
@@ -114,7 +109,7 @@ async def main():
         for q in queries4:
             print(f"  {q}")
         print("\n결과:")
-        result4 = await connection.execute_query_and_return_graph(queries4)
+        result4 = await connection.run_graph_query(queries4)
         print_json(result4)
         
         # ========== 5. Variable 노드 마킹 (실제 로직: _build_node_queries - variables) ==========
@@ -137,7 +132,7 @@ async def main():
         for q in queries5:
             print(f"  {q}")
         print("\n결과:")
-        result5 = await connection.execute_query_and_return_graph(queries5)
+        result5 = await connection.run_graph_query(queries5)
         print_json(result5)
         
         # ========== 6. 내부 CALL 관계 (실제 로직: _build_node_queries - 내부 호출) ==========
@@ -163,7 +158,7 @@ async def main():
         for q in queries6:
             print(f"  {q}")
         print("\n결과:")
-        result6 = await connection.execute_query_and_return_graph(queries6)
+        result6 = await connection.run_graph_query(queries6)
         print_json(result6)
         
         # ========== 7. 외부 CALL 관계 (실제 로직: _build_node_queries - 외부 호출) ==========
@@ -186,7 +181,7 @@ async def main():
         for q in queries7:
             print(f"  {q}")
         print("\n결과:")
-        result7 = await connection.execute_query_and_return_graph(queries7)
+        result7 = await connection.run_graph_query(queries7)
         print_json(result7)
         
         # ========== 8. PARENT_OF 관계 (실제 로직: _build_parent_relationship_query) ==========
@@ -208,7 +203,7 @@ async def main():
         for q in queries8:
             print(f"  {q}")
         print("\n결과:")
-        result8 = await connection.execute_query_and_return_graph(queries8)
+        result8 = await connection.run_graph_query(queries8)
         print_json(result8)
         
         # ========== 9. NEXT 관계 (실제 로직: _build_next_relationship_query) ==========
@@ -225,7 +220,7 @@ async def main():
         for q in queries9:
             print(f"  {q}")
         print("\n결과:")
-        result9 = await connection.execute_query_and_return_graph(queries9)
+        result9 = await connection.run_graph_query(queries9)
         print_json(result9)
         
         # ========== 10. 테이블 노드 및 FROM/WRITES 관계 (실제 로직: _build_table_queries) ==========
@@ -253,7 +248,7 @@ async def main():
         for q in queries10:
             print(f"  {q}")
         print("\n결과:")
-        result10 = await connection.execute_query_and_return_graph(queries10)
+        result10 = await connection.run_graph_query(queries10)
         print_json(result10)
         
         # ========== 11. CREATE_TEMP_TABLE (실제 로직: _build_table_queries - CREATE_TEMP_TABLE) ==========
@@ -269,7 +264,7 @@ async def main():
         for q in queries11:
             print(f"  {q}")
         print("\n결과:")
-        result11 = await connection.execute_query_and_return_graph(queries11)
+        result11 = await connection.run_graph_query(queries11)
         print_json(result11)
         
         # ========== 12. 컬럼 노드 및 HAS_COLUMN 관계 - 스키마 있음 (실제 로직: _build_table_queries) ==========
@@ -289,7 +284,7 @@ async def main():
         for q in queries12:
             print(f"  {q}")
         print("\n결과:")
-        result12 = await connection.execute_query_and_return_graph(queries12)
+        result12 = await connection.run_graph_query(queries12)
         print_json(result12)
         
         # ========== 13. 컬럼 노드 및 HAS_COLUMN 관계 - 스키마 없음 (실제 로직: _build_table_queries) ==========
@@ -314,7 +309,7 @@ async def main():
         for q in queries13:
             print(f"  {q}")
         print("\n결과:")
-        result13 = await connection.execute_query_and_return_graph(queries13)
+        result13 = await connection.run_graph_query(queries13)
         print_json(result13)
         
         # ========== 14. DB_LINK 관계 (실제 로직: _build_table_queries - dbLinks) ==========
@@ -336,7 +331,7 @@ async def main():
         for q in queries14:
             print(f"  {q}")
         print("\n결과:")
-        result14 = await connection.execute_query_and_return_graph(queries14)
+        result14 = await connection.run_graph_query(queries14)
         print_json(result14)
         
         # ========== 15. FK_TO_TABLE 관계 (실제 로직: _build_table_queries - fkRelations) ==========
@@ -359,7 +354,7 @@ async def main():
         for q in queries15:
             print(f"  {q}")
         print("\n결과:")
-        result15 = await connection.execute_query_and_return_graph(queries15)
+        result15 = await connection.run_graph_query(queries15)
         print_json(result15)
         
         # ========== 16. FK_TO 관계 - 컬럼 간 (실제 로직: _build_table_queries - fkRelations) ==========
@@ -384,7 +379,7 @@ async def main():
         for q in queries16:
             print(f"  {q}")
         print("\n결과:")
-        result16 = await connection.execute_query_and_return_graph(queries16)
+        result16 = await connection.run_graph_query(queries16)
         print_json(result16)
         
         # ========== 17. Variable 노드 및 SCOPE 관계 (실제 로직: _build_variable_queries) ==========
@@ -409,7 +404,7 @@ async def main():
         for q in queries17:
             print(f"  {q}")
         print("\n결과:")
-        result17 = await connection.execute_query_and_return_graph(queries17)
+        result17 = await connection.run_graph_query(queries17)
         print_json(result17)
         
         # ========== 18. 프로시저 요약 업데이트 (실제 로직: _finalize_procedure_summary) ==========
@@ -425,7 +420,7 @@ async def main():
         for q in queries18:
             print(f"  {q}")
         print("\n결과:")
-        result18 = await connection.execute_query_and_return_graph(queries18)
+        result18 = await connection.run_graph_query(queries18)
         print_json(result18)
         
         # ========== 19. 테이블 설명 업데이트 (실제 로직: _summarize_table) ==========
@@ -441,7 +436,7 @@ async def main():
         for q in queries19:
             print(f"  {q}")
         print("\n결과:")
-        result19 = await connection.execute_query_and_return_graph(queries19)
+        result19 = await connection.run_graph_query(queries19)
         print_json(result19)
         
         # ========== 20. 컬럼 설명 업데이트 (실제 로직: _summarize_table) ==========
@@ -457,7 +452,7 @@ async def main():
         for q in queries20:
             print(f"  {q}")
         print("\n결과:")
-        result20 = await connection.execute_query_and_return_graph(queries20)
+        result20 = await connection.run_graph_query(queries20)
         print_json(result20)
         
         # 정리
