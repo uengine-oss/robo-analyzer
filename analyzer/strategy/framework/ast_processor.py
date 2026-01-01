@@ -1190,15 +1190,11 @@ class FrameworkAstProcessor:
         invoker = LLMInvoker(self.api_key, self.locale)
         semaphore = asyncio.Semaphore(min(self.max_workers, len(batches)))
         
-        # 배치 결과 저장 (클래스 요약 생성을 위해)
-        batch_results_with_data: List[Tuple[AnalysisBatch, Optional[Dict[str, Any]], List[str]]] = []
-        
-        async def process_batch(batch: AnalysisBatch) -> Tuple[AnalysisBatch, Optional[Dict[str, Any]], List[str]]:
+        async def process_batch(batch: AnalysisBatch) -> List[str]:
             async with semaphore:
                 log_process("ANALYZE", "LLM", f"배치 #{batch.batch_id} 처리 중 ({len(batch.nodes)}개 노드)")
                 result = await invoker.invoke(batch)
-                queries = self._build_analysis_queries(batch, result)
-                return (batch, result, queries)
+                return self._build_analysis_queries(batch, result)
         
         # 병렬 처리
         batch_results = await asyncio.gather(
@@ -1206,30 +1202,11 @@ class FrameworkAstProcessor:
             return_exceptions=True
         )
         
-        # 배치 결과에서 클래스별 summary 수집
-        class_summary_store: Dict[str, Dict[str, Any]] = {key: {} for key in (self._classes or {})}
-        
-        for i, batch_result in enumerate(batch_results):
-            if isinstance(batch_result, Exception):
-                log_process("ANALYZE", "ERROR", f"배치 #{i+1} 처리 실패: {batch_result}", logging.ERROR)
+        for i, result in enumerate(batch_results):
+            if isinstance(result, Exception):
+                log_process("ANALYZE", "ERROR", f"배치 #{i+1} 처리 실패: {result}", logging.ERROR)
             else:
-                batch, result, queries = batch_result
-                all_queries.extend(queries)
-                
-                # 배치 결과에서 클래스별 summary 수집
-                if result:
-                    analysis_list = result.get("analysis") or []
-                    for node, analysis in zip(batch.nodes, analysis_list):
-                        if node.class_key and node.class_key in class_summary_store:
-                            summary = analysis.get("summary") if analysis else None
-                            if summary:
-                                key = f"{node.node_type}_{node.start_line}_{node.end_line}"
-                                class_summary_store[node.class_key][key] = summary
-        
-        # 클래스 전체 요약 생성
-        if self._classes:
-            class_summary_queries = await self._build_class_summary_queries(class_summary_store)
-            all_queries.extend(class_summary_queries)
+                all_queries.extend(result)
         
         log_process("ANALYZE", "PHASE2", f"✅ {self.full_directory}: {len(all_queries)}개 업데이트 쿼리")
         return all_queries
@@ -1302,102 +1279,6 @@ class FrameworkAstProcessor:
                         f"MERGE (src)-[r:CALLS {{method: '{escape_for_cypher(method_name)}'}}]->(dst)\n"
                         f"RETURN r"
                     )
-        
-        return queries
-
-    async def _build_class_summary_queries(self, class_summary_store: Dict[str, Dict[str, Any]]) -> List[str]:
-        """클래스별 summary를 수집하여 클래스 전체 요약을 생성하고 쿼리를 반환합니다."""
-        queries: List[str] = []
-        
-        if not self._classes:
-            return queries
-        
-        for class_key, info in self._classes.items():
-            summaries = class_summary_store.get(class_key, {})
-            if not summaries:
-                continue
-            
-            class_node = next(
-                (n for n in self._nodes if n.start_line == info.node_start and n.node_type == info.kind),
-                None,
-            )
-            if not class_node:
-                continue
-            
-            try:
-                # 토큰 기준으로 청크 분할
-                def _split_summaries_by_token(summaries: dict, max_token: int) -> List[dict]:
-                    if not summaries:
-                        return []
-                    chunks = []
-                    current_chunk = {}
-                    current_tokens = 0
-                    for key, value in summaries.items():
-                        item_text = f"{key}: {value}"
-                        item_tokens = calculate_code_token(item_text)
-                        if current_tokens + item_tokens > max_token and current_chunk:
-                            chunks.append(current_chunk)
-                            current_chunk = {}
-                            current_tokens = 0
-                        current_chunk[key] = value
-                        current_tokens += item_tokens
-                    if current_chunk:
-                        chunks.append(current_chunk)
-                    return chunks
-                
-                chunks = _split_summaries_by_token(summaries, MAX_SUMMARY_CHUNK_TOKEN)
-                if not chunks:
-                    continue
-                
-                # 각 청크를 처리하여 summary 생성
-                chunk_results = []
-                for chunk in chunks:
-                    summary_result = await asyncio.to_thread(
-                        analyze_class_summary_only,
-                        chunk,
-                        self.api_key,
-                        self.locale,
-                        ""
-                    )
-                    if isinstance(summary_result, dict):
-                        chunk_summary = summary_result.get('summary', '')
-                        if chunk_summary:
-                            chunk_results.append(chunk_summary)
-                
-                if not chunk_results:
-                    continue
-                
-                # 모든 청크의 summary를 하나로 합치기
-                if len(chunk_results) == 1:
-                    final_summary = chunk_results[0]
-                else:
-                    combined_summaries = {f"CHUNK_{idx + 1}": chunk_summary for idx, chunk_summary in enumerate(chunk_results)}
-                    final_summary_result = await asyncio.to_thread(
-                        analyze_class_summary_only,
-                        combined_summaries,
-                        self.api_key,
-                        self.locale,
-                        ""
-                    )
-                    if isinstance(final_summary_result, dict):
-                        final_summary = final_summary_result.get('summary', "\n\n".join(chunk_results))
-                    else:
-                        final_summary = "\n\n".join(chunk_results)
-                
-                if final_summary:
-                    escaped_summary = escape_for_cypher(str(final_summary))
-                    summary_query = (
-                        f"MATCH (n:{info.kind} {{startLine: {info.node_start}, {self.node_base_props}}})\n"
-                        f"SET n.summary = '{escaped_summary}'\n"
-                        f"RETURN n"
-                    )
-                    queries.append(summary_query)
-                    
-                    log_process("ANALYZE", "SUMMARY", f"✅ {info.name}: 클래스 요약 생성 완료")
-                    
-            except Exception as exc:
-                log_process("ANALYZE", "SUMMARY", f"❌ 클래스 요약 생성 오류: {info.name}", logging.ERROR, exc)
-                continue
         
         return queries
 
