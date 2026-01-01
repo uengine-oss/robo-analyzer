@@ -8,7 +8,14 @@ NDJSON 스트리밍 이벤트 생성 및 처리 함수들.
 - error: 오류
 - node_event: 노드 생성/수정 이벤트
 - relationship_event: 관계 생성/수정 이벤트
+- phase_event: 단계 진행 이벤트
 - complete: 완료
+
+메시지 설계 원칙 (pdb.md):
+- 이 메시지는 개발자 로그가 아니라, 사용자에게 보여지는 진행 설명이다
+- 조건 분기 결과가 명확히 드러날 것
+- 실패/스킵/대체 상황이 숨겨지지 않을 것
+- "무슨 일이 일어났는지"를 자연어로 설명할 것
 """
 
 import json
@@ -24,7 +31,16 @@ def emit_bytes(payload: dict) -> bytes:
 
 
 def emit_message(content: str) -> bytes:
-    """메시지 이벤트 전송"""
+    """메시지 이벤트 전송
+    
+    사용자 친화적 메시지 작성 가이드:
+    - 📄 파일 처리: "📄 Sample.java 분석 시작"
+    - → 노드/관계 생성: " → CLASS 노드: OrderService"
+    - ✓ 완료: "✓ 처리 완료"
+    - ❌ 오류: "❌ 분석 실패"
+    - ℹ️ 정보: "ℹ️ DDL 파일 없음"
+    - ⚠️ 경고: "⚠️ 일부 파일 스킵"
+    """
     return emit_bytes({"type": "message", "content": content})
 
 
@@ -115,6 +131,34 @@ def emit_complete(summary: Optional[str] = None) -> bytes:
     payload = {"type": "complete"}
     if summary:
         payload["summary"] = summary
+    return emit_bytes(payload)
+
+
+def emit_phase_event(
+    phase_num: int,
+    phase_name: str,
+    status: str,
+    progress: int = 0,
+    details: Optional[dict[str, Any]] = None,
+) -> bytes:
+    """단계 진행 이벤트 전송
+    
+    Args:
+        phase_num: 단계 번호 (1, 2, 3 ...)
+        phase_name: 단계 이름 ("AST 구조 생성", "AI 분석" 등)
+        status: "started", "in_progress", "completed", "skipped", "error"
+        progress: 진행률 (0-100)
+        details: 추가 상세 정보
+    """
+    payload = {
+        "type": "phase_event",
+        "phase": phase_num,
+        "name": phase_name,
+        "status": status,
+        "progress": progress,
+    }
+    if details:
+        payload["details"] = details
     return emit_bytes(payload)
 
 

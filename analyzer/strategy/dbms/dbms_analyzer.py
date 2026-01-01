@@ -2,187 +2,285 @@
 
 AST 기반 PL/SQL 코드 분석 → Neo4j 그래프 생성.
 
-분석 흐름 (이중 병렬):
-1. [Phase 0] DDL 처리 (테이블/컬럼 스키마)
-2. [Phase 1] 파일별 병렬(5개)로 AST 그래프 생성
-3. [Phase 2] 파일별 병렬(5개) + 청크별 병렬로 LLM 분석
-4. [Phase 3] 프로시저 요약 및 User Story 생성
+분석 흐름 (Framework와 동일한 2단계 + DDL):
+1. [Phase 1] DDL 처리 + 모든 파일 AST 그래프 생성 (병렬)
+2. [Phase 2] 모든 파일 LLM 분석 (병렬)
+3. [Phase 3] User Story 문서 생성 (BaseStreamingAnalyzer 공통)
 """
 
 import asyncio
 import json
 import logging
 import os
-from typing import Any, AsyncGenerator
+from dataclasses import dataclass, field
+from enum import Enum
+from typing import Any, AsyncGenerator, Optional, List
 
 import aiofiles
 
 from analyzer.neo4j_client import Neo4jClient
-from analyzer.strategy.base_analyzer import AnalyzerStrategy
+from analyzer.strategy.base_analyzer import BaseStreamingAnalyzer, AnalysisStats
 from analyzer.strategy.dbms.ast_processor import DbmsAstProcessor
 from config.settings import settings
 from util.exception import AnalysisError
 from util.rule_loader import RuleLoader
 from util.stream_utils import (
     emit_data,
-    emit_error,
     emit_message,
     format_graph_result,
 )
 from util.utility_tool import (
     escape_for_cypher,
+    log_process,
     parse_table_identifier,
     generate_user_story_document,
 )
 
 
-class DbmsAnalyzer(AnalyzerStrategy):
+class FileStatus(Enum):
+    """파일 분석 상태"""
+    PENDING = "PENDING"
+    PH1_OK = "PH1_OK"
+    PH1_FAIL = "PH1_FAIL"
+    PH2_OK = "PH2_OK"
+    PH2_FAIL = "PH2_FAIL"
+    SKIPPED = "SKIPPED"
+
+
+@dataclass
+class FileAnalysisContext:
+    """파일 분석 컨텍스트"""
+    directory: str
+    file_name: str
+    ast_data: dict
+    source_lines: List[str]
+    processor: Optional[DbmsAstProcessor] = None
+    status: FileStatus = field(default=FileStatus.PENDING)
+    error_message: str = ""
+
+
+class DbmsAnalyzer(BaseStreamingAnalyzer):
     """DBMS 코드 분석 전략
     
-    프로시저/함수 분석용 그래프 구축:
-    - PROCEDURE, FUNCTION, TRIGGER 노드
-    - Table, Column 노드
-    - FROM, WRITES, CALL 관계
-    - Variable 노드
+    2단계 분석 + DDL 처리 (Framework와 동일):
+    - Phase 1: DDL 처리 + 모든 파일 AST 그래프 생성 (병렬)
+    - Phase 2: 모든 파일 LLM 분석 (병렬) - Phase1 실패 파일 제외
+    - Phase 3: User Story 문서 생성 (부모 클래스 공통)
     """
 
-    async def analyze(
+    # =========================================================================
+    # 전략 메타데이터 (BaseStreamingAnalyzer 구현)
+    # =========================================================================
+    
+    @property
+    def strategy_name(self) -> str:
+        return "DBMS"
+    
+    @property
+    def strategy_emoji(self) -> str:
+        return "🗄️"
+    
+    @property
+    def file_type_description(self) -> str:
+        return "SQL 파일"
+
+    def __init__(self):
+        self._cypher_lock = asyncio.Lock()
+        self._file_semaphore: Optional[asyncio.Semaphore] = None
+
+    # =========================================================================
+    # 메인 파이프라인 (BaseStreamingAnalyzer 구현)
+    # =========================================================================
+
+    async def run_pipeline(
         self,
         file_names: list[tuple[str, str]],
+        client: Neo4jClient,
         orchestrator: Any,
-        **kwargs,
+        stats: AnalysisStats,
     ) -> AsyncGenerator[bytes, None]:
-        """파일 목록을 분석하여 결과를 스트리밍합니다."""
-        client = Neo4jClient()
-        event_queue_from = asyncio.Queue()
-        event_queue_to = asyncio.Queue()
+        """DBMS 분석 파이프라인 실행
+        
+        흐름 (Framework와 동일):
+        1. DDL 처리 + 파일 로드 (병렬)
+        2. Phase 1: 모든 파일 AST 그래프 생성 (병렬)
+        3. Phase 2: 모든 파일 LLM 분석 (병렬) - Phase1 실패 파일 제외
+        
+        Note: User Story Phase는 부모 클래스에서 처리
+        """
         total_files = len(file_names)
+        self._file_semaphore = asyncio.Semaphore(settings.concurrency.file_concurrency)
 
-        try:
-            yield emit_message("🚀 DBMS 코드 분석을 시작합니다")
-            yield emit_message(f"📦 프로젝트: {orchestrator.project_name}")
-            yield emit_message(f"📊 분석 대상: {total_files}개 SQL 파일")
-            
-            await client.ensure_constraints()
-            yield emit_message("🔌 Neo4j 데이터베이스 연결 완료")
+        yield emit_message(f"⚡ 병렬 처리: 파일 {settings.concurrency.file_concurrency}개 동시")
 
-            # 기존 분석 결과 확인
-            if await client.check_nodes_exist(orchestrator.user_id, file_names):
-                yield emit_message("🔄 이전 분석 결과 발견 → 증분 업데이트 모드")
-            else:
-                yield emit_message("🆕 새로운 분석 시작")
+        # ========== DDL 처리 ==========
+        async for chunk in self._run_ddl_phase(client, orchestrator, stats):
+            yield chunk
 
-            # ========== DDL 처리 ==========
-            ddl_files = self._list_ddl_files(orchestrator)
-            if ddl_files:
-                ddl_count = len(ddl_files)
-                yield emit_message("")
-                yield emit_message("━" * 42)
-                yield emit_message(f"📋 [1단계] 테이블 스키마 수집 ({ddl_count}개 DDL)")
-                yield emit_message("━" * 42)
-                
-                ddl_dir = orchestrator.dirs["ddl"]
-                total_tables = 0
-                total_columns = 0
-                total_fks = 0
-                
-                for idx, ddl_file in enumerate(ddl_files, 1):
-                    yield emit_message("")
-                    yield emit_message(f"📄 [{idx}/{ddl_count}] {ddl_file}")
-                    
-                    ddl_graph, stats = await self._process_ddl(
-                        ddl_path=os.path.join(ddl_dir, ddl_file),
-                        client=client,
-                        file_name=ddl_file,
-                        orchestrator=orchestrator,
-                    )
-                    
-                    if stats["tables"]:
-                        yield emit_message(f"   ✓ Table 노드: {stats['tables']}개")
-                        total_tables += stats["tables"]
-                    if stats["columns"]:
-                        yield emit_message(f"   ✓ Column 노드: {stats['columns']}개")
-                        total_columns += stats["columns"]
-                    if stats["fks"]:
-                        yield emit_message(f"   ✓ FK 관계: {stats['fks']}개")
-                        total_fks += stats["fks"]
-                    
-                    if ddl_graph and (ddl_graph.get("Nodes") or ddl_graph.get("Relationships")):
-                        yield emit_data(
-                            graph=ddl_graph,
-                            line_number=0,
-                            analysis_progress=0,
-                            current_file=f"DDL-{ddl_file}",
-                        )
-                
-                yield emit_message("")
-                yield emit_message("📊 DDL 처리 완료:")
-                yield emit_message(f"   • 테이블: {total_tables}개")
-                yield emit_message(f"   • 컬럼: {total_columns}개")
-                yield emit_message(f"   • FK: {total_fks}개")
-            else:
-                yield emit_message("ℹ️ DDL 파일 없음 → 스키마 처리 건너뜀")
+        # ========== 파일 로드 ==========
+        yield emit_message("")
+        yield self.emit_separator()
+        yield self.emit_phase_header(1, "🏗️ AST 구조 그래프 생성", f"{total_files}개 파일 병렬")
+        yield self.emit_separator()
 
-            # ========== 소스 파일 분석 ==========
+        contexts = await self._load_all_files(file_names, orchestrator)
+        yield emit_message(f"   ✓ {len(contexts)}개 파일 로드 완료")
+
+        # ========== Phase 1: AST 그래프 생성 (병렬) ==========
+        async for chunk in self._run_phase1(contexts, client, orchestrator, stats):
+            yield chunk
+
+        # Phase 1 결과 요약
+        ph1_ok_count = sum(1 for c in contexts if c.status == FileStatus.PH1_OK)
+        ph1_fail_count = sum(1 for c in contexts if c.status == FileStatus.PH1_FAIL)
+        
+        yield emit_message("")
+        yield self.emit_phase_complete(1, f"{stats.static_nodes_created}개 노드 생성")
+        if ph1_fail_count > 0:
+            yield self.emit_warning(f"Phase 1 실패: {ph1_fail_count}개 파일 → Phase 2 스킵 (토큰 절감)")
+
+        # ========== Phase 2: LLM 분석 (병렬) - Phase1 성공 파일만 ==========
+        ph2_targets = [c for c in contexts if c.status == FileStatus.PH1_OK]
+        
+        yield emit_message("")
+        yield self.emit_separator()
+        yield self.emit_phase_header(2, "🤖 AI 분석", f"{len(ph2_targets)}개 파일 병렬")
+        yield self.emit_separator()
+        
+        if ph1_fail_count > 0:
+            yield emit_message(f"   ℹ️ {ph1_fail_count}개 파일은 Phase 1 실패로 스킵됨 (토큰 절감)")
+
+        async for chunk in self._run_phase2(ph2_targets, client, orchestrator, stats):
+            yield chunk
+
+        yield emit_message("")
+        yield self.emit_phase_complete(2, f"{stats.llm_batches_executed}개 분석 완료")
+
+    # =========================================================================
+    # User Story 문서 생성 (BaseStreamingAnalyzer 구현)
+    # =========================================================================
+
+    async def build_user_story_doc(
+        self,
+        client: Neo4jClient,
+        orchestrator: Any,
+    ) -> Optional[str]:
+        """분석된 프로시저에서 User Story 문서 생성"""
+        query = f"""
+            MATCH (n)
+            WHERE (n:PROCEDURE OR n:FUNCTION OR n:TRIGGER)
+              AND n.user_id = '{escape_for_cypher(orchestrator.user_id)}'
+              AND n.project_name = '{escape_for_cypher(orchestrator.project_name)}'
+              AND n.summary IS NOT NULL
+            OPTIONAL MATCH (n)-[:HAS_USER_STORY]->(us:UserStory)
+            OPTIONAL MATCH (us)-[:HAS_AC]->(ac:AcceptanceCriteria)
+            WITH n, us, collect(DISTINCT {{
+                id: ac.id,
+                title: ac.title,
+                given: ac.given,
+                when: ac.when,
+                then: ac.then
+            }}) AS acceptance_criteria
+            WITH n, collect(DISTINCT {{
+                id: us.id,
+                role: us.role,
+                goal: us.goal,
+                benefit: us.benefit,
+                acceptance_criteria: acceptance_criteria
+            }}) AS user_stories
+            RETURN n.procedure_name AS name, 
+                   n.summary AS summary,
+                   user_stories AS user_stories, 
+                   labels(n)[0] AS type
+            ORDER BY n.file_name, n.startLine
+        """
+        
+        async with self._cypher_lock:
+            results = await client.execute_queries([query])
+        
+        if not results or not results[0]:
+            raise AnalysisError("User Story 생성을 위한 분석 결과가 없습니다")
+        
+        filtered = [
+            r for r in results[0]
+            if r.get("summary") or (r.get("user_stories") and len(r["user_stories"]) > 0)
+        ]
+        
+        if not filtered:
+            return None
+        
+        log_process("ANALYZE", "USER_STORY", f"User Story 생성 | 대상={len(filtered)}개 프로시저")
+        return generate_user_story_document(
+            results=filtered,
+            source_name=orchestrator.project_name,
+            source_type="DBMS 프로시저/함수",
+        )
+
+    # =========================================================================
+    # DDL 처리
+    # =========================================================================
+
+    async def _run_ddl_phase(
+        self,
+        client: Neo4jClient,
+        orchestrator: Any,
+        stats: AnalysisStats,
+    ) -> AsyncGenerator[bytes, None]:
+        """DDL 파일 처리 - 테이블/컬럼 스키마 생성"""
+        ddl_files = self._list_ddl_files(orchestrator)
+        
+        if not ddl_files:
+            yield self.emit_skip("DDL 파일 없음 → 스키마 처리 건너뜀")
+            return
+        
+        ddl_count = len(ddl_files)
+        yield emit_message("")
+        yield self.emit_separator()
+        yield self.emit_phase_header(0, "📋 DDL 스키마 수집", f"{ddl_count}개 DDL")
+        yield self.emit_separator()
+        
+        ddl_dir = orchestrator.dirs["ddl"]
+        
+        for idx, ddl_file in enumerate(ddl_files, 1):
             yield emit_message("")
-            yield emit_message("━" * 42)
-            yield emit_message(f"🔍 [2단계] 프로시저/함수 분석 ({total_files}개 파일)")
-            yield emit_message("━" * 42)
-
-            for file_idx, (directory, file_name) in enumerate(file_names, 1):
-                yield emit_message("")
-                yield emit_message(f"📄 [{file_idx}/{total_files}] {file_name}")
-                if directory:
-                    yield emit_message(f"   📁 디렉토리: {directory}")
-                
-                async for chunk in self._analyze_file(
-                    directory, file_name, file_names, client,
-                    event_queue_from, event_queue_to, orchestrator,
-                ):
-                    yield chunk
-
-            # ========== User Story 생성 ==========
-            yield emit_message("")
-            yield emit_message("━" * 42)
-            yield emit_message("📝 [3단계] User Story 문서 생성")
-            yield emit_message("━" * 42)
+            yield self.emit_file_start(idx, ddl_count, ddl_file)
             
-            user_story_doc = await self._create_user_story_doc(client, orchestrator)
-            if user_story_doc:
+            ddl_graph, ddl_stats = await self._process_ddl(
+                ddl_path=os.path.join(ddl_dir, ddl_file),
+                client=client,
+                file_name=ddl_file,
+                orchestrator=orchestrator,
+            )
+            
+            if ddl_stats["tables"]:
+                yield emit_message(f"   ✓ Table 노드: {ddl_stats['tables']}개")
+            if ddl_stats["columns"]:
+                yield emit_message(f"   ✓ Column 노드: {ddl_stats['columns']}개")
+            if ddl_stats["fks"]:
+                yield emit_message(f"   ✓ FK 관계: {ddl_stats['fks']}개")
+            
+            stats.add_ddl_result(ddl_stats["tables"], ddl_stats["columns"], ddl_stats["fks"])
+            
+            if ddl_graph and (ddl_graph.get("Nodes") or ddl_graph.get("Relationships")):
                 yield emit_data(
-                    graph={"Nodes": [], "Relationships": []},
+                    graph=ddl_graph,
                     line_number=0,
-                    analysis_progress=100,
-                    current_file="user_stories.md",
-                    user_story_document=user_story_doc,
-                    event_type="user_story_document",
+                    analysis_progress=0,
+                    current_file=f"DDL-{ddl_file}",
                 )
-                yield emit_message("   ✓ User Story 문서 생성 완료")
-            else:
-                yield emit_message("   ℹ️ 추출할 User Story 없음")
-            
-            yield emit_message("")
-            yield emit_message("━" * 42)
-            yield emit_message("✅ 모든 분석이 완료되었습니다!")
-            yield emit_message("━" * 42)
-            
-        finally:
-            await client.close()
-
-    def _get_rule_loader(self) -> RuleLoader:
-        """DBMS 규칙 로더 반환"""
-        return RuleLoader(target_lang="dbms")
+        
+        yield emit_message("")
+        yield emit_message("📊 DDL 처리 완료:")
+        yield emit_message(f"   • 테이블: {stats.ddl_tables}개")
+        yield emit_message(f"   • 컬럼: {stats.ddl_columns}개")
+        yield emit_message(f"   • FK: {stats.ddl_fks}개")
 
     def _list_ddl_files(self, orchestrator: Any) -> list[str]:
-        """DDL 파일 목록 조회
-        
-        DDL 디렉토리가 설정되지 않은 경우 빈 리스트 반환 (정상 케이스).
-        설정되었으나 읽기 실패 시 예외 발생.
-        """
+        """DDL 파일 목록 조회"""
         ddl_dir = orchestrator.dirs.get("ddl", "")
         if not ddl_dir:
-            logging.info("[ANALYZE] DDL 디렉토리 설정 없음 - DDL 처리 생략")
-            return []  # DDL 없이도 분석 가능 (정상)
+            log_process("ANALYZE", "DDL", "DDL 디렉토리 설정 없음 - DDL 처리 생략")
+            return []
         if not os.path.isdir(ddl_dir):
             raise AnalysisError(f"DDL 디렉토리가 존재하지 않습니다: {ddl_dir}")
         try:
@@ -192,29 +290,10 @@ class DbmsAnalyzer(AnalyzerStrategy):
             )
             if not files:
                 raise AnalysisError(f"DDL 디렉토리에 파일이 없습니다: {ddl_dir}")
-            logging.info("[ANALYZE] DDL 파일 발견: %d개", len(files))
+            log_process("ANALYZE", "DDL", f"DDL 파일 발견: {len(files)}개")
             return files
         except OSError as e:
             raise AnalysisError(f"DDL 디렉토리 읽기 실패: {ddl_dir}") from e
-
-    async def _load_file_assets(
-        self,
-        orchestrator: Any,
-        directory: str,
-        file_name: str,
-    ) -> tuple[dict, list[str]]:
-        """소스 파일과 AST JSON 로드"""
-        src_path = os.path.join(orchestrator.dirs["src"], directory, file_name)
-        base_name = os.path.splitext(file_name)[0]
-        ast_path = os.path.join(orchestrator.dirs["analysis"], directory, f"{base_name}.json")
-
-        async with aiofiles.open(ast_path, "r", encoding="utf-8") as ast_file, \
-                   aiofiles.open(src_path, "r", encoding="utf-8") as src_file:
-            ast_data, source_lines = await asyncio.gather(
-                ast_file.read(),
-                src_file.readlines(),
-            )
-            return json.loads(ast_data), source_lines
 
     async def _process_ddl(
         self,
@@ -224,12 +303,12 @@ class DbmsAnalyzer(AnalyzerStrategy):
         orchestrator: Any,
     ) -> tuple[dict, dict]:
         """DDL 파일 처리 및 테이블/컬럼 노드 생성"""
-        stats = {"tables": 0, "columns": 0, "fks": 0}
+        ddl_stats = {"tables": 0, "columns": 0, "fks": 0}
         
         async with aiofiles.open(ddl_path, "r", encoding="utf-8") as f:
             ddl_content = await f.read()
         
-        loader = self._get_rule_loader()
+        loader = RuleLoader(target_lang="dbms")
         parsed = loader.execute(
             "ddl",
             {"ddl_content": ddl_content, "locale": orchestrator.locale},
@@ -282,7 +361,7 @@ class DbmsAnalyzer(AnalyzerStrategy):
             }
             set_str = ", ".join(f"t.`{k}` = '{v}'" for k, v in set_props.items())
             queries.append(f"MERGE (t:Table {{{merge_str}}}) SET {set_str} RETURN t")
-            stats["tables"] += 1
+            ddl_stats["tables"] += 1
 
             # Column 노드 생성
             for col in columns:
@@ -315,7 +394,7 @@ class DbmsAnalyzer(AnalyzerStrategy):
                     f"MATCH (c:Column {{{col_merge_str}}})\n"
                     f"MERGE (t)-[r:HAS_COLUMN]->(c) RETURN t, r, c"
                 )
-                stats["columns"] += 1
+                ddl_stats["columns"] += 1
 
             # FK 관계 생성
             for fk in foreign_keys:
@@ -336,204 +415,268 @@ class DbmsAnalyzer(AnalyzerStrategy):
                     f"MATCH (rt:Table {{{ref_merge_str}}})\n"
                     f"MERGE (t)-[r:FK_TO_TABLE]->(rt) RETURN t, r, rt"
                 )
-                stats["fks"] += 1
+                ddl_stats["fks"] += 1
 
-        result = await client.run_graph_query(queries)
-        logging.info("DDL 처리 완료: %s (T:%d, C:%d, FK:%d)", 
-                    file_name, stats["tables"], stats["columns"], stats["fks"])
-        return result, stats
+        async with self._cypher_lock:
+            result = await client.run_graph_query(queries)
+        
+        log_process("ANALYZE", "DDL", f"DDL 처리 완료: {file_name} (T:{ddl_stats['tables']}, C:{ddl_stats['columns']}, FK:{ddl_stats['fks']})")
+        return result, ddl_stats
 
-    async def _analyze_file(
+    # =========================================================================
+    # 파일 로드
+    # =========================================================================
+
+    async def _load_all_files(
         self,
-        directory: str,
-        file_name: str,
-        all_files: list[tuple[str, str]],
-        client: Neo4jClient,
-        event_queue_from: asyncio.Queue,
-        event_queue_to: asyncio.Queue,
+        file_names: list[tuple[str, str]],
         orchestrator: Any,
+    ) -> List[FileAnalysisContext]:
+        """모든 파일의 AST와 소스코드를 병렬로 로드합니다."""
+        
+        async def load_single(directory: str, file_name: str) -> FileAnalysisContext:
+            src_path = os.path.join(orchestrator.dirs["src"], directory, file_name)
+            base_name = os.path.splitext(file_name)[0]
+            ast_path = os.path.join(orchestrator.dirs["analysis"], directory, f"{base_name}.json")
+
+            async with aiofiles.open(ast_path, "r", encoding="utf-8") as ast_file, \
+                       aiofiles.open(src_path, "r", encoding="utf-8") as src_file:
+                ast_content, source_lines = await asyncio.gather(
+                    ast_file.read(),
+                    src_file.readlines(),
+                )
+                return FileAnalysisContext(
+                    directory=directory,
+                    file_name=file_name,
+                    ast_data=json.loads(ast_content),
+                    source_lines=source_lines,
+                )
+
+        tasks = [load_single(d, f) for d, f in file_names]
+        return await asyncio.gather(*tasks)
+
+    # =========================================================================
+    # Phase 1: AST 그래프 생성
+    # =========================================================================
+
+    async def _run_phase1(
+        self,
+        contexts: List[FileAnalysisContext],
+        client: Neo4jClient,
+        orchestrator: Any,
+        stats: AnalysisStats,
     ) -> AsyncGenerator[bytes, None]:
-        """단일 파일 분석"""
-        current_file = f"{directory}/{file_name}" if directory else file_name
+        """Phase 1: 모든 파일의 AST 그래프를 병렬로 생성합니다."""
+        
+        completed = 0
+        total = len(contexts)
+        results_queue: asyncio.Queue = asyncio.Queue()
 
-        ast_data, source_lines = await self._load_file_assets(
-            orchestrator, directory, file_name
-        )
-        last_line = len(source_lines)
-        source_raw = "".join(source_lines)
-
-        analyzer = DbmsAstProcessor(
-            antlr_data=ast_data,
-            file_content=source_raw,
-            send_queue=event_queue_from,
-            receive_queue=event_queue_to,
-            last_line=last_line,
-            directory=directory,
-            file_name=file_name,
-            user_id=orchestrator.user_id,
-            api_key=orchestrator.api_key,
-            locale=orchestrator.locale,
-            dbms=orchestrator.target,
-            project_name=orchestrator.project_name,
-        )
-        analysis_task = asyncio.create_task(analyzer.run())
-
-        analyzed_blocks = 0
-        static_blocks = 0
-        total_llm_batches = 0
-        total_nodes = 0
-        total_rels = 0
-
-        while True:
-            event = await event_queue_from.get()
-            event_type = event.get("type")
-
-            if event_type == "end_analysis":
-                yield emit_message(f"   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
-                yield emit_message(f"   📊 파일 분석 완료: {file_name}")
-                yield emit_message(f"      • 정적 블록: {static_blocks}개")
-                yield emit_message(f"      • AI 분석 블록: {analyzed_blocks}개")
-                yield emit_message(f"      • 생성된 노드: {total_nodes}개")
-                yield emit_message(f"      • 생성된 관계: {total_rels}개")
-                
-                yield emit_data(
-                    graph={"Nodes": [], "Relationships": []},
-                    line_number=last_line,
-                    analysis_progress=100,
-                    current_file=current_file,
-                )
-                break
-
-            if event_type == "error":
-                error_msg = event.get("message", f"분석 실패: {file_name}")
-                logging.error("분석 실패: %s - %s", file_name, error_msg)
-                yield emit_message(f"   ❌ 오류 발생: {error_msg}")
-                yield emit_error(error_msg)
-                return
-
-            next_line = event.get("line_number", 0)
-            progress = self.calc_progress(next_line, last_line)
-
-            if event_type == "static_graph":
-                static_blocks += 1
-                queries = event.get("query_data", [])
-                graph = await client.run_graph_query(queries)
-                
-                total_nodes += len(graph.get("Nodes", []))
-                total_rels += len(graph.get("Relationships", []))
-                
-                if static_blocks == 1:
-                    yield emit_message("   🏗️ [Phase 1] 코드 구조 생성 중...")
-                
-                node_info = event.get("node_info", {})
-                if node_info:
-                    yield emit_message(
-                        f"      → {node_info.get('type', 'Unknown')} 노드: "
-                        f"{node_info.get('name', '')} (Line {node_info.get('start_line', 0)})"
+        async def process_file(ctx: FileAnalysisContext):
+            async with self._file_semaphore:
+                try:
+                    processor = DbmsAstProcessor(
+                        antlr_data=ctx.ast_data,
+                        file_content="".join(ctx.source_lines),
+                        directory=ctx.directory,
+                        file_name=ctx.file_name,
+                        user_id=orchestrator.user_id,
+                        api_key=orchestrator.api_key,
+                        locale=orchestrator.locale,
+                        dbms=orchestrator.target,
+                        project_name=orchestrator.project_name,
+                        last_line=len(ctx.source_lines),
                     )
-                
-                yield emit_data(
-                    graph=graph,
-                    line_number=next_line,
-                    analysis_progress=progress,
-                    current_file=current_file,
-                )
-                await event_queue_to.put({"type": "process_completed"})
-                continue
+                    ctx.processor = processor
+                    
+                    # 정적 그래프 생성
+                    queries = processor.build_static_graph_queries()
+                    
+                    if queries:
+                        async with self._cypher_lock:
+                            graph = await client.run_graph_query(queries)
+                        
+                        node_count = len(graph.get("Nodes", []))
+                        rel_count = len(graph.get("Relationships", []))
+                        
+                        ctx.status = FileStatus.PH1_OK
+                        await results_queue.put({
+                            "type": "success",
+                            "file": ctx.file_name,
+                            "graph": graph,
+                            "node_count": node_count,
+                            "rel_count": rel_count,
+                        })
+                    else:
+                        ctx.status = FileStatus.PH1_OK
+                        await results_queue.put({
+                            "type": "success",
+                            "file": ctx.file_name,
+                            "graph": {"Nodes": [], "Relationships": []},
+                            "node_count": 0,
+                            "rel_count": 0,
+                        })
+                        
+                except Exception as e:
+                    log_process("ANALYZE", "ERROR", f"Phase 1 오류 ({ctx.file_name}): {e}", logging.ERROR, e)
+                    ctx.status = FileStatus.PH1_FAIL
+                    ctx.error_message = str(e)[:100]
+                    await results_queue.put({
+                        "type": "error",
+                        "file": ctx.file_name,
+                        "message": str(e),
+                    })
 
-            if event_type == "static_complete":
-                yield emit_message(f"   ✓ Phase 1 완료: 구조 노드 {static_blocks}개 생성")
-                await event_queue_to.put({"type": "process_completed"})
-                continue
+        # 모든 파일 병렬 처리 시작
+        tasks = [asyncio.create_task(process_file(ctx)) for ctx in contexts]
 
-            if event_type == "llm_start":
-                total_llm_batches = event.get("total_batches", 0)
-                yield emit_message(f"   🤖 [Phase 2] AI 분석 시작 ({total_llm_batches}개 블록)")
-                await event_queue_to.put({"type": "process_completed"})
-                continue
-
-            if event_type == "analysis_code":
-                analyzed_blocks += 1
-                queries = event.get("query_data", [])
-                graph = await client.run_graph_query(queries)
+        # 결과 수신 및 스트리밍
+        while completed < total:
+            result = await asyncio.wait_for(results_queue.get(), timeout=300.0)
+            completed += 1
+            stats.files_completed = completed
+            
+            if result["type"] == "error":
+                yield emit_message(f"   ❌ [{completed}/{total}] {result['file']}: {result['message'][:50]}")
+                stats.mark_file_failed(result['file'], "Phase1 실패")
+            else:
+                stats.add_graph_result(result["graph"], is_static=True)
                 
-                total_nodes += len(graph.get("Nodes", []))
-                total_rels += len(graph.get("Relationships", []))
-                
-                # 결과 메시지화
+                graph = result["graph"]
                 graph_msg = format_graph_result(graph)
+                
+                yield emit_message(f"   ✓ [{completed}/{total}] {result['file']}")
                 if graph_msg:
-                    yield emit_message(f"      [{analyzed_blocks}/{total_llm_batches}] 분석 완료")
-                    for line in graph_msg.split("\n"):
+                    for line in graph_msg.split("\n")[:3]:
                         yield emit_message(f"      {line}")
                 
                 yield emit_data(
                     graph=graph,
-                    line_number=next_line,
-                    analysis_progress=progress,
-                    current_file=current_file,
+                    line_number=0,
+                    analysis_progress=int(completed / total * 50),
+                    current_file=result["file"],
                 )
-                await event_queue_to.put({"type": "process_completed"})
 
-        await analysis_task
+        # 모든 작업 완료 대기
+        await asyncio.gather(*tasks, return_exceptions=True)
 
-    async def _create_user_story_doc(
+    # =========================================================================
+    # Phase 2: LLM 분석
+    # =========================================================================
+
+    async def _run_phase2(
         self,
+        contexts: List[FileAnalysisContext],
         client: Neo4jClient,
         orchestrator: Any,
-    ) -> str:
-        """분석된 프로시저에서 User Story 문서 생성"""
-        try:
-            query = f"""
-                MATCH (n)
-                WHERE (n:PROCEDURE OR n:FUNCTION OR n:TRIGGER)
-                  AND n.user_id = '{escape_for_cypher(orchestrator.user_id)}'
-                  AND n.project_name = '{escape_for_cypher(orchestrator.project_name)}'
-                  AND n.summary IS NOT NULL
-                OPTIONAL MATCH (n)-[:HAS_USER_STORY]->(us:UserStory)
-                OPTIONAL MATCH (us)-[:HAS_AC]->(ac:AcceptanceCriteria)
-                WITH n, us, collect(DISTINCT {{
-                    id: ac.id,
-                    title: ac.title,
-                    given: ac.given,
-                    when: ac.when,
-                    then: ac.then
-                }}) AS acceptance_criteria
-                WITH n, collect(DISTINCT {{
-                    id: us.id,
-                    role: us.role,
-                    goal: us.goal,
-                    benefit: us.benefit,
-                    acceptance_criteria: acceptance_criteria
-                }}) AS user_stories
-                RETURN n.procedure_name AS name, 
-                       n.summary AS summary,
-                       user_stories AS user_stories, 
-                       labels(n)[0] AS type
-                ORDER BY n.file_name, n.startLine
-            """
-            
-            results = await client.execute_queries([query])
-            
-            if not results or not results[0]:
-                raise AnalysisError("User Story 생성을 위한 분석 결과가 없습니다")
-            
-            filtered = [
-                r for r in results[0]
-                if r.get("summary") or (r.get("user_stories") and len(r["user_stories"]) > 0)
-            ]
-            
-            if not filtered:
-                raise AnalysisError("User Story 생성 대상이 없습니다 (요약된 프로시저 없음)")
-            
-            logging.info("[ANALYZE] User Story 생성 | 대상=%d개 프로시저", len(filtered))
-            return generate_user_story_document(
-                results=filtered,
-                source_name=orchestrator.project_name,
-                source_type="DBMS 프로시저/함수",
-            )
-            
-        except Exception as exc:
-            logging.error("[ANALYZE] User Story 문서 생성 실패 | error=%s", exc, exc_info=True)
-            raise AnalysisError(f"User Story 생성 실패: {exc}") from exc
+        stats: AnalysisStats,
+    ) -> AsyncGenerator[bytes, None]:
+        """Phase 2: Phase1 성공 파일의 LLM 분석을 병렬로 실행합니다."""
+        
+        if not contexts:
+            yield emit_message("   ℹ️ 분석 대상 파일 없음")
+            return
+        
+        completed = 0
+        total = len(contexts)
+        results_queue: asyncio.Queue = asyncio.Queue()
 
+        async def analyze_file(ctx: FileAnalysisContext):
+            async with self._file_semaphore:
+                try:
+                    if not ctx.processor:
+                        raise AnalysisError(f"Phase 1에서 프로세서 초기화 실패: {ctx.file_name}")
+                    
+                    # LLM 분석 실행 (튜플 반환: queries, failed_batch_count, failed_details)
+                    analysis_queries, failed_batch_count, failed_details = await ctx.processor.run_llm_analysis()
+                    
+                    if analysis_queries:
+                        async with self._cypher_lock:
+                            graph = await client.run_graph_query(analysis_queries)
+                        
+                        ctx.status = FileStatus.PH2_OK
+                        await results_queue.put({
+                            "type": "success",
+                            "file": ctx.file_name,
+                            "graph": graph,
+                            "query_count": len(analysis_queries),
+                            "failed_batches": failed_batch_count,
+                            "failed_details": failed_details,  # 상세 정보 추가
+                        })
+                    else:
+                        ctx.status = FileStatus.PH2_OK
+                        await results_queue.put({
+                            "type": "success",
+                            "file": ctx.file_name,
+                            "graph": {"Nodes": [], "Relationships": []},
+                            "query_count": 0,
+                            "failed_batches": failed_batch_count,
+                        })
+                    
+                    # 배치 실패가 있으면 경고 표시
+                    if failed_batch_count > 0:
+                        await results_queue.put({
+                            "type": "warning",
+                            "file": ctx.file_name,
+                            "message": f"{failed_batch_count}개 배치 실패 (부분 성공)",
+                        })
+                        
+                except Exception as e:
+                    log_process("ANALYZE", "ERROR", f"Phase 2 오류 ({ctx.file_name}): {e}", logging.ERROR, e)
+                    ctx.status = FileStatus.PH2_FAIL
+                    ctx.error_message = str(e)[:100]
+                    await results_queue.put({
+                        "type": "error",
+                        "file": ctx.file_name,
+                        "message": str(e),
+                    })
+
+        # 모든 파일 병렬 처리 시작
+        tasks = [asyncio.create_task(analyze_file(ctx)) for ctx in contexts]
+
+        # 결과 수신 및 스트리밍
+        while completed < total:
+            result = await asyncio.wait_for(results_queue.get(), timeout=600.0)
+            result_type = result.get("type", "")
+            
+            # warning은 카운트하지 않음 (추가 정보일 뿐)
+            if result_type == "warning":
+                yield emit_message(f"   ⚠️ {result['file']}: {result['message']}")
+                continue
+            
+            completed += 1
+            
+            if result_type == "error":
+                yield emit_message(f"   ❌ [{completed}/{total}] {result['file']}: {result['message'][:50]}")
+                stats.mark_file_failed(result['file'], "Phase2 실패")
+            else:
+                stats.llm_batches_executed += 1
+                graph = result["graph"]
+                stats.add_graph_result(graph, is_static=False)
+                
+                # 배치 실패 정보 표시
+                failed_batches = result.get("failed_batches", 0)
+                failed_details = result.get("failed_details", [])
+                fail_info = f" (배치 {failed_batches}개 실패)" if failed_batches > 0 else ""
+                
+                graph_msg = format_graph_result(graph)
+                yield emit_message(f"   ✓ [{completed}/{total}] {result['file']} (쿼리 {result['query_count']}개){fail_info}")
+                if graph_msg:
+                    for line in graph_msg.split("\n")[:3]:
+                        yield emit_message(f"      {line}")
+                
+                # 실패 상세 정보 출력 (최대 3개)
+                if failed_details:
+                    stats.llm_batches_failed += len(failed_details)
+                    for detail in failed_details[:3]:
+                        yield emit_message(f"      ⚠️ 배치 #{detail['batch_id']} ({detail['node_ranges']}): {detail['error'][:50]}")
+                
+                yield emit_data(
+                    graph=graph,
+                    line_number=0,
+                    analysis_progress=50 + int(completed / total * 50),
+                    current_file=result["file"],
+                )
+
+        # 모든 작업 완료 대기
+        await asyncio.gather(*tasks, return_exceptions=True)

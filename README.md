@@ -1,38 +1,533 @@
 # ROBO Analyzer
 
-소스 코드를 분석하여 Neo4j 그래프로 변환하는 AI 기반 코드 분석 서비스입니다.
+**소스 코드를 분석하여 Neo4j 그래프로 변환하는 AI 기반 코드 분석 서비스**
+
+이 프로젝트는 클린 아키텍처로 전환하기 위해 먼저 소스 코드를 분석하고 이해하는 것을 목적으로 합니다. 레거시 코드를 분석하여 구조화된 그래프 데이터로 변환하고, 이를 통해 시스템의 구조와 의존성을 시각화합니다.
+
+---
+
+## 📋 목차
+
+1. [개요](#개요)
+2. [주요 기능](#주요-기능)
+3. [시스템 아키텍처](#시스템-아키텍처)
+4. [분석 흐름](#분석-흐름)
+5. [프로젝트 구조](#프로젝트-구조)
+6. [시작하기](#시작하기)
+7. [API 엔드포인트](#api-엔드포인트)
+8. [분석 전략](#분석-전략)
+9. [그래프 데이터 구조](#그래프-데이터-구조)
+10. [설정](#설정)
+11. [기술 스택](#기술-스택)
+
+---
+
+## 개요
+
+ROBO Analyzer는 소스 코드를 분석하여 Neo4j 그래프 데이터베이스에 구조화된 정보를 저장하는 서비스입니다. 
+
+### 핵심 목적
+
+- **레거시 코드 분석**: 기존 코드베이스를 분석하여 구조와 의존성 파악
+- **그래프 기반 시각화**: Neo4j를 활용한 코드 구조 시각화
+- **AI 기반 분석**: LLM을 활용한 코드 요약 및 관계 추출
+- **클린 아키텍처 전환 준비**: 코드 분석을 통한 리팩토링 기반 마련
+
+### 핵심 설계 원칙
+
+**"모든 파일에 대해 AST를 먼저 뽑는다"**
+
+이 원칙은 모든 설계의 핵심입니다:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  모든 파일 → AST 구조 먼저 생성 (Phase 1)                │
+│  ↓                                                       │
+│  모든 파일 → LLM 분석 (Phase 2)                         │
+└─────────────────────────────────────────────────────────┘
+```
+
+**이렇게 설계한 이유:**
+
+1. **메서드 호출 처리 단순화**: AST 구조가 있으면 `target.methodName`을 파싱해서 기존 클래스/메서드 노드를 바로 찾을 수 있음
+2. **병렬 처리 효율성**: 모든 파일의 AST가 먼저 있으면, LLM 분석 단계에서 각 파일을 독립적으로 병렬 처리 가능
+3. **관계 연결 단순화**: `MATCH`로 기존 노드를 바로 조회하여 관계 생성
+
+---
 
 ## 주요 기능
 
-- **Framework 분석**: Java, Kotlin 코드를 분석하여 클래스 다이어그램 그래프 생성
-- **DBMS 분석**: PL/SQL 프로시저/함수를 분석하여 관계도 그래프 생성
-- **이중 병렬 처리**: 파일 레벨 + 청크 레벨 동시 병렬로 빠른 분석
-- **실시간 스트리밍**: NDJSON 형식으로 분석 진행 상황 실시간 전달
-- **User Story 자동 생성**: 분석 결과에서 요구사항 문서 자동 생성
+### 1. Framework 분석 (Java/Kotlin)
+
+- **AST 기반 구조 분석**: 클래스, 인터페이스, 메서드, 필드 추출
+- **상속/구현 관계**: `EXTENDS`, `IMPLEMENTS` 관계 생성
+- **메서드 호출 추적**: `CALLS` 관계를 통한 메서드 호출 체인 분석
+- **의존성 분석**: `DEPENDENCY` 관계를 통한 타입 의존성 파악
+- **클래스 관계**: `ASSOCIATION`, `COMPOSITION` 관계 추출
+
+### 2. DBMS 분석 (PL/SQL)
+
+- **프로시저/함수 분석**: PROCEDURE, FUNCTION, TRIGGER 노드 생성
+- **테이블 스키마 분석**: DDL 파일에서 테이블/컬럼 구조 추출
+- **데이터 접근 추적**: `FROM`, `WRITES` 관계를 통한 테이블 접근 분석
+- **프로시저 호출 체인**: `CALL` 관계를 통한 프로시저 호출 추적
+- **외래키 관계**: `FK_TO_TABLE` 관계를 통한 테이블 관계 파악
+
+### 3. 이중 병렬 처리
+
+- **파일 레벨 병렬**: 최대 5개 파일 동시 처리
+- **청크 레벨 병렬**: LLM 분석 시 최대 5개 청크 동시 처리
+- **Cypher 동시성 보호**: `asyncio.Lock`을 통한 Neo4j 쿼리 동시성 제어
+
+### 4. 실시간 스트리밍
+
+- **NDJSON 형식**: 실시간 분석 진행 상황 전달
+- **이벤트 타입**: `message`, `data`, `error`, `complete`
+- **진행률 추적**: 파일별, 전체 분석 진행률 표시
+
+### 5. User Story 자동 생성
+
+- **요구사항 문서 생성**: 분석 결과에서 User Story 및 Acceptance Criteria 자동 생성
+- **마크다운 형식**: 구조화된 마크다운 문서 생성
+
+---
+
+## 시스템 아키텍처
+
+### 전체 아키텍처 다이어그램
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                        Client (Frontend)                      │
+└────────────────────────────┬──────────────────────────────────┘
+                             │ HTTP/NDJSON Stream
+                             ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    FastAPI Application                        │
+│  ┌──────────────────────────────────────────────────────┐   │
+│  │              API Router (router.py)                  │   │
+│  │  - POST /robo/analyze/                               │   │
+│  │  - DELETE /robo/data/                               │   │
+│  └──────────────────┬───────────────────────────────────┘   │
+│                      │                                        │
+│  ┌───────────────────▼───────────────────────────────────┐   │
+│  │      Analysis Orchestrator (orchestrator.py)          │   │
+│  │  - 요청 파싱 및 검증                                   │   │
+│  │  - 파일 탐색                                          │   │
+│  │  - 분석 전략 선택                                      │   │
+│  └───────────────────┬───────────────────────────────────┘   │
+└──────────────────────┼────────────────────────────────────────┘
+                       │
+                       ▼
+┌─────────────────────────────────────────────────────────────┐
+│                  Analyzer Strategy Layer                     │
+│  ┌──────────────────────┐  ┌──────────────────────┐        │
+│  │  Framework Analyzer   │  │   DBMS Analyzer      │        │
+│  │  (Java/Kotlin)       │  │   (PL/SQL)           │        │
+│  └──────────┬───────────┘  └──────────┬───────────┘        │
+│             │                          │                     │
+│  ┌──────────▼───────────┐  ┌───────────▼───────────┐        │
+│  │  AST Processor       │  │  AST Processor        │        │
+│  │  - Phase 1: AST      │  │  - Phase 1: AST       │        │
+│  │  - Phase 2: LLM     │  │  - Phase 2: LLM       │        │
+│  └──────────┬───────────┘  └──────────┬───────────┘        │
+└─────────────┼─────────────────────────┼──────────────────────┘
+              │                         │
+              └──────────┬──────────────┘
+                         ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    Core Services                             │
+│  ┌──────────────────┐  ┌──────────────────┐                 │
+│  │  Neo4j Client   │  │   LLM Client     │                 │
+│  │  - Graph Query  │  │   - OpenAI API   │                 │
+│  │  - Lock Control │  │   - Custom LLM   │                 │
+│  └──────────────────┘  └──────────────────┘                 │
+└─────────────────────────────────────────────────────────────┘
+              │                         │
+              ▼                         ▼
+┌──────────────────────┐    ┌──────────────────────┐
+│   Neo4j Database     │    │   LLM API Service    │
+│   (Graph Storage)    │    │   (AI Analysis)      │
+└──────────────────────┘    └──────────────────────┘
+```
+
+### 레이어 구조
+
+1. **API Layer** (`api/`)
+   - FastAPI 기반 REST API
+   - 요청/응답 처리
+   - 스트리밍 응답 관리
+
+2. **Orchestration Layer** (`api/orchestrator.py`)
+   - 분석 프로세스 오케스트레이션
+   - 파일 탐색 및 검증
+   - 전략 선택 및 실행
+
+3. **Analysis Layer** (`analyzer/strategy/`)
+   - 전략 패턴 기반 분석기
+   - Framework/DBMS 분석 전략
+   - AST 처리 및 LLM 분석
+
+4. **Service Layer** (`analyzer/`, `util/`)
+   - Neo4j 클라이언트
+   - LLM 클라이언트
+   - 유틸리티 함수
+
+5. **Configuration Layer** (`config/`)
+   - 환경변수 중앙 관리
+   - 설정 싱글톤
+
+---
+
+## 분석 흐름
+
+### 전체 분석 시퀀스 다이어그램
+
+```
+Client                    API Router          Orchestrator         Analyzer          Neo4j Client        LLM Client
+  │                           │                    │                  │                  │                  │
+  │── POST /robo/analyze/ ────>│                    │                  │                  │                  │
+  │                           │                    │                  │                  │                  │
+  │                           │── create_orch() ──>│                  │                  │                  │
+  │                           │                    │                  │                  │                  │
+  │                           │<── orchestrator ───│                  │                  │                  │
+  │                           │                    │                  │                  │                  │
+  │                           │── discover_files() ─>│                  │                  │                  │
+  │                           │                    │                  │                  │                  │
+  │                           │<── file_names ──────│                  │                  │                  │
+  │                           │                    │                  │                  │                  │
+  │                           │── run_analysis() ──>│                  │                  │                  │
+  │                           │                    │                  │                  │                  │
+  │                           │                    │── analyze() ──────>│                  │                  │
+  │                           │                    │                  │                  │                  │
+  │                           │                    │                  │── ensure_constraints() ──>│          │
+  │                           │                    │                  │<── OK ────────────────────│          │
+  │                           │                    │                  │                  │                  │
+  │                           │                    │                  │── Phase 1: AST ────────────>│          │
+  │                           │                    │                  │                  │                  │
+  │<── message: "Phase 1 시작" ──│                    │                  │                  │                  │
+  │                           │                    │                  │                  │                  │
+  │                           │                    │                  │── build_static_graph() ──>│          │
+  │                           │                    │                  │                  │                  │
+  │                           │                    │                  │<── queries ────────────────│          │
+  │                           │                    │                  │                  │                  │
+  │                           │                    │                  │── run_graph_query() ──────>│          │
+  │                           │                    │                  │                  │                  │
+  │<── data: graph ────────────│                    │                  │<── graph ──────────────────│          │
+  │                           │                    │                  │                  │                  │
+  │                           │                    │                  │── Phase 2: LLM ────────────>│          │
+  │                           │                    │                  │                  │                  │
+  │<── message: "Phase 2 시작" ──│                    │                  │                  │                  │
+  │                           │                    │                  │                  │                  │
+  │                           │                    │                  │── run_llm_analysis() ────────────────>│
+  │                           │                    │                  │                  │                  │
+  │                           │                    │                  │<── analysis_result ────────────────────│
+  │                           │                    │                  │                  │                  │
+  │                           │                    │                  │── build_queries() ────────>│          │
+  │                           │                    │                  │                  │                  │
+  │                           │                    │                  │── run_graph_query() ──────>│          │
+  │                           │                    │                  │                  │                  │
+  │<── data: graph ────────────│                    │                  │<── graph ──────────────────│          │
+  │                           │                    │                  │                  │                  │
+  │                           │                    │                  │── Phase 3: User Story ────>│          │
+  │                           │                    │                  │                  │                  │
+  │<── data: user_story ───────│                    │                  │<── document ───────────────│          │
+  │                           │                    │                  │                  │                  │
+  │                           │                    │<── complete ──────│                  │                  │
+  │                           │                    │                  │                  │                  │
+  │<── complete ───────────────│                    │                  │                  │                  │
+```
+
+### Framework 분석 상세 흐름
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                     소스 파일 목록                               │
+│  - OrderService.java                                            │
+│  - OrderRepository.java                                         │
+│  - OrderController.java                                         │
+│  ... (총 N개 파일)                                              │
+└─────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼ (파일 5개 병렬 처리)
+┌─────────────────────────────────────────────────────────────────┐
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ...    │
+│  │  File 1      │  │  File 2      │  │  File 3      │         │
+│  │  AST 로드    │  │  AST 로드    │  │  AST 로드    │         │
+│  │  (JSON)      │  │  (JSON)      │  │  (JSON)      │         │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘         │
+│         │                 │                  │                  │
+│         ▼ (Phase 1)       ▼                  ▼                  │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐        │
+│  │ 정적그래프   │  │ 정적그래프    │  │ 정적그래프    │        │
+│  │  노드생성    │  │  노드생성     │  │  노드생성     │        │
+│  │  - CLASS     │  │  - CLASS      │  │  - CLASS      │        │
+│  │  - METHOD    │  │  - METHOD     │  │  - METHOD     │        │
+│  │  - FIELD     │  │  - FIELD      │  │  - FIELD      │        │
+│  │  - 관계      │  │  - 관계       │  │  - 관계       │        │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘        │
+│         │                 │                  │                  │
+│         ▼ (Phase 2)       ▼                  ▼                  │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐        │
+│  │ LLM 분석    │  │ LLM 분석     │  │ LLM 분석     │        │
+│  │ (청크별)    │  │ (청크별)     │  │ (청크별)     │        │
+│  │  - summary  │  │  - summary   │  │  - summary   │        │
+│  │  - CALLS    │  │  - CALLS     │  │  - CALLS     │        │
+│  │  - DEPEND   │  │  - DEPEND    │  │  - DEPEND    │        │
+│  └──────┬───────┘  └──────┬───────┘  └──────┬───────┘        │
+└─────────┼─────────────────┼──────────────────┼─────────────────┘
+          │                 │                  │
+          └─────────────────┴────────┬─────────┘
+                                    │
+                                    ▼ (Cypher Lock 보호)
+                      ┌──────────────────────────────────┐
+                      │         Neo4j 그래프 저장         │
+                      │  - 노드 생성/업데이트             │
+                      │  - 관계 생성                      │
+                      └──────────────────────────────────┘
+                                    │
+                                    ▼
+                      ┌──────────────────────────────────┐
+                      │      User Story 문서 생성        │
+                      │  - 클래스별 요약                  │
+                      │  - User Story 추출               │
+                      │  - Acceptance Criteria 생성      │
+                      └──────────────────────────────────┘
+```
+
+### DBMS 분석 상세 흐름
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                    DDL 파일 처리 (Phase 0)                      │
+│  - schema.sql                                                  │
+│  - tables.sql                                                  │
+└─────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    테이블/컬럼 노드 생성                        │
+│  - Table 노드                                                  │
+│  - Column 노드                                                 │
+│  - FK_TO_TABLE 관계                                            │
+└─────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                     소스 파일 목록                               │
+│  - procedure1.sql                                              │
+│  - procedure2.sql                                              │
+│  ... (총 N개 파일)                                              │
+└─────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼ (파일별 순차 처리)
+┌─────────────────────────────────────────────────────────────────┐
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  File 1: procedure1.sql                                  │  │
+│  │  ┌──────────────┐                                        │  │
+│  │  │ Phase 1: AST │                                        │  │
+│  │  │ - PROCEDURE │                                        │  │
+│  │  │ - FUNCTION  │                                        │  │
+│  │  │ - Variable   │                                        │  │
+│  │  └──────┬───────┘                                        │  │
+│  │         │                                                 │  │
+│  │         ▼                                                 │  │
+│  │  ┌──────────────┐                                        │  │
+│  │  │ Phase 2: LLM │                                        │  │
+│  │  │ (청크별)    │                                        │  │
+│  │  │ - summary    │                                        │  │
+│  │  │ - CALL       │                                        │  │
+│  │  │ - FROM       │                                        │  │
+│  │  │ - WRITES     │                                        │  │
+│  │  └──────────────┘                                        │  │
+│  └──────────────────────────────────────────────────────────┘  │
+│                                                                 │
+│  ┌──────────────────────────────────────────────────────────┐  │
+│  │  File 2: procedure2.sql                                   │  │
+│  │  ... (동일한 흐름)                                       │  │
+│  └──────────────────────────────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────┘
+                               │
+                               ▼
+                      ┌──────────────────────────────────┐
+                      │      User Story 문서 생성        │
+                      │  - 프로시저별 요약                │
+                      │  - User Story 추출               │
+                      │  - Acceptance Criteria 생성      │
+                      └──────────────────────────────────┘
+```
+
+---
+
+## 프로젝트 구조
+
+```
+robo_analyzer_core/
+├── main.py                      # FastAPI 애플리케이션 진입점
+│
+├── api/                         # REST API 레이어
+│   ├── router.py               # API 라우터 정의
+│   │   ├── POST /robo/analyze/ # 소스 코드 분석 (스트리밍)
+│   │   └── DELETE /robo/data/  # 사용자 데이터 삭제
+│   └── orchestrator.py         # 분석 오케스트레이터
+│       ├── AnalysisOrchestrator # 분석 프로세스 관리
+│       ├── discover_source_files() # 소스 파일 탐색
+│       └── cleanup_all_data()  # 데이터 정리
+│
+├── analyzer/                    # 분석 엔진 코어
+│   ├── neo4j_client.py         # Neo4j 비동기 클라이언트
+│   │   ├── execute_queries()  # Cypher 쿼리 실행
+│   │   ├── run_graph_query()  # 그래프 결과 반환
+│   │   └── ensure_constraints() # 제약조건 생성
+│   │
+│   ├── parallel_executor.py    # 이중 병렬 처리 실행기
+│   │   ├── ParallelExecutor    # 파일 레벨 병렬 처리
+│   │   └── ChunkBatcher        # 청크 레벨 배치 처리
+│   │
+│   └── strategy/               # 분석 전략 패턴
+│       ├── base_analyzer.py    # AnalyzerStrategy 인터페이스
+│       ├── analyzer_factory.py # 전략 팩토리
+│       │
+│       ├── framework/          # Framework (Java/Kotlin) 분석
+│       │   ├── framework_analyzer.py  # FrameworkAnalyzer
+│       │   │   ├── analyze()          # 메인 분석 메서드
+│       │   │   ├── _run_phase1()      # Phase 1: AST 그래프
+│       │   │   ├── _run_phase2()      # Phase 2: LLM 분석
+│       │   │   └── _create_user_story_doc() # Phase 3: User Story
+│       │   │
+│       │   └── ast_processor.py        # FrameworkAstProcessor
+│       │       ├── build_static_graph_queries() # Phase 1 쿼리 생성
+│       │       └── run_llm_analysis()  # Phase 2 LLM 분석
+│       │
+│       └── dbms/               # DBMS (PL/SQL) 분석
+│           ├── dbms_analyzer.py       # DbmsAnalyzer
+│           │   ├── analyze()          # 메인 분석 메서드
+│           │   ├── _process_ddl()     # DDL 처리
+│           │   ├── _analyze_file()    # 파일 분석
+│           │   └── _create_user_story_doc() # User Story 생성
+│           │
+│           └── ast_processor.py       # DbmsAstProcessor
+│               ├── build_static_graph() # Phase 1 쿼리 생성
+│               └── run_llm_analysis()  # Phase 2 LLM 분석
+│
+├── config/                      # 설정 관리
+│   └── settings.py             # 환경변수 중앙 관리 (Singleton)
+│       ├── Neo4jConfig         # Neo4j 연결 설정
+│       ├── LLMConfig           # LLM API 설정
+│       ├── ConcurrencyConfig   # 병렬 처리 설정
+│       ├── BatchConfig         # 배치 처리 설정
+│       └── PathConfig          # 경로 설정
+│
+├── util/                        # 유틸리티 모듈
+│   ├── exception.py            # 계층화된 예외 클래스
+│   │   ├── RoboAnalyzerError   # 기본 예외
+│   │   ├── AnalysisError        # 분석 오류
+│   │   ├── CodeProcessError    # 코드 처리 오류
+│   │   ├── LLMCallError        # LLM 호출 오류
+│   │   └── QueryExecutionError # Neo4j 쿼리 오류
+│   │
+│   ├── stream_utils.py         # NDJSON 스트리밍 유틸리티
+│   │   ├── emit_message()      # 메시지 이벤트
+│   │   ├── emit_data()         # 데이터 이벤트
+│   │   ├── emit_error()        # 에러 이벤트
+│   │   ├── emit_complete()     # 완료 이벤트
+│   │   └── format_graph_result() # 그래프 결과 포맷팅
+│   │
+│   ├── logger.py               # 구조화된 로깅
+│   │   └── setup_logging()     # 로깅 초기화
+│   │
+│   ├── llm_client.py           # LLM 클라이언트 팩토리
+│   │   └── get_llm()           # LLM 인스턴스 생성
+│   │
+│   ├── llm_audit.py             # LLM 호출 감사 로깅
+│   │   └── invoke_with_audit() # 감사 로그와 함께 LLM 호출
+│   │
+│   ├── rule_loader.py           # YAML 프롬프트 규칙 로더
+│   │   ├── RuleLoader          # 규칙 로더 클래스
+│   │   ├── render_prompt()     # 프롬프트 렌더링
+│   │   └── execute()            # 프롬프트 실행 (LLM 호출)
+│   │
+│   └── utility_tool.py         # 범용 유틸리티 함수
+│       ├── escape_for_cypher()  # Cypher 이스케이프
+│       ├── calculate_code_token() # 토큰 계산
+│       └── generate_user_story_document() # User Story 문서 생성
+│
+├── rules/                       # LLM 프롬프트 규칙 (YAML)
+│   ├── framework/              # Framework 분석 프롬프트
+│   │   ├── analysis.yaml       # 코드 분석 (calls 배열 포함)
+│   │   ├── class_summary_only.yaml # 클래스 요약
+│   │   ├── class_user_story.yaml # 클래스 User Story
+│   │   ├── field.yaml          # 필드 분석
+│   │   ├── inheritance.yaml    # 상속 관계 분석
+│   │   └── method.yaml         # 메서드 분석
+│   │
+│   └── dbms/                   # DBMS 분석 프롬프트
+│       ├── analysis.yaml       # 코드 분석
+│       ├── column.yaml         # 컬럼 분석
+│       ├── ddl.yaml            # DDL 분석
+│       ├── dml.yaml            # DML 분석
+│       ├── procedure_summary_only.yaml # 프로시저 요약
+│       ├── procedure_user_story.yaml # 프로시저 User Story
+│       ├── table_summary.yaml  # 테이블 요약
+│       └── variables.yaml      # 변수 분석
+│
+├── docs/                        # 문서
+│   └── REFACTORING_GUIDE.md    # 리팩토링 가이드
+│
+└── test/                        # 테스트
+    ├── test_analyzer.py         # 분석기 테스트
+    ├── test_neo4j_return_graph.py # Neo4j 그래프 반환 테스트
+    └── test_procedure_analyzer.py # 프로시저 분석기 테스트
+```
+
+---
 
 ## 시작하기
 
 ### 요구사항
 
-- Python 3.11+
-- Neo4j 5.x
-- LLM API (OpenAI 또는 호환 API)
+- **Python**: 3.11 이상
+- **Neo4j**: 5.x 이상
+- **LLM API**: OpenAI 또는 호환 API
 
 ### 설치
 
 ```bash
-# 의존성 설치
+# 1. 저장소 클론
+git clone <repository-url>
+cd robo_analyzer_core
+
+# 2. 의존성 설치
 pip install -r requirements.txt
 
-# 환경변수 설정
+# 3. 환경변수 설정
 cp env.example .env
 # .env 파일을 편집하여 API 키 및 Neo4j 연결 정보 설정
+```
 
-# 필수 설정:
-# - NEO4J_URI, NEO4J_USER, NEO4J_PASSWORD (Neo4j 연결)
-# - LLM_API_KEY (LLM API 키)
-# 
-# 자세한 내용은 docs/ENV_SETUP.md 참조
+### 환경변수 설정
+
+`.env` 파일에 다음 설정을 추가하세요:
+
+```bash
+# Neo4j 설정
+NEO4J_URI=bolt://127.0.0.1:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=your-password
+
+# LLM API 설정
+LLM_API_KEY=your-api-key
+LLM_API_BASE=https://api.openai.com/v1
+LLM_MODEL=gpt-4.1
+LLM_MAX_TOKENS=32768
+
+# 병렬 처리 설정
+FILE_CONCURRENCY=5
+MAX_CONCURRENCY=5
+
+# 서버 설정
+HOST=0.0.0.0
+PORT=5502
 ```
 
 ### 실행
@@ -45,18 +540,95 @@ python main.py
 uvicorn main:app --host 0.0.0.0 --port 5502 --reload
 ```
 
+서버가 시작되면 다음 URL에서 접근할 수 있습니다:
+- API 문서: http://localhost:5502/docs
+- 헬스체크: http://localhost:5502/health
+
+---
+
 ## API 엔드포인트
 
-| 메서드 | 경로 | 설명 |
-|--------|------|------|
-| POST | `/robo/analyze/` | 소스 코드 분석 (스트리밍 응답) |
-| DELETE | `/robo/data/` | 사용자 데이터 삭제 |
-| GET | `/` | 헬스체크 |
-| GET | `/health` | 상세 헬스체크 |
-| GET | `/docs` | API 문서 (Swagger UI) |
+### POST `/robo/analyze/`
 
-### 분석 요청 예시
+소스 코드를 분석하여 Neo4j 그래프 데이터 생성
 
+**Request Headers:**
+- `Session-UUID`: 사용자 세션 ID (필수)
+- `OpenAI-Api-Key`: LLM API 키 (필수)
+- `Accept-Language`: 출력 언어 (기본: `ko`)
+
+**Request Body:**
+```json
+{
+  "projectName": "my-project",
+  "strategy": "framework",  // "framework" 또는 "dbms"
+  "target": "java"          // "java", "oracle" 등
+}
+```
+
+**Response:**
+- Content-Type: `application/x-ndjson`
+- 스트리밍 응답 (NDJSON 형식)
+
+**응답 이벤트 타입:**
+
+1. **message** (진행 상황 메시지)
+```json
+{"type": "message", "content": "🚀 프레임워크 코드 분석을 시작합니다"}
+{"type": "message", "content": "📦 프로젝트: my-project"}
+{"type": "message", "content": "🏗️ [Phase 1] AST 구조 그래프 생성 (10개 파일 병렬)"}
+```
+
+2. **data** (그래프 데이터)
+```json
+{
+  "type": "data",
+  "graph": {
+    "Nodes": [
+      {
+        "Node ID": "4:...",
+        "Labels": ["CLASS"],
+        "Properties": {
+          "class_name": "OrderService",
+          "user_id": "user-123",
+          "project_name": "my-project",
+          "startLine": 10,
+          "endLine": 150
+        }
+      }
+    ],
+    "Relationships": [
+      {
+        "Relationship ID": "5:...",
+        "Type": "CALLS",
+        "Start Node ID": "4:...",
+        "End Node ID": "6:...",
+        "Properties": {"method": "save"}
+      }
+    ]
+  },
+  "line_number": 150,
+  "analysis_progress": 75,
+  "current_file": "OrderService.java"
+}
+```
+
+3. **error** (오류)
+```json
+{
+  "type": "error",
+  "content": "분석 실패: LLM 응답의 라인 번호가 유효하지 않습니다",
+  "errorType": "AnalysisError",
+  "traceId": "stream-abc123"
+}
+```
+
+4. **complete** (완료)
+```json
+{"type": "complete"}
+```
+
+**예시:**
 ```bash
 curl -X POST http://localhost:5502/robo/analyze/ \
   -H "Content-Type: application/json" \
@@ -69,95 +641,327 @@ curl -X POST http://localhost:5502/robo/analyze/ \
   }'
 ```
 
-## 프로젝트 구조
+### DELETE `/robo/data/`
 
-```
-robo_analyzer_core/
-├── main.py                      # FastAPI 애플리케이션 진입점
-├── api/                         # REST API 레이어
-│   ├── router.py               # API 라우터 정의
-│   └── orchestrator.py         # 분석 오케스트레이터 (인증, 파일 검색)
-├── analyzer/                    # 분석 엔진 코어
-│   ├── neo4j_client.py         # Neo4j 비동기 클라이언트
-│   ├── parallel_executor.py    # 이중 병렬 처리 실행기
-│   └── strategy/               # 분석 전략 패턴
-│       ├── base_analyzer.py    # 분석기 기본 인터페이스
-│       ├── analyzer_factory.py # 전략 팩토리
-│       ├── framework/          # Framework (Java/Kotlin) 분석
-│       │   ├── framework_analyzer.py  # 전략 진입점
-│       │   └── ast_processor.py       # AST 처리 및 LLM 분석
-│       └── dbms/               # DBMS (PL/SQL) 분석
-│           ├── dbms_analyzer.py       # 전략 진입점
-│           └── ast_processor.py       # AST 처리 및 LLM 분석
-├── config/                      # 설정 관리
-│   └── settings.py             # 환경변수 중앙 관리 (Singleton)
-├── util/                        # 유틸리티 모듈
-│   ├── exception.py            # 계층화된 예외 클래스
-│   ├── stream_utils.py         # NDJSON 스트리밍 유틸리티
-│   ├── logger.py               # 구조화된 로깅
-│   ├── llm_client.py           # LLM 클라이언트 팩토리
-│   ├── llm_audit.py            # LLM 호출 감사 로깅
-│   ├── rule_loader.py          # YAML 프롬프트 규칙 로더
-│   └── utility_tool.py         # 범용 유틸리티 함수
-├── rules/                       # LLM 프롬프트 규칙 (YAML)
-│   ├── framework/              # Framework 분석 프롬프트
-│   │   ├── analysis.yaml       # 코드 분석 (calls 배열 포함)
-│   │   ├── class_summary.yaml  # 클래스 요약
-│   │   └── ...
-│   └── dbms/                   # DBMS 분석 프롬프트
-│       ├── analysis.yaml       # 코드 분석
-│       ├── procedure_summary.yaml
-│       └── ...
-├── docs/                        # 문서
-│   ├── ARCHITECTURE.md         # 아키텍처 설명
-│   └── CHANGELOG.md            # 변경 이력
-└── test/                        # 테스트
-    └── test_analyzer.py        # 분석기 테스트
+사용자 데이터 전체 삭제 (임시 파일 + Neo4j 그래프)
+
+**Request Headers:**
+- `Session-UUID`: 세션 UUID (필수)
+
+**Response:**
+```json
+{
+  "message": "모든 데이터가 삭제되었습니다."
+}
 ```
 
-## 분석 흐름
+### GET `/`
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                     소스 파일 목록                               │
-└─────────────────────────────────────────────────────────────────┘
-                               │
-                               ▼ (파일 5개 병렬 처리)
-┌─────────────────────────────────────────────────────────────────┐
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐  ...   │
-│  │  File 1  │  │  File 2  │  │  File 3  │  │  File 4  │        │
-│  │   AST    │  │   AST    │  │   AST    │  │   AST    │        │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘        │
-│       │             │             │             │               │
-│       ▼ (Phase 1)   ▼             ▼             ▼               │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐        │
-│  │ 정적그래프│  │ 정적그래프│  │ 정적그래프│  │ 정적그래프│        │
-│  │  노드생성│  │  노드생성│  │  노드생성│  │  노드생성│        │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘        │
-│       │             │             │             │               │
-│       ▼ (Phase 2)   ▼             ▼             ▼               │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐        │
-│  │ LLM 분석 │  │ LLM 분석 │  │ LLM 분석 │  │ LLM 분석 │        │
-│  │ (청크별) │  │ (청크별) │  │ (청크별) │  │ (청크별) │        │
-│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘        │
-└───────┼─────────────┼─────────────┼─────────────┼───────────────┘
-        │             │             │             │
-        └─────────────┴──────┬──────┴─────────────┘
-                             │
-                             ▼ (Cypher Lock 보호)
-              ┌──────────────────────────────────┐
-              │         Neo4j 그래프 저장         │
-              └──────────────────────────────────┘
-                             │
-                             ▼
-              ┌──────────────────────────────────┐
-              │      User Story 문서 생성        │
-              └──────────────────────────────────┘
+헬스체크
+
+**Response:**
+```json
+{
+  "status": "ok",
+  "service": "robo-analyzer",
+  "version": "2.0.0"
+}
 ```
 
-## 환경변수
+### GET `/health`
 
-`env.example` 파일을 참조하세요. 주요 설정:
+상세 헬스체크
+
+**Response:**
+```json
+{
+  "status": "healthy",
+  "service": "robo-analyzer",
+  "version": "2.0.0",
+  "config": {
+    "file_concurrency": 5,
+    "max_concurrency": 5
+  }
+}
+```
+
+---
+
+## 분석 전략
+
+### Framework 분석 (Java/Kotlin)
+
+Framework 분석은 3단계로 진행됩니다:
+
+#### Phase 1: AST 그래프 생성
+
+모든 파일을 병렬로 처리하여 정적 그래프 구조를 생성합니다.
+
+**생성되는 노드:**
+- `CLASS`, `INTERFACE`, `ENUM`: 클래스 구조
+- `METHOD`, `CONSTRUCTOR`: 메서드
+- `FIELD`, `PARAMETER`: 필드/파라미터
+
+**생성되는 관계:**
+- `PARENT_OF`: 부모-자식 관계 (클래스 → 메서드)
+- `NEXT`: 형제 순서 관계 (메서드1 → 메서드2)
+- `HAS_METHOD`, `HAS_FIELD`: 포함 관계
+
+**Cypher 쿼리 예시:**
+```cypher
+MERGE (n:CLASS {
+  class_name: 'OrderService',
+  user_id: 'user-123',
+  project_name: 'my-project'
+})
+SET n.startLine = 10,
+    n.endLine = 150,
+    n.directory = 'com/example',
+    n.file_name = 'OrderService.java'
+RETURN n
+```
+
+#### Phase 2: LLM 분석
+
+모든 파일을 병렬로 처리하여 LLM을 통한 코드 분석을 수행합니다.
+
+**추가되는 정보:**
+- `summary`: 코드 요약
+- `CALLS`: 메서드 호출 관계
+- `DEPENDENCY`: 타입 의존성 관계
+- `ASSOCIATION`, `COMPOSITION`: 클래스 관계
+
+**Cypher 쿼리 예시:**
+```cypher
+MATCH (src:CLASS {
+  startLine: 10,
+  directory: 'com/example',
+  file_name: 'OrderService.java',
+  user_id: 'user-123',
+  project_name: 'my-project'
+})
+SET src.summary = '주문 서비스를 제공하는 클래스입니다...'
+RETURN src
+```
+
+```cypher
+MATCH (src:CLASS {...})
+MATCH (dst:CLASS)
+WHERE toLower(dst.class_name) = toLower('OrderRepository')
+  AND dst.user_id = 'user-123'
+  AND dst.project_name = 'my-project'
+MERGE (src)-[r:CALLS {method: 'save'}]->(dst)
+RETURN r
+```
+
+#### Phase 3: User Story 생성
+
+분석 완료 후 Neo4j에서 요약 데이터를 조회하여 User Story 문서를 생성합니다.
+
+### DBMS 분석 (PL/SQL)
+
+DBMS 분석은 4단계로 진행됩니다:
+
+#### Phase 0: DDL 처리
+
+DDL 파일에서 테이블/컬럼 스키마를 추출합니다.
+
+**생성되는 노드:**
+- `Table`: 테이블
+- `Column`: 컬럼
+
+**생성되는 관계:**
+- `HAS_COLUMN`: 테이블 → 컬럼
+- `FK_TO_TABLE`: 외래키 관계
+
+#### Phase 1: AST 그래프 생성
+
+프로시저/함수 파일을 분석하여 정적 그래프 구조를 생성합니다.
+
+**생성되는 노드:**
+- `PROCEDURE`, `FUNCTION`, `TRIGGER`: 프로시저
+- `Variable`: 변수
+
+**생성되는 관계:**
+- `PARENT_OF`: 부모-자식 관계
+- `NEXT`: 형제 순서 관계
+
+#### Phase 2: LLM 분석
+
+LLM을 통한 코드 분석을 수행합니다.
+
+**추가되는 정보:**
+- `summary`: 프로시저 요약
+- `CALL`: 프로시저 호출 관계
+- `FROM`: 테이블 읽기 관계
+- `WRITES`: 테이블 쓰기 관계
+
+#### Phase 3: User Story 생성
+
+분석 완료 후 User Story 문서를 생성합니다.
+
+---
+
+## 그래프 데이터 구조
+
+### Framework (Java/Kotlin)
+
+#### 노드 타입
+
+**CLASS**
+```json
+{
+  "Labels": ["CLASS"],
+  "Properties": {
+    "class_name": "OrderService",
+    "user_id": "user-123",
+    "project_name": "my-project",
+    "directory": "com/example",
+    "file_name": "OrderService.java",
+    "startLine": 10,
+    "endLine": 150,
+    "summary": "주문 서비스를 제공하는 클래스입니다...",
+    "node_code": "public class OrderService {...}"
+  }
+}
+```
+
+**METHOD**
+```json
+{
+  "Labels": ["METHOD"],
+  "Properties": {
+    "name": "save",
+    "user_id": "user-123",
+    "project_name": "my-project",
+    "directory": "com/example",
+    "file_name": "OrderService.java",
+    "startLine": 20,
+    "endLine": 35,
+    "summary": "주문을 저장하는 메서드입니다...",
+    "return_type": "void",
+    "node_code": "public void save(Order order) {...}"
+  }
+}
+```
+
+#### 관계 타입
+
+**CALLS** (메서드 호출)
+```json
+{
+  "Type": "CALLS",
+  "Start Node ID": "4:...",
+  "End Node ID": "6:...",
+  "Properties": {
+    "method": "save",
+    "line_number": 25
+  }
+}
+```
+
+**EXTENDS** (상속)
+```json
+{
+  "Type": "EXTENDS",
+  "Start Node ID": "4:...",
+  "End Node ID": "8:...",
+  "Properties": {}
+}
+```
+
+**DEPENDENCY** (의존성)
+```json
+{
+  "Type": "DEPENDENCY",
+  "Start Node ID": "4:...",
+  "End Node ID": "10:...",
+  "Properties": {
+    "dependency_type": "import"
+  }
+}
+```
+
+### DBMS (PL/SQL)
+
+#### 노드 타입
+
+**PROCEDURE**
+```json
+{
+  "Labels": ["PROCEDURE"],
+  "Properties": {
+    "procedure_name": "CREATE_ORDER",
+    "user_id": "user-123",
+    "project_name": "my-project",
+    "directory": "procedures",
+    "file_name": "order_proc.sql",
+    "startLine": 10,
+    "endLine": 50,
+    "summary": "주문을 생성하는 프로시저입니다...",
+    "schema": "ORDER_SCHEMA"
+  }
+}
+```
+
+**Table**
+```json
+{
+  "Labels": ["Table"],
+  "Properties": {
+    "name": "ORDERS",
+    "schema": "ORDER_SCHEMA",
+    "user_id": "user-123",
+    "project_name": "my-project",
+    "description": "주문 테이블",
+    "table_type": "BASE TABLE"
+  }
+}
+```
+
+#### 관계 타입
+
+**CALL** (프로시저 호출)
+```json
+{
+  "Type": "CALL",
+  "Start Node ID": "4:...",
+  "End Node ID": "6:...",
+  "Properties": {
+    "line_number": 25
+  }
+}
+```
+
+**FROM** (테이블 읽기)
+```json
+{
+  "Type": "FROM",
+  "Start Node ID": "4:...",
+  "End Node ID": "8:...",
+  "Properties": {
+    "line_number": 30
+  }
+}
+```
+
+**WRITES** (테이블 쓰기)
+```json
+{
+  "Type": "WRITES",
+  "Start Node ID": "4:...",
+  "End Node ID": "8:...",
+  "Properties": {
+    "line_number": 35
+  }
+}
+```
+
+---
+
+## 설정
+
+### 환경변수
 
 | 변수 | 설명 | 기본값 |
 |------|------|--------|
@@ -165,39 +969,57 @@ robo_analyzer_core/
 | `NEO4J_USER` | Neo4j 사용자명 | `neo4j` |
 | `NEO4J_PASSWORD` | Neo4j 비밀번호 | (필수) |
 | `LLM_API_KEY` | LLM API 키 | (필수) |
+| `LLM_API_BASE` | LLM API 기본 URL | `https://api.openai.com/v1` |
 | `LLM_MODEL` | 사용할 LLM 모델 | `gpt-4.1` |
+| `LLM_MAX_TOKENS` | 최대 토큰 수 | `32768` |
 | `FILE_CONCURRENCY` | 파일 병렬 처리 수 | `5` |
 | `MAX_CONCURRENCY` | 청크 병렬 처리 수 | `5` |
+| `HOST` | 서버 호스트 | `0.0.0.0` |
+| `PORT` | 서버 포트 | `5502` |
 
-## 생성되는 그래프 구조
+### 설정 파일 구조
 
-### Framework (Java/Kotlin)
+설정은 `config/settings.py`에서 중앙 관리됩니다:
 
-**노드 타입**:
-- `CLASS`, `INTERFACE`, `ENUM` - 클래스 구조
-- `METHOD`, `CONSTRUCTOR` - 메서드
-- `FIELD`, `PARAMETER` - 필드/파라미터
-- `UserStory`, `AcceptanceCriteria` - 요구사항
+```python
+from config.settings import settings
 
-**관계 타입**:
-- `EXTENDS`, `IMPLEMENTS` - 상속/구현
-- `CALLS` - 메서드 호출
-- `DEPENDENCY` - 의존성
-- `ASSOCIATION`, `COMPOSITION` - 클래스 관계
-- `PARENT_OF`, `NEXT` - 코드 구조
+# Neo4j 설정
+neo4j_uri = settings.neo4j.uri
+neo4j_user = settings.neo4j.user
 
-### DBMS (PL/SQL)
+# LLM 설정
+llm_api_key = settings.llm.api_key
+llm_model = settings.llm.model
 
-**노드 타입**:
-- `PROCEDURE`, `FUNCTION`, `TRIGGER` - 프로시저
-- `Table`, `Column` - 테이블 구조
-- `Variable` - 변수
+# 병렬 처리 설정
+file_concurrency = settings.concurrency.file_concurrency
+max_concurrency = settings.concurrency.max_concurrency
+```
 
-**관계 타입**:
-- `CALL` - 프로시저 호출
-- `FROM`, `WRITES` - 테이블 접근
-- `HAS_COLUMN`, `FK_TO_TABLE` - 테이블 관계
-- `PARENT_OF`, `NEXT` - 코드 구조
+---
+
+## 기술 스택
+
+### 백엔드
+- **FastAPI**: 비동기 웹 프레임워크
+- **Python 3.11+**: 프로그래밍 언어
+
+### 데이터베이스
+- **Neo4j 5.x**: 그래프 데이터베이스
+- **Cypher**: 그래프 쿼리 언어
+
+### AI/ML
+- **LangChain**: LLM 통합 프레임워크
+- **OpenAI API**: LLM 서비스 (또는 호환 API)
+
+### 유틸리티
+- **aiofiles**: 비동기 파일 I/O
+- **tiktoken**: 토큰 계산
+- **Jinja2**: 템플릿 엔진
+- **PyYAML**: YAML 파싱
+
+---
 
 ## 기여하기
 
@@ -207,6 +1029,24 @@ robo_analyzer_core/
 4. 브랜치에 푸시합니다 (`git push origin feature/amazing-feature`)
 5. Pull Request를 생성합니다
 
+---
+
 ## 라이선스
 
 MIT License
+
+---
+
+## 버전 히스토리
+
+### v2.0.0 (현재)
+- 2단계 분석 아키텍처 (Phase 1: AST → Phase 2: LLM)
+- 이중 병렬 처리 (파일 레벨 + 청크 레벨)
+- 메서드 호출 처리 단순화 (calls 배열 통합)
+- 예외 처리 엄격화
+- 환경변수 중앙 관리
+
+---
+
+*작성일: 2025-01-XX*
+*마지막 업데이트: 2025-01-XX*

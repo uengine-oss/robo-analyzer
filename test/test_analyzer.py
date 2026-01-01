@@ -148,7 +148,7 @@ async def _run_analysis_pipeline(
     event_count = 0
     
     # 분석 실행
-    async for _chunk in orchestrator.run_analysis(source_files):
+    async for chunk in orchestrator.run_analysis(source_files):
         event_count += 1
     
     elapsed = time.perf_counter() - start
@@ -217,7 +217,7 @@ async def _run_ddl_only_section(
     event_count = 0
     
     # source 파일 없이 분석 실행 (DDL만 처리됨)
-    async for _chunk in orchestrator.run_analysis([]):
+    async for chunk in orchestrator.run_analysis([]):
         event_count += 1
     
     elapsed = time.perf_counter() - start
@@ -263,7 +263,7 @@ async def _run_source_only_section(
         event_count = 0
         
         # 분석 실행 (DDL 없이)
-        async for _chunk in orchestrator.run_analysis(source_files):
+        async for chunk in orchestrator.run_analysis(source_files):
             event_count += 1
         
         elapsed = time.perf_counter() - start

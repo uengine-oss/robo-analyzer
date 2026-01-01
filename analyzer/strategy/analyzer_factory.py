@@ -27,11 +27,6 @@ class AnalyzerFactory:
     _strategies: dict[str, type] = {}
 
     @classmethod
-    def register(cls, name: str, strategy_class: type) -> None:
-        """전략 클래스 등록"""
-        cls._strategies[name.lower()] = strategy_class
-
-    @classmethod
     def create(cls, strategy_type: str) -> AnalyzerStrategy:
         """전략 인스턴스 생성
         
@@ -70,4 +65,3 @@ class AnalyzerFactory:
             "framework": FrameworkAnalyzer,
             "dbms": DbmsAnalyzer,
         }
-

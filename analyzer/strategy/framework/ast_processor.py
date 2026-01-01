@@ -101,6 +101,7 @@ class StatementNode:
     parent: Optional["StatementNode"] = None
     children: List["StatementNode"] = field(default_factory=list)
     summary: Optional[str] = None
+    ok: bool = True  # LLM 분석 성공 여부 (자식 실패 시 부모도 False)
     completion_event: asyncio.Event = field(init=False, repr=False)
 
     def __post_init__(self):
@@ -617,457 +618,6 @@ class LLMInvoker:
         return result
 
 
-# ==================== 적용 매니저 ====================
-class ApplyManager:
-    """LLM 결과를 순서대로 적용하고 클래스 요약을 생성합니다."""
-
-    def __init__(
-        self,
-        send_queue: asyncio.Queue,
-        receive_queue: asyncio.Queue,
-        file_last_line: int,
-        nodes: List[StatementNode],
-        node_base_props: str,
-        classes: Dict[str, ClassInfo],
-        api_key: str,
-        locale: str,
-        user_id: str,
-        project_name: str,
-        directory: str,
-        file_name: str,
-    ):
-        self.send_queue = send_queue
-        self.receive_queue = receive_queue
-        self.file_last_line = file_last_line
-        self._nodes = nodes
-        self.node_base_props = node_base_props
-        self.classes = classes
-        self.api_key = api_key
-        self.locale = locale
-        self.user_id = user_id
-        self.project_name = project_name
-        # directory는 이미 full_directory 형태 (파일명 포함)
-        self.directory = directory
-        self.file_name = file_name
-
-        self._pending: Dict[int, BatchResult] = {}
-        self._next_batch_id = 1
-        self._lock = asyncio.Lock()
-        self._finalized_classes: set[str] = set()
-        self._class_summary_store: Dict[str, Dict[str, Any]] = {key: {} for key in classes}
-        # 필드 타입 캐시: class_key → {field_name: field_type}
-        # Collection/Map 타입 필드의 메서드 호출 필터링에 사용
-        self._field_type_cache: Dict[str, Dict[str, str]] = {key: {} for key in classes}
-
-    async def submit(
-        self, 
-        batch: AnalysisBatch, 
-        analysis_result: Optional[Dict[str, Any]],
-    ):
-        """워커가 batch 처리를 마친 뒤 Apply 큐에 등록합니다."""
-        async with self._lock:
-            self._pending[batch.batch_id] = BatchResult(
-                batch=batch, 
-                general_result=analysis_result,
-            )
-            await self._flush_ready()
-
-    async def finalize(self):
-        """모든 배치가 적용된 후 클래스 요약을 마무리합니다."""
-        async with self._lock:
-            await self._flush_ready(force=True)
-        await self._finalize_remaining_classes()
-
-    async def _flush_ready(self, force: bool = False):
-        """배치 ID 순서대로 적용합니다."""
-        while self._next_batch_id in self._pending:
-            result = self._pending.pop(self._next_batch_id)
-            await self._apply_batch(result)
-            self._next_batch_id += 1
-        if force and self._pending:
-            for bid in sorted(self._pending):
-                result = self._pending.pop(bid)
-                await self._apply_batch(result)
-
-    async def _apply_batch(self, result: BatchResult):
-        """LLM 결과를 Neo4j 쿼리로 변환하고 적용합니다."""
-        queries: List[str] = []
-        analysis_list = (result.general_result.get("analysis") or []) if result.general_result else []
-        
-        # 분석 정보 수집 (스트림 메시지용)
-        analyzed_node_info: Optional[Dict[str, Any]] = None
-
-        for node, analysis in zip(result.batch.nodes, analysis_list):
-            if not analysis:
-                log_process("ANALYZE", "APPLY", f"⚠️ {node.start_line}~{node.end_line} 구간 요약 없음 - 건너뜀")
-                node.completion_event.set()
-                continue
-
-            summary = analysis.get("summary") or ""
-            node.summary = summary
-            escaped_summary = escape_for_cypher(str(summary))
-            queries.append(
-                f"MATCH (n:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}}) "
-                f"SET n.summary = '{escaped_summary}' "
-                f"RETURN n"
-            )
-            log_process("ANALYZE", "APPLY", f"✅ {node.start_line}~{node.end_line} 구간 요약 반영")
-            
-            # 첫 번째 분석 결과의 정보 저장
-            if not analyzed_node_info:
-                analyzed_node_info = {
-                    "type": node.node_type,
-                    "name": node.class_name or f"Line {node.start_line}",
-                    "summary": str(summary)[:100],
-                    "line_range": f"{node.start_line}-{node.end_line}",
-                }
-
-            # 로컬 변수 의존 관계 (DEPENDENCY) - 연관 관계가 없을 때만
-            # localDependencies는 객체 배열: [{"type": "타입명", "sourceMember": "메서드명"}]
-            #
-            # ✅ 관계 중복 방지 정책:
-            # - (src)-[:DEPENDENCY {usage:'local'}]->(dst) 관계는 src->dst당 1개만 유지
-            # - 의존 발생 위치는 r.source_members(List<String>)에 누적
-            for dep in analysis.get("localDependencies", []) or []:
-                if not dep:
-                    continue
-                
-                # LLM 응답 형식 처리 (문자열 또는 객체)
-                if isinstance(dep, str):
-                    dep_type = dep
-                    source_member = "unknown"
-                else:
-                    dep_type = dep.get("type", "")
-                    source_member = dep.get("sourceMember", "") or "unknown"
-                
-                if not dep_type:
-                    continue
-                    
-                # 유효하지 않은 클래스명이면 DEPENDENCY 관계 생성 건너뜀
-                if not _is_valid_class_name_for_calls(dep_type):
-                    log_process("ANALYZE", "APPLY", f"⚠️ 유효하지 않은 의존 대상 제외: {dep_type}")
-                    continue
-                    
-                escaped_dep = escape_for_cypher(dep_type)
-                escaped_source = escape_for_cypher(source_member)
-                # 소속 클래스에서 타겟 클래스로 DEPENDENCY 관계 생성 (기존 클래스가 있을 때만)
-                if node.class_kind and node.parent:
-                    queries.append(
-                        f"MATCH (src:{node.class_kind} {{startLine: {node.parent.start_line}, {self.node_base_props}}})\n"
-                        f"MATCH (dst)\n"
-                        f"WHERE (dst:CLASS OR dst:INTERFACE OR dst:ENUM)\n"
-                        f"  AND toLower(dst.class_name) = toLower('{escaped_dep}')\n"
-                        f"  AND dst.user_id = '{self.user_id}'\n"
-                        f"  AND dst.project_name = '{self.project_name}'\n"
-                        f"  AND src <> dst\n"  # 자기 자신 의존 방지
-                        f"  AND NOT (src)-[:ASSOCIATION|COMPOSITION]->(dst)\n"
-                        f"MERGE (src)-[r:DEPENDENCY {{usage: 'local', source_member: '{escaped_source}'}}]->(dst)\n"
-                        f"RETURN src, dst, r"
-                    )
-
-            # calls 배열 처리 (프롬프트에 통합됨)
-            # 형식: ["target.methodName", "target2.methodName2"]
-            calls = analysis.get("calls", []) or []
-            for call_str in calls:
-                if not call_str or not isinstance(call_str, str):
-                    continue
-                # "target.methodName" 형식 파싱
-                parts = call_str.split(".", 1)
-                if len(parts) != 2:
-                    continue
-                target_class, method_name = parts
-                
-                # 유효성 검사
-                if not _is_valid_class_name_for_calls(target_class):
-                    log_process("ANALYZE", "CALLS", f"⚠️ 제외 (표준/유틸리티): {call_str}")
-                    continue
-                
-                # CALLS 관계 쿼리 생성 (MATCH 기반)
-                escaped_target = escape_for_cypher(target_class)
-                escaped_method = escape_for_cypher(method_name)
-                
-                if node.class_kind and node.parent:
-                    queries.append(
-                        f"MATCH (src:{node.class_kind} {{startLine: {node.parent.start_line}, {self.node_base_props}}})\n"
-                        f"MATCH (dst)\n"
-                        f"WHERE (dst:CLASS OR dst:INTERFACE OR dst:ENUM)\n"
-                        f"  AND toLower(dst.class_name) = toLower('{escaped_target}')\n"
-                        f"  AND dst.user_id = '{self.user_id}'\n"
-                        f"  AND dst.project_name = '{self.project_name}'\n"
-                        f"MERGE (src)-[r:CALLS {{method: '{escaped_method}'}}]->(dst)\n"
-                        f"RETURN src, dst, r"
-                    )
-
-            self._update_class_store(node, analysis)
-            node.completion_event.set()
-
-        # completion_event 미설정 노드 처리
-        for node in result.batch.nodes:
-            if not node.completion_event.is_set():
-                node.completion_event.set()
-
-        if queries:
-            await self._send_queries(queries, result.batch.progress_line, analyzed_node_info)
-        log_process("ANALYZE", "APPLY", f"✅ 배치 #{result.batch.batch_id} 적용 완료")
-
-    def _update_class_store(self, node: StatementNode, analysis: Dict[str, Any]):
-        """클래스 요약 후보를 저장합니다."""
-        if not node.class_key or node.class_key not in self.classes:
-            return
-        summary_entry = analysis.get("summary")
-        if summary_entry:
-            key = f"{node.node_type}_{node.start_line}_{node.end_line}"
-            self._class_summary_store[node.class_key][key] = summary_entry
-        info = self.classes[node.class_key]
-        if info.pending_nodes > 0:
-            info.pending_nodes -= 1
-        if info.pending_nodes == 0 and info.key not in self._finalized_classes:
-            asyncio.create_task(self._finalize_class_summary(info))
-
-    async def _finalize_class_summary(self, info: ClassInfo):
-        """클래스 요약 + User Story + AC 생성.
-        
-        대용량 summary가 있을 경우 청크로 나누어 처리하고,
-        이전 청크 결과를 다음 청크에 전달하여 연속성을 유지합니다.
-        """
-        if info.key in self._finalized_classes:
-            return
-        self._finalized_classes.add(info.key)
-
-        class_node = next(
-            (n for n in self._nodes if n.start_line == info.node_start and n.node_type == info.kind),
-            None,
-        )
-        if not class_node:
-            return
-
-        summaries = self._class_summary_store.pop(info.key, {})
-        if not summaries:
-            class_node.completion_event.set()
-            return
-
-        all_user_stories = []
-        final_summary = ""
-
-        try:
-            # 1단계: 토큰 기준으로 청크 분할
-            def _split_summaries_by_token(summaries: dict, max_token: int) -> List[dict]:
-                """토큰 기준으로 summaries를 청크로 분할합니다."""
-                if not summaries:
-                    return []
-                
-                chunks = []
-                current_chunk = {}
-                current_tokens = 0
-                
-                for key, value in summaries.items():
-                    item_text = f"{key}: {value}"
-                    item_tokens = calculate_code_token(item_text)
-                    
-                    if current_tokens + item_tokens > max_token and current_chunk:
-                        chunks.append(current_chunk)
-                        current_chunk = {}
-                        current_tokens = 0
-                    
-                    current_chunk[key] = value
-                    current_tokens += item_tokens
-                
-                if current_chunk:
-                    chunks.append(current_chunk)
-                
-                return chunks
-            
-            chunks = _split_summaries_by_token(summaries, MAX_SUMMARY_CHUNK_TOKEN)
-            
-            if not chunks:
-                class_node.completion_event.set()
-                return
-            
-            log_process("ANALYZE", "SUMMARY", f"📦 {info.name}: summary 청크 분할 완료 ({len(chunks)}개 청크)")
-            
-            # 2단계: 각 청크를 병렬로 처리하여 summary 생성 및 User Story 생성
-            async def process_chunk(chunk_idx: int, chunk: dict) -> Tuple[str, List[Dict[str, Any]]]:
-                """청크를 처리하여 summary와 User Story 생성 (병렬 처리용)."""
-                chunk_tokens = calculate_code_token(json.dumps(chunk, ensure_ascii=False))
-                log_process("ANALYZE", "SUMMARY", f"  → 청크 {chunk_idx + 1}/{len(chunks)} 처리 시작 (토큰: {chunk_tokens})")
-                
-                # Summary 생성
-                summary_result = await asyncio.to_thread(
-                    analyze_class_summary_only,
-                    chunk,
-                    self.api_key,
-                    self.locale,
-                    ""  # 병렬 처리이므로 이전 summary 없음
-                )
-                
-                if isinstance(summary_result, dict):
-                    chunk_summary = summary_result.get('summary', '')
-                else:
-                    chunk_summary = ""
-                
-                # 각 청크의 summary로 User Story 생성
-                chunk_user_stories = []
-                if chunk_summary:
-                    user_story_result = await asyncio.to_thread(
-                        analyze_class_user_story,
-                        chunk_summary,
-                        self.api_key,
-                        self.locale
-                    )
-                    if isinstance(user_story_result, dict):
-                        chunk_user_stories = user_story_result.get('user_stories', []) or []
-                
-                return chunk_summary, chunk_user_stories
-            
-            # 모든 청크를 병렬로 처리
-            chunk_tasks = [process_chunk(idx, chunk) for idx, chunk in enumerate(chunks)]
-            chunk_results_raw = await asyncio.gather(*chunk_tasks)
-            
-            # 결과 추출
-            chunk_results = []
-            for chunk_summary, chunk_user_stories in chunk_results_raw:
-                if chunk_summary:
-                    chunk_results.append(chunk_summary)
-                if chunk_user_stories:
-                    all_user_stories.extend(chunk_user_stories)
-            
-            if not chunk_results:
-                class_node.completion_event.set()
-                return
-            
-            # 3단계: 모든 청크의 summary를 하나로 합치기
-            if len(chunk_results) == 1:
-                final_summary = chunk_results[0]
-            else:
-                # 여러 청크의 summary를 딕셔너리로 변환하여 합치기
-                combined_summaries = {}
-                for idx, chunk_summary in enumerate(chunk_results):
-                    combined_summaries[f"CHUNK_{idx + 1}"] = chunk_summary
-                
-                # 합친 summary를 다시 LLM에 전달하여 최종 요약 생성
-                final_summary_result = await asyncio.to_thread(
-                    analyze_class_summary_only,
-                    combined_summaries,
-                    self.api_key,
-                    self.locale,
-                    ""
-                )
-                if isinstance(final_summary_result, dict):
-                    final_summary = final_summary_result.get('summary', "\n\n".join(chunk_results))
-                else:
-                    final_summary = "\n\n".join(chunk_results)
-            
-            log_process("ANALYZE", "SUMMARY", f"✅ {info.name}: summary 통합 완료")
-            
-            # User Story는 각 청크에서만 생성 (최종 summary에서는 생성하지 않음)
-            if all_user_stories:
-                log_process("ANALYZE", "SUMMARY", f"✅ {info.name}: User Story {len(all_user_stories)}개")
-            else:
-                log_process("ANALYZE", "SUMMARY", f"✅ {info.name}: User Story 없음")
-                
-        except Exception as exc:
-            log_process("ANALYZE", "SUMMARY", f"❌ 클래스 요약 생성 오류: {info.name}", logging.ERROR, exc)
-            class_node.completion_event.set()
-            raise AnalysisError(f"클래스 요약 생성 실패 ({info.name}): {exc}") from exc
-
-        if not final_summary:
-            class_node.completion_event.set()
-            return
-
-        # Neo4j에 summary 저장 및 User Story/AC를 노드와 관계로 저장
-        escaped_summary = escape_for_cypher(str(final_summary))
-        
-        # Summary 저장
-        summary_query = (
-            f"MATCH (n:{info.kind} {{startLine: {info.node_start}, {self.node_base_props}}})\n"
-            f"SET n.summary = '{escaped_summary}'\n"
-            f"RETURN n"
-        )
-        
-        queries = [summary_query]
-        
-        # User Story와 AC를 노드와 관계로 저장 (유효한 User Story가 있는 경우만)
-        if all_user_stories:
-            class_name_escaped = escape_for_cypher(info.name)
-            for us_idx, us in enumerate(all_user_stories, 1):
-                us_id = us.get('id', f"US-{us_idx}")
-                role = escape_for_cypher(us.get('role', ''))
-                goal = escape_for_cypher(us.get('goal', ''))
-                benefit = escape_for_cypher(us.get('benefit', ''))
-                
-                # User Story 노드 생성 및 관계
-                us_query = (
-                    f"MATCH (c:{info.kind} {{startLine: {info.node_start}, {self.node_base_props}}})\n"
-                    f"MERGE (us:UserStory {{id: '{us_id}', class_name: '{class_name_escaped}', {self.node_base_props}}})\n"
-                    f"SET us.role = '{role}',\n"
-                    f"    us.goal = '{goal}',\n"
-                    f"    us.benefit = '{benefit}'\n"
-                    f"MERGE (c)-[r:HAS_USER_STORY]->(us)\n"
-                    f"RETURN c, us, r"
-                )
-                queries.append(us_query)
-                
-                # Acceptance Criteria 노드 생성 및 관계
-                acs = us.get('acceptance_criteria', [])
-                for ac_idx, ac in enumerate(acs, 1):
-                    if not isinstance(ac, dict):
-                        continue
-                    ac_id = ac.get('id', f"AC-{us_idx}-{ac_idx}")
-                    ac_title = escape_for_cypher(ac.get('title', ''))
-                    ac_given = json.dumps(ac.get('given', []), ensure_ascii=False)
-                    ac_when = json.dumps(ac.get('when', []), ensure_ascii=False)
-                    ac_then = json.dumps(ac.get('then', []), ensure_ascii=False)
-                    
-                    ac_query = (
-                        f"MATCH (us:UserStory {{id: '{us_id}', {self.node_base_props}}})\n"
-                        f"MERGE (ac:AcceptanceCriteria {{id: '{ac_id}', user_story_id: '{us_id}', {self.node_base_props}}})\n"
-                        f"SET ac.title = '{ac_title}',\n"
-                        f"    ac.given = {ac_given},\n"
-                        f"    ac.when = {ac_when},\n"
-                        f"    ac.then = {ac_then}\n"
-                        f"MERGE (us)-[r:HAS_AC]->(ac)\n"
-                        f"RETURN us, ac, r"
-                    )
-                    queries.append(ac_query)
-        
-        await self._send_queries(queries, info.node_end)
-        class_node.summary = str(final_summary)
-        class_node.completion_event.set()
-        
-        # User Story 개수 로깅
-        us_count = len(all_user_stories) if all_user_stories else 0
-        log_process("ANALYZE", "SUMMARY", f"✅ 클래스 요약 + User Story({us_count}개) 완료: {info.name}")
-
-    async def _finalize_remaining_classes(self):
-        """남은 클래스 요약을 처리합니다."""
-        for key, info in list(self.classes.items()):
-            if info.pending_nodes == 0 and key not in self._finalized_classes:
-                await self._finalize_class_summary(info)
-
-    async def _send_queries(
-        self,
-        queries: List[str],
-        progress_line: int,
-        analysis_info: Optional[Dict[str, Any]] = None
-    ):
-        """쿼리를 전송하고 완료를 대기합니다."""
-        if not queries:
-            return
-        event = {
-            "type": "analysis_code",
-            "query_data": queries,
-            "line_number": progress_line,
-        }
-        if analysis_info:
-            event["analysis_info"] = analysis_info
-        await self.send_queue.put(event)
-        while True:
-            resp = await self.receive_queue.get()
-            if resp.get("type") == "process_completed":
-                break
-        log_process("ANALYZE", "APPLY", f"✅ Neo4j 반영 완료 (라인 {progress_line})")
-
-
 # ==================== AST 프로세서 본체 ====================
 class FrameworkAstProcessor:
     """Framework AST 처리 및 LLM 분석 파이프라인
@@ -1088,14 +638,9 @@ class FrameworkAstProcessor:
         locale: str,
         project_name: str,
         last_line: int,
-        # 레거시 호환성 (이벤트 기반 모드용 - 선택적)
-        send_queue: Optional[asyncio.Queue] = None,
-        receive_queue: Optional[asyncio.Queue] = None,
     ):
         self.antlr_data = antlr_data
         self.file_content = file_content
-        self.send_queue = send_queue
-        self.receive_queue = receive_queue
         self.last_line = last_line
         self.directory = directory
         self.file_name = file_name
@@ -1150,11 +695,15 @@ class FrameworkAstProcessor:
         log_process("ANALYZE", "PHASE1", f"✅ {self.full_directory}: {len(queries)}개 쿼리 생성")
         return queries
 
-    async def run_llm_analysis(self) -> List[str]:
+    async def run_llm_analysis(self) -> Tuple[List[str], int, List[Dict[str, Any]]]:
         """[Phase 2] LLM 분석을 실행하고 업데이트 쿼리를 생성합니다.
         
+        중요: 자식→부모 요약 의존성을 보장하기 위해 completion_event 기반 대기
+        - 부모 노드는 자식 노드의 completion_event를 기다린 후 실행
+        - leaf 노드는 바로 실행, parent 노드는 자식 완료 후 실행
+        
         Returns:
-            분석 결과 업데이트 쿼리 리스트 (MATCH 기반)
+            (분석 결과 업데이트 쿼리 리스트, 실패한 배치 수, 실패 상세 정보 리스트)
         """
         if self._nodes is None:
             raise AnalysisError(f"Phase 1이 먼저 실행되어야 합니다: {self.file_name}")
@@ -1162,6 +711,8 @@ class FrameworkAstProcessor:
         log_process("ANALYZE", "PHASE2", f"🤖 {self.full_directory} LLM 분석 시작")
         
         all_queries: List[str] = []
+        failed_batch_count = 0
+        all_failed_details: List[Dict[str, Any]] = []
         
         # 선행 처리: 상속/구현 + 필드 + 메서드
         preprocessing_queries = await self._run_preprocessing()
@@ -1173,56 +724,122 @@ class FrameworkAstProcessor:
         
         if not batches:
             log_process("ANALYZE", "PHASE2", f"⚠️ {self.full_directory}: 분석 대상 배치 없음")
-            return all_queries
+            return all_queries, 0, []
+        
+        log_process("ANALYZE", "PHASE2", f"📊 배치 {len(batches)}개 (completion_event 기반 의존성 보장)")
         
         # 클래스별 summary 수집용 저장소
         class_summary_store: Dict[str, Dict[str, str]] = {key: {} for key in (self._classes or {})}
         
         # LLM 호출 및 결과 처리
         invoker = LLMInvoker(self.api_key, self.locale)
-        semaphore = asyncio.Semaphore(min(self.max_workers, len(batches)))
         
-        async def process_batch(batch: AnalysisBatch) -> Tuple[List[str], Dict[str, Any]]:
-            """배치 처리 후 쿼리와 분석 결과 반환."""
+        async def process_batch(batch: AnalysisBatch, semaphore: asyncio.Semaphore) -> Tuple[List[str], Dict[str, Any]]:
+            """배치 처리 후 쿼리와 분석 결과 반환. 노드에 summary도 설정.
+            
+            핵심: 부모 노드는 자식 completion_event를 기다린 후 실행됨
+            → 깊이 계산 없이 자연스럽게 leaf → parent 순서 보장
+            
+            중요: 
+            - try/finally로 completion_event.set()을 보장하여 데드락 방지
+            - 자식 중 ok=False가 있으면 부모도 ok=False (불완전 요약 전파)
+            """
+            batch_failed = False
             async with semaphore:
-                log_process("ANALYZE", "LLM", f"배치 #{batch.batch_id} 처리 중 ({len(batch.nodes)}개 노드)")
-                result = await invoker.invoke(batch)
-                queries = self._build_analysis_queries(batch, result)
-                return queries, {"batch": batch, "result": result}
+                try:
+                    # 1. 배치 내 모든 노드의 자식 완료를 기다림 (기존 방식 복원)
+                    for node in batch.nodes:
+                        if node.has_children:
+                            for child in node.children:
+                                await child.completion_event.wait()
+                                # 자식 중 하나라도 실패하면 부모도 불완전
+                                if not child.ok:
+                                    node.ok = False
+                    
+                    log_process("ANALYZE", "LLM", f"배치 #{batch.batch_id} 처리 중 ({len(batch.nodes)}개 노드)")
+                    result = await invoker.invoke(batch)
+                    
+                    # 2. 노드에 summary 설정
+                    if result:
+                        analysis_list = result.get("analysis") or []
+                        for node, analysis in zip(batch.nodes, analysis_list):
+                            if analysis:
+                                node.summary = analysis.get("summary") or ""
+                    
+                    queries = self._build_analysis_queries(batch, result)
+                    return queries, {"batch": batch, "result": result}
+                except Exception:
+                    # 배치 실패 시 모든 노드를 ok=False로 마킹
+                    batch_failed = True
+                    for node in batch.nodes:
+                        node.ok = False
+                    raise
+                finally:
+                    # 3. 무조건 completion_event 설정 (실패해도 부모가 대기하지 않도록)
+                    for node in batch.nodes:
+                        node.completion_event.set()
         
-        # 병렬 처리
+        def collect_results(batch_results: list, batches_list: List[AnalysisBatch], level_name: str) -> Tuple[int, List[Dict[str, Any]]]:
+            """배치 결과를 수집하고 (실패 수, 실패 상세 정보) 반환."""
+            nonlocal all_queries
+            fail_count = 0
+            failed_details: List[Dict[str, Any]] = []
+            
+            for i, result in enumerate(batch_results):
+                if isinstance(result, Exception):
+                    batch = batches_list[i] if i < len(batches_list) else None
+                    batch_id = batch.batch_id if batch else i
+                    node_ranges = ", ".join(f"L{n.start_line}-{n.end_line}" for n in batch.nodes) if batch else "unknown"
+                    error_msg = str(result)[:100]  # 최대 100자
+                    
+                    log_process("ANALYZE", "ERROR", f"[{level_name}] 배치 #{batch_id} 실패 ({node_ranges}): {error_msg}", logging.ERROR)
+                    fail_count += 1
+                    failed_details.append({
+                        "batch_id": batch_id,
+                        "node_ranges": node_ranges,
+                        "error": error_msg
+                    })
+                else:
+                    queries, batch_data = result
+                    all_queries.extend(queries)
+                    
+                    # 클래스별 summary 수집
+                    batch_obj = batch_data["batch"]
+                    llm_result = batch_data["result"]
+                    if llm_result:
+                        analysis_list = llm_result.get("analysis") or []
+                        for node, analysis in zip(batch_obj.nodes, analysis_list):
+                            if not analysis:
+                                continue
+                            summary = analysis.get("summary") or ""
+                            if summary and node.class_key and node.class_key in class_summary_store:
+                                key = f"{node.node_type}_{node.start_line}_{node.end_line}"
+                                class_summary_store[node.class_key][key] = summary
+            return fail_count, failed_details
+        
+        # 모든 배치 병렬 실행 (completion_event가 순서 보장)
+        # - leaf 배치: 자식이 없으므로 바로 실행
+        # - parent 배치: 자식 completion_event.wait() 후 실행 → 자연스럽게 순서 보장
+        semaphore = asyncio.Semaphore(min(self.max_workers, len(batches)))
         batch_results = await asyncio.gather(
-            *[process_batch(b) for b in batches],
+            *[process_batch(b, semaphore) for b in batches],
             return_exceptions=True
         )
-        
-        for i, result in enumerate(batch_results):
-            if isinstance(result, Exception):
-                log_process("ANALYZE", "ERROR", f"배치 #{i+1} 처리 실패: {result}", logging.ERROR)
-            else:
-                queries, batch_data = result
-                all_queries.extend(queries)
-                
-                # 클래스별 summary 수집
-                batch_obj = batch_data["batch"]
-                llm_result = batch_data["result"]
-                if llm_result:
-                    analysis_list = llm_result.get("analysis") or []
-                    for node, analysis in zip(batch_obj.nodes, analysis_list):
-                        if not analysis:
-                            continue
-                        summary = analysis.get("summary") or ""
-                        if summary and node.class_key and node.class_key in class_summary_store:
-                            key = f"{node.node_type}_{node.start_line}_{node.end_line}"
-                            class_summary_store[node.class_key][key] = summary
+        fail_count, failed_details = collect_results(batch_results, batches, "LLM")
+        failed_batch_count += fail_count
+        all_failed_details.extend(failed_details)
         
         # 클래스별 summary 처리 (청크 기반 + User Story)
         if self._classes:
             class_queries = await self._process_class_summaries(class_summary_store)
             all_queries.extend(class_queries)
         
+        # 실패 통계 로깅
+        if failed_batch_count > 0:
+            log_process("ANALYZE", "PHASE2", f"⚠️ {self.full_directory}: {failed_batch_count}개 배치 실패", logging.WARNING)
+        
         log_process("ANALYZE", "PHASE2", f"✅ {self.full_directory}: {len(all_queries)}개 업데이트 쿼리")
-        return all_queries
+        return all_queries, failed_batch_count, all_failed_details
     
     async def _process_class_summaries(self, class_summary_store: Dict[str, Dict[str, str]]) -> List[str]:
         """클래스별 summary를 청크 기반으로 처리하여 최종 summary + User Story 생성.
@@ -1249,6 +866,11 @@ class FrameworkAstProcessor:
                 None,
             )
             if not class_node:
+                continue
+            
+            # 하위 노드 중 실패가 있으면 최종 summary/UserStory 스킵
+            if not class_node.ok:
+                log_process("ANALYZE", "SUMMARY", f"⚠️ {info.name}: 하위 분석 실패로 최종 summary 생성 스킵")
                 continue
             
             all_user_stories: List[Dict[str, Any]] = []
@@ -1621,154 +1243,7 @@ class FrameworkAstProcessor:
         
         return queries
 
-    # ===== 레거시 호환성 메서드 (이벤트 기반 모드) =====
-    async def run(self):
-        """파일 단위 분석 파이프라인을 실행합니다 (레거시 이벤트 기반 모드)."""
-        log_process("ANALYZE", "START", f"🚀 {self.full_directory} 분석 시작 (총 {self.last_line}줄)")
-        try:
-            # 1. AST 수집
-            collector = StatementCollector(self.antlr_data, self.file_content, self.directory, self.file_name)
-            nodes, classes = collector.collect()
-
-            # 2. 정적 그래프 초기화
-            await self._initialize_static_graph(nodes)
-
-            # 3. 선행 처리 (병렬): 상속/구현 + 필드
-            await self._process_preprocessing(nodes)
-
-            # 4. 배치 분석
-            planner = BatchPlanner()
-            batches = planner.plan(nodes)
-
-            if not batches:
-                await self.send_queue.put({"type": "end_analysis"})
-                return
-
-            # LLM 분석 시작 알림 (총 배치 수 전달)
-            await self.send_queue.put({"type": "llm_start", "total_batches": len(batches)})
-            while True:
-                resp = await self.receive_queue.get()
-                if resp.get("type") == "process_completed":
-                    break
-
-            invoker = LLMInvoker(self.api_key, self.locale)
-            apply_manager = ApplyManager(
-                send_queue=self.send_queue,
-                receive_queue=self.receive_queue,
-                file_last_line=self.last_line,
-                nodes=nodes,
-                node_base_props=self.node_base_props,
-                classes=classes,
-                api_key=self.api_key,
-                locale=self.locale,
-                user_id=self.user_id,
-                project_name=self.project_name,
-                directory=self.directory,
-                file_name=self.file_name,
-            )
-
-            semaphore = asyncio.Semaphore(min(self.max_workers, len(batches)))
-
-            async def worker(batch: AnalysisBatch):
-                await self._wait_for_dependencies(batch)
-                async with semaphore:
-                    log_process(
-                        "ANALYZE",
-                        "LLM",
-                        f"🤖 배치 #{batch.batch_id} LLM 요청: 노드 {len(batch.nodes)}개 ({self.full_directory})",
-                    )
-                    analysis_result = await invoker.invoke(batch)
-                await apply_manager.submit(batch, analysis_result)
-
-            await asyncio.gather(*(worker(b) for b in batches))
-            await apply_manager.finalize()
-
-            log_process("ANALYZE", "DONE", f"✅ {self.full_directory} 분석 완료")
-            await self.send_queue.put({"type": "end_analysis"})
-
-        except (AnalysisError, LLMCallError) as exc:
-            log_process("ANALYZE", "ERROR", f"❌ 분석 파이프라인 예외: {exc}", logging.ERROR, exc)
-            await self.send_queue.put({"type": "error", "message": str(exc)})
-            raise
-        except Exception as exc:
-            err_msg = f"분석 과정에서 예기치 못한 오류 발생: {exc}"
-            log_process("ANALYZE", "ERROR", f"❌ {err_msg}", logging.ERROR, exc)
-            await self.send_queue.put({"type": "error", "message": err_msg})
-            raise CodeProcessError(err_msg) from exc
-
-    async def _wait_for_dependencies(self, batch: AnalysisBatch):
-        """부모 노드 분석 전 자식 완료 대기."""
-        waiters = []
-        for n in batch.nodes:
-            for ch in n.children:
-                if ch.analyzable:
-                    waiters.append(ch.completion_event.wait())
-        if waiters:
-            log_process(
-                "ANALYZE",
-                "WAIT",
-                f"⏳ 배치 #{batch.batch_id}가 자식 {len(waiters)}개 완료 대기",
-            )
-            await asyncio.gather(*waiters)
-
-    # ===== 정적 그래프 초기화 =====
-    async def _initialize_static_graph(self, nodes: List[StatementNode]):
-        """파일 분석 전에 정적 노드/관계를 생성합니다."""
-        if not nodes:
-            return
-        await self._create_static_nodes(nodes)
-        await self._create_relationships(nodes)
-        # 정적 그래프 초기화 완료 알림
-        await self.send_queue.put({"type": "static_complete"})
-        while True:
-            resp = await self.receive_queue.get()
-            if resp.get("type") == "process_completed":
-                break
-
-    async def _create_static_nodes(self, nodes: List[StatementNode]):
-        """각 StatementNode에 대응하는 기본 노드를 Neo4j에 생성합니다."""
-        queries: List[str] = []
-        current_batch_nodes: List[StatementNode] = []
-        
-        for node in nodes:
-            queries.extend(self._build_static_node_queries(node))
-            current_batch_nodes.append(node)
-            
-            if len(queries) >= STATIC_QUERY_BATCH_SIZE:
-                node_info = self._build_batch_node_info(current_batch_nodes)
-                await self._send_static_queries(queries, node.end_line, node_info)
-                queries.clear()
-                current_batch_nodes.clear()
-                
-        if queries:
-            node_info = self._build_batch_node_info(current_batch_nodes)
-            await self._send_static_queries(queries, nodes[-1].end_line, node_info)
-
-    def _build_batch_node_info(self, nodes: List[StatementNode]) -> Dict[str, Any]:
-        """배치의 노드들 정보를 요약합니다."""
-        if not nodes:
-            return {}
-        
-        # 노드 타입별 집계
-        type_counts: Dict[str, int] = {}
-        for node in nodes:
-            type_counts[node.node_type] = type_counts.get(node.node_type, 0) + 1
-        
-        # 첫 번째 의미 있는 노드 정보 (CLASS, INTERFACE, METHOD 등)
-        first_node = nodes[0]
-        for node in nodes:
-            if node.node_type in CLASS_TYPES or node.class_name:
-                first_node = node
-                break
-        
-        return {
-            "type": first_node.node_type,
-            "name": first_node.class_name or f"Line {first_node.start_line}",
-            "start_line": first_node.start_line,
-            "node_count": len(nodes),
-            "type_summary": type_counts,
-        }
-
+    # ===== 쿼리 빌더 메서드 =====
     def _build_static_node_queries(self, node: StatementNode) -> List[str]:
         """정적 노드 생성 쿼리 리스트를 반환합니다."""
         queries: List[str] = []
@@ -1825,109 +1300,6 @@ class FrameworkAstProcessor:
             )
         return queries
 
-    async def _create_relationships(self, nodes: List[StatementNode]):
-        """PARENT_OF / NEXT 관계를 생성합니다."""
-        queries: List[str] = []
-        for node in nodes:
-            for child in node.children:
-                queries.append(self._build_parent_relationship_query(node, child))
-                if len(queries) >= STATIC_QUERY_BATCH_SIZE:
-                    await self._send_static_queries(queries, child.end_line)
-                    queries.clear()
-
-            prev = None
-            for child in node.children:
-                if prev:
-                    queries.append(self._build_next_relationship_query(prev, child))
-                    if len(queries) >= STATIC_QUERY_BATCH_SIZE:
-                        await self._send_static_queries(queries, child.end_line)
-                        queries.clear()
-                prev = child
-        if queries:
-            await self._send_static_queries(queries, nodes[-1].end_line)
-
-    def _build_parent_relationship_query(self, parent: StatementNode, child: StatementNode) -> str:
-        """부모와 자식 노드 사이의 PARENT_OF 관계 쿼리를 작성합니다 (DBMS 스타일과 동일)."""
-        parent_match = f"MATCH (parent:{parent.node_type} {{startLine: {parent.start_line}, {self.node_base_props}}})"
-        child_match = f"MATCH (child:{child.node_type} {{startLine: {child.start_line}, {self.node_base_props}}})"
-        return f"{parent_match}\n{child_match}\nMERGE (parent)-[r:PARENT_OF]->(child)\nRETURN parent, child, r"
-
-    def _build_next_relationship_query(self, prev_node: StatementNode, current_node: StatementNode) -> str:
-        """형제 노드 사이의 NEXT 관계 쿼리를 작성합니다 (DBMS 스타일과 동일)."""
-        prev_match = f"MATCH (prev:{prev_node.node_type} {{startLine: {prev_node.start_line}, {self.node_base_props}}})"
-        curr_match = f"MATCH (current:{current_node.node_type} {{startLine: {current_node.start_line}, {self.node_base_props}}})"
-        return f"{prev_match}\n{curr_match}\nMERGE (prev)-[r:NEXT]->(current)\nRETURN prev, current, r"
-
-    async def _send_static_queries(
-        self,
-        queries: List[str],
-        progress_line: int,
-        node_info: Optional[Dict[str, Any]] = None
-    ):
-        """정적 그래프 쿼리 전송."""
-        if not queries:
-            return
-        event = {
-            "type": "static_graph",
-            "query_data": queries,
-            "line_number": progress_line,
-        }
-        if node_info:
-            event["node_info"] = node_info
-        await self.send_queue.put(event)
-        while True:
-            resp = await self.receive_queue.get()
-            if resp.get("type") == "process_completed":
-                break
-
-    # ===== 선행 처리: 상속/구현 + 필드 + 메서드 (병렬) =====
-    async def _process_preprocessing(self, nodes: List[StatementNode]):
-        """상속/구현, 필드, 메서드 노드를 병렬로 처리합니다."""
-        inheritance_nodes = [n for n in nodes if n.node_type in INHERITANCE_TYPES]
-        field_nodes = [n for n in nodes if n.node_type in FIELD_TYPES]
-        method_nodes = [n for n in nodes if n.node_type in METHOD_TYPES]
-
-        log_process("ANALYZE", "PREPROCESS", f"🔍 선행 처리 시작: 상속/구현 {len(inheritance_nodes)}개, 필드 {len(field_nodes)}개, 메서드 {len(method_nodes)}개")
-
-        # 1단계: 상속/구현 + 필드 병렬 처리 (ASSOCIATION 생성)
-        await asyncio.gather(
-            self._process_inheritance_nodes(inheritance_nodes),
-            self._process_field_nodes(field_nodes, nodes),
-        )
-
-        # 2단계: 메서드 처리 (ASSOCIATION → COMPOSITION 변경)
-        await self._process_method_nodes(method_nodes)
-
-        log_process("ANALYZE", "PREPROCESS", f"✅ 선행 처리 완료")
-
-    async def _process_inheritance_nodes(self, nodes: List[StatementNode]):
-        """상속/구현 노드를 병렬로 분석합니다."""
-        if not nodes:
-            return
-
-        log_process("ANALYZE", "INHERITANCE", f"🔍 상속/구현 관계 분석 시작: {len(nodes)}개 노드")
-        semaphore = asyncio.Semaphore(INHERITANCE_CONCURRENCY)
-
-        async def worker(node: StatementNode):
-            async with semaphore:
-                try:
-                    result = await asyncio.to_thread(
-                        analyze_inheritance,
-                        node.get_raw_code(),
-                        self.api_key,
-                        self.locale,
-                    )
-                except Exception as exc:
-                    log_process("ANALYZE", "INHERITANCE", f"❌ 상속/구현 분석 오류: 라인 {node.start_line}", logging.ERROR, exc)
-                    raise
-
-                queries = self._build_inheritance_queries(node, result)
-                if queries:
-                    await self._send_static_queries(queries, node.end_line)
-
-        await asyncio.gather(*(worker(n) for n in nodes))
-        log_process("ANALYZE", "INHERITANCE", f"✅ 상속/구현 관계 분석 완료")
-
     def _build_inheritance_queries(self, node: StatementNode, analysis: Dict[str, Any]) -> List[str]:
         """상속/구현 분석 결과를 Neo4j 쿼리로 변환합니다."""
         if not isinstance(analysis, dict):
@@ -1960,34 +1332,6 @@ class FrameworkAstProcessor:
             )
 
         return queries
-
-    async def _process_field_nodes(self, field_nodes: List[StatementNode], all_nodes: List[StatementNode]):
-        """필드 노드를 병렬로 분석합니다."""
-        if not field_nodes:
-            return
-
-        log_process("ANALYZE", "FIELD", f"🔍 필드 정보 분석 시작: {len(field_nodes)}개 노드")
-        semaphore = asyncio.Semaphore(FIELD_CONCURRENCY)
-
-        async def worker(node: StatementNode):
-            async with semaphore:
-                try:
-                    result = await asyncio.to_thread(
-                        analyze_field,
-                        node.get_raw_code(),
-                        self.api_key,
-                        self.locale,
-                    )
-                except Exception as exc:
-                    log_process("ANALYZE", "FIELD", f"❌ 필드 분석 오류: 라인 {node.start_line}", logging.ERROR, exc)
-                    raise
-
-                queries = self._build_field_queries(node, result)
-                if queries:
-                    await self._send_static_queries(queries, node.end_line)
-
-        await asyncio.gather(*(worker(n) for n in field_nodes))
-        log_process("ANALYZE", "FIELD", f"✅ 필드 정보 분석 완료")
 
     def _build_field_queries(self, node: StatementNode, analysis: Dict[str, Any]) -> List[str]:
         """필드 분석 결과를 Neo4j 쿼리로 변환합니다."""
@@ -2043,36 +1387,6 @@ class FrameworkAstProcessor:
                 )
 
         return queries
-
-    async def _process_method_nodes(self, method_nodes: List[StatementNode]):
-        """메서드 노드를 병렬로 분석합니다 - 파라미터/반환 타입 추출."""
-        if not method_nodes:
-            return
-
-        log_process("ANALYZE", "METHOD", f"🔍 메서드 시그니처 분석 시작: {len(method_nodes)}개 노드")
-        semaphore = asyncio.Semaphore(METHOD_CONCURRENCY)
-
-        async def worker(node: StatementNode):
-            async with semaphore:
-                try:
-                    # 메서드 시그니처 + ASSIGNMENT 구문만 포함된 코드 전달
-                    code_for_analysis = node.get_code_with_assigns_only() if node.has_children else node.get_raw_code()
-                    result = await asyncio.to_thread(
-                        analyze_method,
-                        code_for_analysis,
-                        self.api_key,
-                        self.locale,
-                    )
-                except Exception as exc:
-                    log_process("ANALYZE", "METHOD", f"❌ 메서드 분석 오류: 라인 {node.start_line}", logging.ERROR, exc)
-                    raise
-
-                queries = self._build_method_queries(node, result)
-                if queries:
-                    await self._send_static_queries(queries, node.end_line)
-
-        await asyncio.gather(*(worker(n) for n in method_nodes))
-        log_process("ANALYZE", "METHOD", f"✅ 메서드 시그니처 분석 완료")
 
     def _build_method_queries(self, node: StatementNode, analysis: Dict[str, Any]) -> List[str]:
         """메서드 분석 결과를 Neo4j 쿼리로 변환합니다."""
