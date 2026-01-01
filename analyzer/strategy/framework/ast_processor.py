@@ -959,18 +959,7 @@ class ApplyManager:
             
             log_process("ANALYZE", "SUMMARY", f"✅ {info.name}: summary 통합 완료")
             
-            # 4단계: 최종 summary로도 User Story 생성 (청크별 User Story와 함께 수집)
-            final_user_story_result = await asyncio.to_thread(
-                analyze_class_user_story,
-                final_summary,
-                self.api_key,
-                self.locale
-            )
-            
-            if isinstance(final_user_story_result, dict):
-                final_user_stories = final_user_story_result.get('user_stories', []) or []
-                all_user_stories.extend(final_user_stories)
-            
+            # User Story는 각 청크에서만 생성 (최종 summary에서는 생성하지 않음)
             if all_user_stories:
                 log_process("ANALYZE", "SUMMARY", f"✅ {info.name}: User Story {len(all_user_stories)}개")
             else:
@@ -1186,15 +1175,20 @@ class FrameworkAstProcessor:
             log_process("ANALYZE", "PHASE2", f"⚠️ {self.full_directory}: 분석 대상 배치 없음")
             return all_queries
         
+        # 클래스별 summary 수집용 저장소
+        class_summary_store: Dict[str, Dict[str, str]] = {key: {} for key in (self._classes or {})}
+        
         # LLM 호출 및 결과 처리
         invoker = LLMInvoker(self.api_key, self.locale)
         semaphore = asyncio.Semaphore(min(self.max_workers, len(batches)))
         
-        async def process_batch(batch: AnalysisBatch) -> List[str]:
+        async def process_batch(batch: AnalysisBatch) -> Tuple[List[str], Dict[str, Any]]:
+            """배치 처리 후 쿼리와 분석 결과 반환."""
             async with semaphore:
                 log_process("ANALYZE", "LLM", f"배치 #{batch.batch_id} 처리 중 ({len(batch.nodes)}개 노드)")
                 result = await invoker.invoke(batch)
-                return self._build_analysis_queries(batch, result)
+                queries = self._build_analysis_queries(batch, result)
+                return queries, {"batch": batch, "result": result}
         
         # 병렬 처리
         batch_results = await asyncio.gather(
@@ -1206,10 +1200,216 @@ class FrameworkAstProcessor:
             if isinstance(result, Exception):
                 log_process("ANALYZE", "ERROR", f"배치 #{i+1} 처리 실패: {result}", logging.ERROR)
             else:
-                all_queries.extend(result)
+                queries, batch_data = result
+                all_queries.extend(queries)
+                
+                # 클래스별 summary 수집
+                batch_obj = batch_data["batch"]
+                llm_result = batch_data["result"]
+                if llm_result:
+                    analysis_list = llm_result.get("analysis") or []
+                    for node, analysis in zip(batch_obj.nodes, analysis_list):
+                        if not analysis:
+                            continue
+                        summary = analysis.get("summary") or ""
+                        if summary and node.class_key and node.class_key in class_summary_store:
+                            key = f"{node.node_type}_{node.start_line}_{node.end_line}"
+                            class_summary_store[node.class_key][key] = summary
+        
+        # 클래스별 summary 처리 (청크 기반 + User Story)
+        if self._classes:
+            class_queries = await self._process_class_summaries(class_summary_store)
+            all_queries.extend(class_queries)
         
         log_process("ANALYZE", "PHASE2", f"✅ {self.full_directory}: {len(all_queries)}개 업데이트 쿼리")
         return all_queries
+    
+    async def _process_class_summaries(self, class_summary_store: Dict[str, Dict[str, str]]) -> List[str]:
+        """클래스별 summary를 청크 기반으로 처리하여 최종 summary + User Story 생성.
+        
+        Args:
+            class_summary_store: 클래스별 노드 summary 저장소
+            
+        Returns:
+            생성된 Neo4j 쿼리 리스트
+        """
+        queries: List[str] = []
+        
+        if not self._classes:
+            return queries
+        
+        for class_key, info in self._classes.items():
+            summaries = class_summary_store.get(class_key, {})
+            if not summaries:
+                continue
+            
+            # 클래스 노드 찾기
+            class_node = next(
+                (n for n in self._nodes if n.start_line == info.node_start and n.node_type == info.kind),
+                None,
+            )
+            if not class_node:
+                continue
+            
+            all_user_stories: List[Dict[str, Any]] = []
+            final_summary = ""
+            
+            try:
+                # 1단계: 토큰 기준으로 청크 분할
+                chunks = self._split_summaries_by_token(summaries, MAX_SUMMARY_CHUNK_TOKEN)
+                
+                if not chunks:
+                    continue
+                
+                log_process("ANALYZE", "SUMMARY", f"📦 {info.name}: summary 청크 분할 완료 ({len(chunks)}개 청크)")
+                
+                # 2단계: 각 청크를 병렬로 처리하여 summary만 생성 (User Story는 최종 summary에서만 생성)
+                async def process_chunk(chunk_idx: int, chunk: dict) -> str:
+                    chunk_tokens = calculate_code_token(json.dumps(chunk, ensure_ascii=False))
+                    log_process("ANALYZE", "SUMMARY", f"  → 청크 {chunk_idx + 1}/{len(chunks)} 처리 시작 (토큰: {chunk_tokens})")
+                    
+                    # Summary 생성
+                    summary_result = await asyncio.to_thread(
+                        analyze_class_summary_only,
+                        chunk,
+                        self.api_key,
+                        self.locale,
+                        ""
+                    )
+                    
+                    chunk_summary = ""
+                    if isinstance(summary_result, dict):
+                        chunk_summary = summary_result.get('summary', '')
+                    
+                    return chunk_summary
+                
+                # 모든 청크를 병렬로 처리
+                chunk_results_raw = await asyncio.gather(
+                    *[process_chunk(idx, chunk) for idx, chunk in enumerate(chunks)]
+                )
+                
+                # 결과 추출
+                chunk_results = []
+                for chunk_summary in chunk_results_raw:
+                    if chunk_summary:
+                        chunk_results.append(chunk_summary)
+                
+                if not chunk_results:
+                    continue
+                
+                # 3단계: 모든 청크의 summary를 하나로 합치기
+                if len(chunk_results) == 1:
+                    final_summary = chunk_results[0]
+                else:
+                    combined_summaries = {f"CHUNK_{idx + 1}": s for idx, s in enumerate(chunk_results)}
+                    final_summary_result = await asyncio.to_thread(
+                        analyze_class_summary_only,
+                        combined_summaries,
+                        self.api_key,
+                        self.locale,
+                        ""
+                    )
+                    if isinstance(final_summary_result, dict):
+                        final_summary = final_summary_result.get('summary', "\n\n".join(chunk_results))
+                    else:
+                        final_summary = "\n\n".join(chunk_results)
+                
+                log_process("ANALYZE", "SUMMARY", f"✅ {info.name}: summary 통합 완료")
+                
+                # 4단계: 최종 summary로 User Story 생성 (중복 방지를 위해 최종 summary에서만 생성)
+                if final_summary:
+                    user_story_result = await asyncio.to_thread(
+                        analyze_class_user_story,
+                        final_summary,
+                        self.api_key,
+                        self.locale
+                    )
+                    if isinstance(user_story_result, dict):
+                        all_user_stories = user_story_result.get('user_stories', []) or []
+                
+                if all_user_stories:
+                    log_process("ANALYZE", "SUMMARY", f"✅ {info.name}: User Story {len(all_user_stories)}개")
+                else:
+                    log_process("ANALYZE", "SUMMARY", f"✅ {info.name}: User Story 없음")
+                
+            except Exception as exc:
+                log_process("ANALYZE", "SUMMARY", f"❌ 클래스 요약 생성 오류: {info.name}", logging.ERROR, exc)
+                continue
+            
+            if not final_summary:
+                continue
+            
+            # Neo4j 쿼리 생성
+            escaped_summary = escape_for_cypher(str(final_summary))
+            
+            # Summary 저장
+            queries.append(
+                f"MATCH (n:{info.kind} {{startLine: {info.node_start}, {self.node_base_props}}})\n"
+                f"SET n.summary = '{escaped_summary}'\n"
+                f"RETURN n"
+            )
+            
+            # User Story + AC 저장
+            if all_user_stories:
+                class_name_escaped = escape_for_cypher(info.name)
+                for us_idx, us in enumerate(all_user_stories, 1):
+                    us_id = us.get('id', f"US-{us_idx}")
+                    role = escape_for_cypher(us.get('role', ''))
+                    goal = escape_for_cypher(us.get('goal', ''))
+                    benefit = escape_for_cypher(us.get('benefit', ''))
+                    
+                    # UserStory 노드 생성 및 관계
+                    queries.append(
+                        f"MATCH (c:{info.kind} {{startLine: {info.node_start}, {self.node_base_props}}})\n"
+                        f"MERGE (us:UserStory {{id: '{escape_for_cypher(us_id)}', class_name: '{class_name_escaped}', {self.node_base_props}}})\n"
+                        f"SET us.role = '{role}', us.goal = '{goal}', us.benefit = '{benefit}'\n"
+                        f"MERGE (c)-[:HAS_USER_STORY]->(us)\n"
+                        f"RETURN us"
+                    )
+                    
+                    # AcceptanceCriteria 노드 생성 및 관계
+                    for ac_idx, ac in enumerate(us.get('acceptance_criteria', []) or [], 1):
+                        ac_id = ac.get('id', f"AC-{us_idx}-{ac_idx}")
+                        ac_title = escape_for_cypher(ac.get('title', ''))
+                        ac_given = escape_for_cypher(ac.get('given', ''))
+                        ac_when = escape_for_cypher(ac.get('when', ''))
+                        ac_then = escape_for_cypher(ac.get('then', ''))
+                        
+                        queries.append(
+                            f"MATCH (us:UserStory {{id: '{escape_for_cypher(us_id)}', class_name: '{class_name_escaped}', {self.node_base_props}}})\n"
+                            f"MERGE (ac:AcceptanceCriteria {{id: '{escape_for_cypher(ac_id)}', user_story_id: '{escape_for_cypher(us_id)}', {self.node_base_props}}})\n"
+                            f"SET ac.title = '{ac_title}', ac.given = '{ac_given}', ac.when = '{ac_when}', ac.then = '{ac_then}'\n"
+                            f"MERGE (us)-[:HAS_AC]->(ac)\n"
+                            f"RETURN ac"
+                        )
+        
+        return queries
+    
+    def _split_summaries_by_token(self, summaries: dict, max_token: int) -> List[dict]:
+        """토큰 기준으로 summaries를 청크로 분할합니다."""
+        if not summaries:
+            return []
+        
+        chunks = []
+        current_chunk = {}
+        current_tokens = 0
+        
+        for key, value in summaries.items():
+            item_text = f"{key}: {value}"
+            item_tokens = calculate_code_token(item_text)
+            
+            if current_tokens + item_tokens > max_token and current_chunk:
+                chunks.append(current_chunk)
+                current_chunk = {}
+                current_tokens = 0
+            
+            current_chunk[key] = value
+            current_tokens += item_tokens
+        
+        if current_chunk:
+            chunks.append(current_chunk)
+        
+        return chunks
 
     def _build_analysis_queries(
         self, 
@@ -1244,19 +1444,29 @@ class FrameworkAstProcessor:
                     continue
                 dep_type = dep.get("type", "") if isinstance(dep, dict) else str(dep)
                 if not dep_type or not _is_valid_class_name_for_calls(dep_type):
+                    log_process("ANALYZE", "DEPENDENCY", f"⚠️ 유효하지 않은 의존 타입 제외: {dep_type} (node={node.start_line})", logging.DEBUG)
                     continue
                 source_member = dep.get("sourceMember", "unknown") if isinstance(dep, dict) else "unknown"
                 
-                if node.class_kind and node.parent:
-                    queries.append(
-                        f"MATCH (src:{node.class_kind} {{startLine: {node.parent.start_line}, {self.node_base_props}}})\n"
-                        f"MATCH (dst) WHERE (dst:CLASS OR dst:INTERFACE OR dst:ENUM)\n"
-                        f"  AND toLower(dst.class_name) = toLower('{escape_for_cypher(dep_type)}')\n"
-                        f"  AND dst.user_id = '{self.user_id}' AND dst.project_name = '{self.project_name}'\n"
-                        f"  AND src <> dst AND NOT (src)-[:ASSOCIATION|COMPOSITION]->(dst)\n"
-                        f"MERGE (src)-[r:DEPENDENCY {{usage: 'local', source_member: '{escape_for_cypher(source_member)}'}}]->(dst)\n"
-                        f"RETURN r"
-                    )
+                # class_kind와 parent 확인
+                if not node.class_kind:
+                    log_process("ANALYZE", "DEPENDENCY", f"⚠️ class_kind가 None: {dep_type} (node={node.start_line}, type={node.node_type})", logging.DEBUG)
+                    continue
+                if not node.parent:
+                    log_process("ANALYZE", "DEPENDENCY", f"⚠️ parent가 None: {dep_type} (node={node.start_line}, type={node.node_type})", logging.DEBUG)
+                    continue
+                
+                # 클래스 노드 찾기 (class_kind와 parent.start_line 사용)
+                queries.append(
+                    f"MATCH (src:{node.class_kind} {{startLine: {node.parent.start_line}, {self.node_base_props}}})\n"
+                    f"MATCH (dst) WHERE (dst:CLASS OR dst:INTERFACE OR dst:ENUM)\n"
+                    f"  AND toLower(dst.class_name) = toLower('{escape_for_cypher(dep_type)}')\n"
+                    f"  AND dst.user_id = '{self.user_id}' AND dst.project_name = '{self.project_name}'\n"
+                    f"  AND src <> dst AND NOT (src)-[:ASSOCIATION|COMPOSITION]->(dst)\n"
+                    f"MERGE (src)-[r:DEPENDENCY {{usage: 'local', source_member: '{escape_for_cypher(source_member)}'}}]->(dst)\n"
+                    f"RETURN r"
+                )
+                log_process("ANALYZE", "DEPENDENCY", f"✅ DEPENDENCY 관계 생성: {node.class_kind} -> {dep_type} (sourceMember={source_member})", logging.DEBUG)
             
             # CALLS 관계 (calls 배열 - 프롬프트 통합)
             for call_str in analysis.get("calls", []) or []:

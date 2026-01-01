@@ -1044,9 +1044,9 @@ class ApplyManager:
             
             log_process("ANALYZE", "SUMMARY", f"📦 {info.procedure_name}: summary 청크 분할 완료 ({len(chunks)}개 청크)")
             
-            # 2단계: 각 청크를 병렬로 처리하여 summary 생성 및 User Story 생성
-            async def process_chunk(chunk_idx: int, chunk: dict) -> Tuple[str, List[Dict[str, Any]]]:
-                """청크를 처리하여 summary와 User Story 생성 (병렬 처리용)."""
+            # 2단계: 각 청크를 병렬로 처리하여 summary만 생성 (User Story는 최종 summary에서만 생성)
+            async def process_chunk(chunk_idx: int, chunk: dict) -> str:
+                """청크를 처리하여 summary만 생성 (병렬 처리용)."""
                 chunk_tokens = calculate_code_token(json.dumps(chunk, ensure_ascii=False))
                 log_process("ANALYZE", "SUMMARY", f"  → 청크 {chunk_idx + 1}/{len(chunks)} 처리 시작 (토큰: {chunk_tokens})")
                 
@@ -1064,19 +1064,7 @@ class ApplyManager:
                 else:
                     chunk_summary = ""
                 
-                # 각 청크의 summary로 User Story 생성
-                chunk_user_stories = []
-                if chunk_summary:
-                    user_story_result = await asyncio.to_thread(
-                        analyze_user_story,
-                        chunk_summary,
-                        self.api_key,
-                        self.locale
-                    )
-                    if isinstance(user_story_result, dict):
-                        chunk_user_stories = user_story_result.get('user_stories', []) or []
-                
-                return chunk_summary, chunk_user_stories
+                return chunk_summary
             
             # 모든 청크를 병렬로 처리
             chunk_tasks = [process_chunk(idx, chunk) for idx, chunk in enumerate(chunks)]
@@ -1084,11 +1072,9 @@ class ApplyManager:
             
             # 결과 추출
             chunk_results = []
-            for chunk_summary, chunk_user_stories in chunk_results_raw:
+            for chunk_summary in chunk_results_raw:
                 if chunk_summary:
                     chunk_results.append(chunk_summary)
-                if chunk_user_stories:
-                    all_user_stories.extend(chunk_user_stories)
             
             if not chunk_results:
                 return
@@ -1117,17 +1103,16 @@ class ApplyManager:
             
             log_process("ANALYZE", "SUMMARY", f"✅ {info.procedure_name}: summary 통합 완료")
             
-            # 4단계: 최종 summary로도 User Story 생성 (청크별 User Story와 함께 수집)
-            final_user_story_result = await asyncio.to_thread(
-                analyze_user_story,
-                final_summary,
-                self.api_key,
-                self.locale
-            )
-            
-            if isinstance(final_user_story_result, dict):
-                final_user_stories = final_user_story_result.get('user_stories', []) or []
-                all_user_stories.extend(final_user_stories)
+            # 4단계: 최종 summary로 User Story 생성 (중복 방지를 위해 최종 summary에서만 생성)
+            if final_summary:
+                user_story_result = await asyncio.to_thread(
+                    analyze_user_story,
+                    final_summary,
+                    self.api_key,
+                    self.locale
+                )
+                if isinstance(user_story_result, dict):
+                    all_user_stories = user_story_result.get('user_stories', []) or []
             
             if all_user_stories:
                 log_process("ANALYZE", "SUMMARY", f"✅ {info.procedure_name}: User Story {len(all_user_stories)}개")

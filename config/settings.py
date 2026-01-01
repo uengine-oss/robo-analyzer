@@ -20,9 +20,18 @@ def _get_base_dir() -> str:
     if os.getenv("DOCKER_COMPOSE_CONTEXT"):
         return os.getenv("DOCKER_COMPOSE_CONTEXT")
     
-    # config/settings.py -> robo_analyzer_core -> robo_analyzer
+    # config/settings.py -> config -> robo_analyzer_core -> Legacy-modernizer (부모)
     # robo_analyzer_core와 같은 레벨에 있는 data 폴더를 찾기 위해 부모 디렉토리 반환
     return str(Path(__file__).resolve().parents[2])
+
+
+def _get_project_root() -> str:
+    """프로젝트 루트 디렉토리 경로 반환 (logs 폴더용)
+    
+    프로젝트 내부에 logs 폴더를 생성하기 위해 사용합니다.
+    """
+    # config/settings.py -> config -> robo_analyzer_core (프로젝트 루트)
+    return str(Path(__file__).resolve().parents[1])
 
 
 @dataclass(frozen=True)
@@ -78,7 +87,7 @@ class BatchConfig:
 class PathConfig:
     """경로 설정"""
     base_dir: str = field(default_factory=_get_base_dir)
-    audit_dir: str = field(default_factory=lambda: os.getenv("LLM_AUDIT_DIR") or os.path.join(_get_base_dir(), "logs"))
+    audit_dir: str = field(default_factory=lambda: os.getenv("LLM_AUDIT_DIR") or os.path.join(_get_project_root(), "logs"))
     
     @property
     def data_dir(self) -> str:

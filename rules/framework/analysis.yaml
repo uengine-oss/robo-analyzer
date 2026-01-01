@@ -97,13 +97,15 @@ prompt: |
   
   
   [SECTION_3_LOCAL_DEPENDENCIES]
-  로컬 변수 타입 추출 (의존 관계용):
+  로컬 변수 및 파라미터 타입 추출 (의존 관계용):
   
   식별 목적:
   - 메서드 내에서 로컬 변수로 선언/생성된 사용자 정의 클래스 타입 추출
+  - 메서드 파라미터로 사용되는 사용자 정의 클래스 타입 추출
   - 클래스 다이어그램의 "의존(Dependency)" 관계 생성에 사용
   
   식별 대상:
+  - 메서드 파라미터 타입: `public void attack(Enemy enemy)` → "Enemy"
   - new 연산자로 생성하는 객체의 타입: `Customer c = new Customer()` → "Customer"
   - 메서드 반환값을 받는 변수의 타입: `Order order = orderService.findById()` → "Order"
   - 캐스팅된 타입: `(PaymentService) service` → "PaymentService"
@@ -115,7 +117,7 @@ prompt: |
   - Java 기본 클래스 (Exception, Date, Optional 등)
   
   sourceMember 결정:
-  - 메서드 안: 메서드명 (예: "processOrder")
+  - 메서드 안: 메서드명 (예: "processOrder", "attack")
   - 생성자 안: 생성자명/클래스명 (예: "OrderService")
   
   
