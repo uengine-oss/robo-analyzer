@@ -264,6 +264,9 @@ class BaseStreamingAnalyzer(AnalyzerStrategy):
             await client.ensure_constraints()
             yield emit_message("🔌 Neo4j 데이터베이스 연결 완료")
 
+            # ========== 2-1. Project 노드 생성 (한 번만) ==========
+            await self._ensure_project_node(client, orchestrator)
+
             # ========== 3. 증분/신규 모드 판단 ==========
             async for chunk in self._emit_analysis_mode(client, orchestrator, file_names):
                 yield chunk
@@ -393,6 +396,30 @@ class BaseStreamingAnalyzer(AnalyzerStrategy):
             yield emit_message(f"   🤖 AI 분석: {stats.llm_batches_executed}개 배치, 관계 {stats.llm_rels_created}개")
         
         yield emit_message("━" * 50)
+
+    # =========================================================================
+    # Project 노드 관리
+    # =========================================================================
+
+    async def _ensure_project_node(self, client: Neo4jClient, orchestrator: Any) -> None:
+        """Project 노드를 생성합니다 (중복 방지).
+        
+        Args:
+            client: Neo4j 클라이언트
+            orchestrator: 서비스 오케스트레이터
+        """
+        from util.utility_tool import escape_for_cypher
+        
+        project_name = escape_for_cypher(orchestrator.project_name)
+        user_id = escape_for_cypher(orchestrator.user_id)
+        
+        query = (
+            f"MERGE (p:Project {{user_id: '{user_id}', name: '{project_name}'}})\n"
+            f"SET p.name = '{project_name}'\n"
+            f"RETURN p"
+        )
+        await client.execute_queries([query])
+        log_process("ANALYZE", "PROJECT", f"Project 노드 생성/확인: {project_name}")
 
     # =========================================================================
     # 공통 유틸리티 메서드

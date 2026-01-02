@@ -19,6 +19,7 @@
 9. [그래프 데이터 구조](#그래프-데이터-구조)
 10. [설정](#설정)
 11. [기술 스택](#기술-스택)
+12. [기술 이슈 및 해결](./docs/TECHNICAL_ISSUES.md)
 
 ---
 
@@ -73,10 +74,12 @@ ROBO Analyzer는 소스 코드를 분석하여 Neo4j 그래프 데이터베이�
 - **프로시저 호출 체인**: `CALL` 관계를 통한 프로시저 호출 추적
 - **외래키 관계**: `FK_TO_TABLE` 관계를 통한 테이블 관계 파악
 
-### 3. 이중 병렬 처리
+### 3. 병렬 처리 및 의존성 관리
 
-- **파일 레벨 병렬**: 최대 5개 파일 동시 처리
-- **청크 레벨 병렬**: LLM 분석 시 최대 5개 청크 동시 처리
+- **파일 레벨 병렬**: Phase 1/Phase 2에서 최대 5개 파일 동시 처리
+- **배치 레벨 병렬**: LLM 분석 시 배치 단위 병렬 처리
+- **자식→부모 의존성 보장**: `completion_event` 기반으로 부모 노드는 자식 완료 후 실행
+- **성공/품질 추적**: `node.ok` 플래그로 불완전 요약 전파 방지
 - **Cypher 동시성 보호**: `asyncio.Lock`을 통한 Neo4j 쿼리 동시성 제어
 
 ### 4. 실시간 스트리밍
@@ -88,6 +91,8 @@ ROBO Analyzer는 소스 코드를 분석하여 Neo4j 그래프 데이터베이�
 ### 5. User Story 자동 생성
 
 - **요구사항 문서 생성**: 분석 결과에서 User Story 및 Acceptance Criteria 자동 생성
+- **포괄적 도출**: 모든 비즈니스 로직(CRUD, 배치, 집계 등)에서 User Story 도출
+- **불완전 스킵**: 하위 분석 실패 시 최종 Summary/UserStory 생성 스킵
 - **마크다운 형식**: 구조화된 마크다운 문서 생성
 
 ---
@@ -164,9 +169,19 @@ ROBO Analyzer는 소스 코드를 분석하여 Neo4j 그래프 데이터베이�
    - 전략 선택 및 실행
 
 3. **Analysis Layer** (`analyzer/strategy/`)
-   - 전략 패턴 기반 분석기
-   - Framework/DBMS 분석 전략
-   - AST 처리 및 LLM 분석
+   - **BaseStreamingAnalyzer**: 공통 분석 프레임 (템플릿 메서드 패턴)
+     - Neo4j 초기화 및 제약조건 보장
+     - 증분/신규 모드 판단
+     - 공통 스트리밍 메시지
+     - User Story 생성 (공통 포맷)
+     - 완료 통계 및 예외 처리
+   - **FrameworkAnalyzer / DbmsAnalyzer**: 전략별 구현
+     - Phase 1: 모든 파일 AST 그래프 생성 (병렬)
+     - Phase 2: 모든 파일 LLM 분석 (병렬, 자식→부모 의존성 보장)
+     - Phase 3: User Story 문서 생성
+   - **AST Processor**: AST 처리 및 쿼리 생성
+     - `build_static_graph_queries()`: Phase 1 쿼리 생성
+     - `run_llm_analysis()`: Phase 2 LLM 분석 (배치 처리, 의존성 보장)
 
 4. **Service Layer** (`analyzer/`, `util/`)
    - Neo4j 클라이언트
@@ -380,35 +395,41 @@ robo_analyzer_core/
 │   │   ├── run_graph_query()  # 그래프 결과 반환
 │   │   └── ensure_constraints() # 제약조건 생성
 │   │
-│   ├── parallel_executor.py    # 이중 병렬 처리 실행기
-│   │   ├── ParallelExecutor    # 파일 레벨 병렬 처리
-│   │   └── ChunkBatcher        # 청크 레벨 배치 처리
-│   │
 │   └── strategy/               # 분석 전략 패턴
-│       ├── base_analyzer.py    # AnalyzerStrategy 인터페이스
+│       ├── base_analyzer.py    # BaseStreamingAnalyzer (공통 프레임)
+│       │   ├── analyze()       # 템플릿 메서드 (공통 흐름)
+│       │   ├── run_pipeline() # 전략별 파이프라인 (추상 메서드)
+│       │   └── build_user_story_doc() # User Story 생성 (공통)
 │       ├── analyzer_factory.py # 전략 팩토리
 │       │
 │       ├── framework/          # Framework (Java/Kotlin) 분석
 │       │   ├── framework_analyzer.py  # FrameworkAnalyzer
-│       │   │   ├── analyze()          # 메인 분석 메서드
-│       │   │   ├── _run_phase1()      # Phase 1: AST 그래프
-│       │   │   ├── _run_phase2()      # Phase 2: LLM 분석
-│       │   │   └── _create_user_story_doc() # Phase 3: User Story
+│       │   │   ├── run_pipeline()     # Phase 1 → Phase 2 → Phase 3
+│       │   │   ├── _load_all_files()  # 모든 파일 로드 (병렬)
+│       │   │   ├── _run_phase1()      # Phase 1: 모든 파일 AST (병렬)
+│       │   │   └── _run_phase2()      # Phase 2: 모든 파일 LLM (병렬)
 │       │   │
 │       │   └── ast_processor.py        # FrameworkAstProcessor
 │       │       ├── build_static_graph_queries() # Phase 1 쿼리 생성
 │       │       └── run_llm_analysis()  # Phase 2 LLM 분석
+│       │           ├── 배치 계획 (BatchPlanner)
+│       │           ├── 자식→부모 의존성 보장 (completion_event)
+│       │           └── 실패 상세 정보 수집
 │       │
 │       └── dbms/               # DBMS (PL/SQL) 분석
 │           ├── dbms_analyzer.py       # DbmsAnalyzer
-│           │   ├── analyze()          # 메인 분석 메서드
-│           │   ├── _process_ddl()     # DDL 처리
-│           │   ├── _analyze_file()    # 파일 분석
-│           │   └── _create_user_story_doc() # User Story 생성
+│           │   ├── run_pipeline()    # DDL → Phase 1 → Phase 2 → Phase 3
+│           │   ├── _process_ddl()     # Phase 0: DDL 처리
+│           │   ├── _load_all_files()  # 모든 파일 로드 (병렬)
+│           │   ├── _run_phase1()      # Phase 1: 모든 파일 AST (병렬)
+│           │   └── _run_phase2()      # Phase 2: 모든 파일 LLM (병렬)
 │           │
 │           └── ast_processor.py       # DbmsAstProcessor
-│               ├── build_static_graph() # Phase 1 쿼리 생성
+│               ├── build_static_graph_queries() # Phase 1 쿼리 생성
 │               └── run_llm_analysis()  # Phase 2 LLM 분석
+│                   ├── 배치 계획 (BatchPlanner)
+│                   ├── 자식→부모 의존성 보장 (completion_event)
+│                   └── 실패 상세 정보 수집
 │
 ├── config/                      # 설정 관리
 │   └── settings.py             # 환경변수 중앙 관리 (Singleton)
@@ -725,6 +746,12 @@ RETURN n
 
 모든 파일을 병렬로 처리하여 LLM을 통한 코드 분석을 수행합니다.
 
+**핵심 메커니즘:**
+- **배치 처리**: 토큰 제한을 고려한 배치 그룹핑
+- **자식→부모 의존성 보장**: `completion_event` 기반으로 부모 노드는 자식 노드 완료 후 실행
+- **성공/품질 추적**: `node.ok` 플래그로 자식 실패 시 부모도 불완전 마킹
+- **실패 처리**: 배치 실패 시 상세 정보 수집 및 스트림 출력
+
 **추가되는 정보:**
 - `summary`: 코드 요약
 - `CALLS`: 메서드 호출 관계
@@ -788,7 +815,15 @@ DDL 파일에서 테이블/컬럼 스키마를 추출합니다.
 
 #### Phase 2: LLM 분석
 
-LLM을 통한 코드 분석을 수행합니다.
+모든 파일을 병렬로 처리하여 LLM을 통한 코드 분석을 수행합니다.
+
+**핵심 메커니즘:**
+- **배치 처리**: 토큰 제한을 고려한 배치 그룹핑
+- **자식→부모 의존성 보장**: `completion_event` 기반으로 부모 노드는 자식 노드 완료 후 실행
+- **성공/품질 추적**: `node.ok` 플래그로 자식 실패 시 부모도 불완전 마킹
+- **실패 처리**: 배치 실패 시 상세 정보 수집 및 스트림 출력
+- **변수 분석**: 변수 선언 노드 분석 및 `DECLARES` 관계 생성
+- **테이블 분석**: DML 분석을 통한 `FROM`, `WRITES` 관계 생성
 
 **추가되는 정보:**
 - `summary`: 프로시저 요약
@@ -1039,7 +1074,16 @@ MIT License
 
 ## 버전 히스토리
 
-### v2.0.0 (현재)
+### v2.1.0 (현재)
+- **BaseStreamingAnalyzer 도입**: 공통 분석 프레임 분리 (템플릿 메서드 패턴)
+- **Phase1/Phase2 구조 통일**: 모든 파일 AST → 모든 파일 LLM (병렬 처리)
+- **자식→부모 의존성 보장**: `completion_event` 기반 순서 보장
+- **성공/품질 추적**: `node.ok` 플래그로 불완전 요약 전파 방지
+- **배치 실패 상세 정보**: 실패 배치 ID, 라인 범위, 에러 메시지 수집 및 스트림 출력
+- **User Story 규칙 완화**: 모든 비즈니스 로직(CRUD, 배치 등)에서 User Story 도출
+- **통계 필드 정식화**: `llm_batches_failed` 정식 필드 추가
+
+### v2.0.0
 - 2단계 분석 아키텍처 (Phase 1: AST → Phase 2: LLM)
 - 이중 병렬 처리 (파일 레벨 + 청크 레벨)
 - 메서드 호출 처리 단순화 (calls 배열 통합)

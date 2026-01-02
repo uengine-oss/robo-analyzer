@@ -30,7 +30,7 @@ from util.utility_tool import calculate_code_token, escape_for_cypher, parse_tab
 PROCEDURE_TYPES = ("PROCEDURE", "FUNCTION", "CREATE_PROCEDURE_BODY", "TRIGGER")
 NON_ANALYSIS_TYPES = frozenset(["CREATE_PROCEDURE_BODY", "FILE", "PROCEDURE", "FUNCTION", "DECLARE", "TRIGGER", "SPEC"])
 NON_NEXT_RECURSIVE_TYPES = frozenset(["FUNCTION", "PROCEDURE", "PACKAGE_VARIABLE", "TRIGGER"])
-DML_STATEMENT_TYPES = frozenset(["SELECT", "INSERT", "UPDATE", "DELETE", "MERGE", "EXECUTE_IMMEDIATE", "FETCH", "CREATE_TEMP_TABLE", "CTE", "OPEN_CURSOR"])
+DML_STATEMENT_TYPES = frozenset(["SELECT", "INSERT", "UPDATE", "DELETE", "MERGE", "EXECUTE_IMMEDIATE", "FETCH", "CREATE_TEMP_TABLE", "CTE", "OPEN_CURSOR", "CURSOR_VARIABLE"])
 VARIABLE_DECLARATION_TYPES = frozenset(["PACKAGE_VARIABLE", "DECLARE", "SPEC"])
 
 # 관계 매핑
@@ -577,6 +577,8 @@ class DbmsAstProcessor:
         dbms: str,
         project_name: str,
         last_line: int,
+        default_schema: str = "public",
+        ddl_table_metadata: Optional[Dict[Tuple[str, str], Dict[str, Any]]] = None,
     ):
         """Analyzer가 파일 분석에 필요한 모든 컨텍스트를 초기화합니다."""
         self.antlr_data = antlr_data
@@ -591,6 +593,8 @@ class DbmsAstProcessor:
         self.locale = locale
         self.dbms = (dbms or 'postgres').lower()
         self.project_name = project_name or ''
+        self.default_schema = default_schema  # 스키마 미식별 시 사용할 기본 스키마
+        self._ddl_table_metadata = ddl_table_metadata or {}  # DDL 메타데이터 캐시 (메모리)
         # full_directory: 디렉토리 + 파일명 (Neo4j directory 속성으로 사용)
         self.full_directory = f"{normalized_dir}/{file_name}" if normalized_dir else file_name
 
@@ -632,8 +636,15 @@ class DbmsAstProcessor:
         
         # 정적 노드 쿼리 생성
         queries: List[str] = []
+        file_node = None
         for node in self._nodes:
             queries.extend(self._build_static_node_queries(node))
+            if node.node_type == "FILE":
+                file_node = node
+        
+        # Project → File (CONTAINS) 관계 생성
+        if file_node:
+            queries.extend(self._build_project_file_relationship())
         
         # 관계 쿼리 생성
         queries.extend(self._build_relationship_queries())
@@ -702,14 +713,34 @@ class DbmsAstProcessor:
             )
         return queries
 
+    def _build_project_file_relationship(self) -> List[str]:
+        """Project → File (CONTAINS) 관계 쿼리를 생성합니다."""
+        escaped_file_name = escape_for_cypher(self.file_name)
+        escaped_dir = escape_for_cypher(self.full_directory)
+        return [
+            f"MATCH (p:Project {{user_id: '{self.user_id}', name: '{escape_for_cypher(self.project_name)}'}})\n"
+            f"MATCH (f:FILE {{startLine: 1, directory: '{escaped_dir}', file_name: '{escaped_file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})\n"
+            f"MERGE (p)-[r:CONTAINS]->(f)\n"
+            f"RETURN r"
+        ]
+    
     def _build_relationship_queries(self) -> List[str]:
-        """정적 관계 쿼리 (PARENT_OF, NEXT)를 생성합니다."""
+        """정적 관계 쿼리 (CONTAINS, PARENT_OF, NEXT)를 생성합니다.
+        
+        규칙:
+        - File → PROCEDURE/FUNCTION/TRIGGER (최상위 타입만): CONTAINS
+        - 그 외 부모-자식: PARENT_OF
+        - 형제 관계: NEXT
+        """
         queries: List[str] = []
         
         for node in self._nodes or []:
-            # PARENT_OF 관계
+            # File → 최상위 타입(PROCEDURE/FUNCTION/TRIGGER)만 CONTAINS, 그 외: PARENT_OF
             for child in node.children:
-                queries.append(self._build_parent_of_query(node, child))
+                if node.node_type == "FILE" and child.node_type in PROCEDURE_TYPES:
+                    queries.append(self._build_contains_query(node, child))
+                else:
+                    queries.append(self._build_parent_of_query(node, child))
             
             # NEXT 관계
             prev = None
@@ -719,6 +750,15 @@ class DbmsAstProcessor:
                 prev = child
         
         return queries
+    
+    def _build_contains_query(self, parent: StatementNode, child: StatementNode) -> str:
+        """CONTAINS 관계 쿼리를 생성합니다 (File → 직접 자식만)."""
+        return (
+            f"MATCH (parent:{parent.node_type} {{startLine: {parent.start_line}, {self.node_base_props}}})\n"
+            f"MATCH (child:{child.node_type} {{startLine: {child.start_line}, {self.node_base_props}}})\n"
+            f"MERGE (parent)-[r:CONTAINS]->(child)\n"
+            f"RETURN r"
+        )
 
     # =========================================================================
     # Phase 2: LLM 분석
@@ -1378,11 +1418,13 @@ class DbmsAstProcessor:
         return queries
     
     def _build_table_merge(self, table_name: str, schema: Optional[str]) -> str:
-        """테이블 MERGE 쿼리를 생성합니다."""
-        schema_value = schema or ''
-        schema_part = f", schema: '{schema_value}'" if schema_value else ""
+        """테이블 MERGE 쿼리를 생성합니다.
+        
+        스키마가 없으면 default_schema를 사용합니다.
+        """
+        schema_value = schema or self.default_schema
         return (
-            f"MERGE (t:Table {{{self.table_base_props}, name: '{table_name}'{schema_part}, db: '{self.dbms}', project_name: '{self.project_name}'}})"
+            f"MERGE (t:Table {{{self.table_base_props}, name: '{table_name}', schema: '{schema_value}', db: '{self.dbms}', project_name: '{self.project_name}'}})"
         )
     
     # =========================================================================
@@ -1390,8 +1432,11 @@ class DbmsAstProcessor:
     # =========================================================================
     
     def _record_table_summary(self, schema: Optional[str], name: str, description: Optional[str]) -> Tuple[str, str]:
-        """테이블 설명 문장을 버킷에 누적합니다."""
-        schema_key = schema or ''
+        """테이블 설명 문장을 버킷에 누적합니다.
+        
+        스키마가 없으면 default_schema를 사용합니다.
+        """
+        schema_key = schema or self.default_schema
         name_key = name
         bucket = self._table_summary_store.get((schema_key, name_key))
         if bucket is None:
@@ -1457,7 +1502,10 @@ class DbmsAstProcessor:
         return all_queries
     
     async def _summarize_table(self, table_key: Tuple[str, str], data: Dict[str, Any]) -> List[str]:
-        """테이블/컬럼 설명 버킷을 기반으로 LLM 요약을 생성합니다."""
+        """테이블/컬럼 설명 버킷을 기반으로 LLM 요약을 생성합니다.
+        
+        DDL 메타데이터를 LLM 입력에 포함하여 통합된 description을 생성합니다.
+        """
         schema_key, name_key = table_key
         summaries = list(data.get('summaries') or [])
         columns_map = data.get('columns') or {}
@@ -1469,15 +1517,35 @@ class DbmsAstProcessor:
         if not summaries and not column_sentences:
             return []
         
+        # DDL 메타데이터 조회 (메모리 캐시)
+        ddl_key = (schema_key.lower(), name_key.lower())
+        ddl_meta = self._ddl_table_metadata.get(ddl_key, {})
+        ddl_description = (ddl_meta.get('description') or '').strip()
+        ddl_columns = ddl_meta.get('columns') or {}
+        
+        # DDL description이 있으면 summaries에 추가 (LLM 입력에 포함)
+        if ddl_description:
+            summaries.insert(0, f"[DDL 메타데이터] {ddl_description}")
+        
+        # DDL 컬럼 정보를 column_metadata에 병합
         table_display = f"{schema_key}.{name_key}" if schema_key else name_key
-        column_metadata = {
-            entry['name']: {
-                "dtype": entry.get("dtype") or "",
-                "nullable": bool(entry.get("nullable", True)),
+        column_metadata = {}
+        for entry in columns_map.values():
+            col_name = entry['name']
+            ddl_col = ddl_columns.get(col_name, {})
+            column_metadata[col_name] = {
+                "dtype": entry.get("dtype") or ddl_col.get("dtype") or "",
+                "nullable": bool(entry.get("nullable", True)) if entry.get("nullable") is not None else ddl_col.get("nullable", True),
                 "examples": sorted(list(entry.get("examples") or []))[:5],
             }
-            for entry in columns_map.values()
-        }
+        
+        # DDL 컬럼 description도 column_sentences에 추가
+        for col_name, ddl_col in ddl_columns.items():
+            ddl_col_desc = (ddl_col.get('description') or '').strip()
+            if ddl_col_desc and col_name not in column_sentences:
+                column_sentences[col_name] = [f"[DDL 메타데이터] {ddl_col_desc}"]
+            elif ddl_col_desc and col_name in column_sentences:
+                column_sentences[col_name].insert(0, f"[DDL 메타데이터] {ddl_col_desc}")
         
         result = await asyncio.to_thread(
             summarize_table_metadata,
@@ -1493,34 +1561,31 @@ class DbmsAstProcessor:
             return []
         
         queries: List[str] = []
-        table_desc = (result.get('tableDescription') or '').strip()
+        # LLM이 생성한 tableDescription을 그대로 description에 할당
+        llm_table_desc = (result.get('tableDescription') or '').strip()
         schema_prop = schema_key
         table_props = (
             f"user_id: '{self.user_id}', schema: '{schema_prop}', name: '{name_key}', db: '{self.dbms}', project_name: '{self.project_name}'"
         )
         
-        if table_desc:
+        if llm_table_desc:
             queries.append(
-                f"MATCH (t:Table {{{table_props}}})\nSET t.description = '{escape_for_cypher(table_desc)}'\nRETURN t"
+                f"MATCH (t:Table {{{table_props}}})\nSET t.description = '{escape_for_cypher(llm_table_desc)}'\nRETURN t"
             )
         
-        detail_text = result.get('detailDescription') or ''
-        if isinstance(detail_text, str) and detail_text.strip():
-            queries.append(
-                f"MATCH (t:Table {{{table_props}}})\nSET t.detailDescription = '{escape_for_cypher(detail_text.strip())}'\nRETURN t"
-            )
-        
+        # 컬럼 description 처리
         for column_info in result.get('columns', []) or []:
             column_name = (column_info.get('name') or '').strip()
-            column_desc = (column_info.get('description') or '').strip()
-            if not column_name or not column_desc:
+            llm_column_desc = (column_info.get('description') or '').strip()
+            if not column_name or not llm_column_desc:
                 continue
+            
             fqn = '.'.join(filter(None, [schema_prop, name_key, column_name])).lower()
             column_props = (
                 f"user_id: '{self.user_id}', name: '{column_name}', fqn: '{fqn}', project_name: '{self.project_name}'"
             )
             queries.append(
-                f"MATCH (c:Column {{{column_props}}})\nSET c.description = '{escape_for_cypher(column_desc)}'\nRETURN c"
+                f"MATCH (c:Column {{{column_props}}})\nSET c.description = '{escape_for_cypher(llm_column_desc)}'\nRETURN c"
             )
         
         return queries

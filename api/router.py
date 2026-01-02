@@ -59,7 +59,7 @@ async def analyze_source_code(request: Request):
     )
 
 
-@router.delete("/data/")
+@router.delete("/delete/")
 async def delete_user_data(request: Request):
     """사용자 데이터 전체 삭제 (임시 파일 + Neo4j 그래프)
     

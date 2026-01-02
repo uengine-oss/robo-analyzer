@@ -686,10 +686,17 @@ class FrameworkAstProcessor:
         
         # 정적 노드 쿼리 생성
         queries: List[str] = []
+        file_node = None
         for node in self._nodes:
             queries.extend(self._build_static_node_queries(node))
+            if node.node_type == "FILE":
+                file_node = node
         
-        # 관계 쿼리 생성 (HAS_METHOD, HAS_FIELD, CONTAINS 등)
+        # Project → File (CONTAINS) 관계 생성
+        if file_node:
+            queries.extend(self._build_project_file_relationship())
+        
+        # 관계 쿼리 생성 (HAS_METHOD, HAS_FIELD, CONTAINS, PARENT_OF)
         queries.extend(self._build_relationship_queries())
         
         log_process("ANALYZE", "PHASE1", f"✅ {self.full_directory}: {len(queries)}개 쿼리 생성")
@@ -1114,8 +1121,26 @@ class FrameworkAstProcessor:
         
         return queries
 
+    def _build_project_file_relationship(self) -> List[str]:
+        """Project → File (CONTAINS) 관계 쿼리를 생성합니다."""
+        escaped_file_name = escape_for_cypher(self.file_name)
+        escaped_dir = escape_for_cypher(self.full_directory)
+        return [
+            f"MATCH (p:Project {{user_id: '{self.user_id}', name: '{escape_for_cypher(self.project_name)}'}})\n"
+            f"MATCH (f:FILE {{startLine: 1, directory: '{escaped_dir}', file_name: '{escaped_file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})\n"
+            f"MERGE (p)-[r:CONTAINS]->(f)\n"
+            f"RETURN r"
+        ]
+    
     def _build_relationship_queries(self) -> List[str]:
-        """정적 관계 쿼리 (HAS_METHOD, HAS_FIELD, CONTAINS)를 생성합니다."""
+        """정적 관계 쿼리 (HAS_METHOD, HAS_FIELD, CONTAINS, PARENT_OF)를 생성합니다.
+        
+        규칙:
+        - File → CLASS/INTERFACE/ENUM (최상위 타입만): CONTAINS
+        - Class → Method: HAS_METHOD
+        - Class → Field: HAS_FIELD
+        - 그 외 부모-자식: PARENT_OF
+        """
         queries: List[str] = []
         
         for node in self._nodes or []:
@@ -1124,21 +1149,57 @@ class FrameworkAstProcessor:
             
             # 부모-자식 관계 생성
             parent = node.parent
-            if node.node_type in METHOD_TYPES:
-                rel_type = "HAS_METHOD"
-            elif node.node_type in FIELD_TYPES:
-                rel_type = "HAS_FIELD"
-            else:
-                rel_type = "CONTAINS"
             
-            queries.append(
-                f"MATCH (p:{parent.node_type} {{startLine: {parent.start_line}, {self.node_base_props}}})\n"
-                f"MATCH (c:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
-                f"MERGE (p)-[r:{rel_type}]->(c)\n"
-                f"RETURN r"
-            )
+            # File → 최상위 타입(CLASS/INTERFACE/ENUM)만 CONTAINS
+            if parent.node_type == "FILE" and node.node_type in CLASS_TYPES:
+                queries.append(self._build_contains_query(parent, node))
+            # Class → Method: HAS_METHOD
+            elif node.node_type in METHOD_TYPES:
+                queries.append(self._build_has_method_query(parent, node))
+            # Class → Field: HAS_FIELD
+            elif node.node_type in FIELD_TYPES:
+                queries.append(self._build_has_field_query(parent, node))
+            # 그 외: PARENT_OF
+            else:
+                queries.append(self._build_parent_of_query(parent, node))
         
         return queries
+    
+    def _build_contains_query(self, parent: StatementNode, child: StatementNode) -> str:
+        """CONTAINS 관계 쿼리를 생성합니다 (File → 직접 자식만)."""
+        return (
+            f"MATCH (p:{parent.node_type} {{startLine: {parent.start_line}, {self.node_base_props}}})\n"
+            f"MATCH (c:{child.node_type} {{startLine: {child.start_line}, {self.node_base_props}}})\n"
+            f"MERGE (p)-[r:CONTAINS]->(c)\n"
+            f"RETURN r"
+        )
+    
+    def _build_has_method_query(self, parent: StatementNode, child: StatementNode) -> str:
+        """HAS_METHOD 관계 쿼리를 생성합니다."""
+        return (
+            f"MATCH (p:{parent.node_type} {{startLine: {parent.start_line}, {self.node_base_props}}})\n"
+            f"MATCH (c:{child.node_type} {{startLine: {child.start_line}, {self.node_base_props}}})\n"
+            f"MERGE (p)-[r:HAS_METHOD]->(c)\n"
+            f"RETURN r"
+        )
+    
+    def _build_has_field_query(self, parent: StatementNode, child: StatementNode) -> str:
+        """HAS_FIELD 관계 쿼리를 생성합니다."""
+        return (
+            f"MATCH (p:{parent.node_type} {{startLine: {parent.start_line}, {self.node_base_props}}})\n"
+            f"MATCH (c:{child.node_type} {{startLine: {child.start_line}, {self.node_base_props}}})\n"
+            f"MERGE (p)-[r:HAS_FIELD]->(c)\n"
+            f"RETURN r"
+        )
+    
+    def _build_parent_of_query(self, parent: StatementNode, child: StatementNode) -> str:
+        """PARENT_OF 관계 쿼리를 생성합니다."""
+        return (
+            f"MATCH (p:{parent.node_type} {{startLine: {parent.start_line}, {self.node_base_props}}})\n"
+            f"MATCH (c:{child.node_type} {{startLine: {child.start_line}, {self.node_base_props}}})\n"
+            f"MERGE (p)-[r:PARENT_OF]->(c)\n"
+            f"RETURN r"
+        )
 
     async def _run_preprocessing(self) -> List[str]:
         """선행 처리: 상속/구현, 필드, 메서드 분석 후 쿼리 생성."""

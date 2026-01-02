@@ -14,7 +14,7 @@ import logging
 import os
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import Any, AsyncGenerator, Optional, List
+from typing import Any, AsyncGenerator, Optional, List, Dict, Tuple
 
 import aiofiles
 
@@ -87,6 +87,9 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
     def __init__(self):
         self._cypher_lock = asyncio.Lock()
         self._file_semaphore: Optional[asyncio.Semaphore] = None
+        self._ddl_schemas: set[str] = set()  # DDL에서 수집된 스키마 Set
+        # DDL 메타데이터 캐시: {(schema, table_name): {description, columns}}
+        self._ddl_table_metadata: Dict[Tuple[str, str], Dict[str, Any]] = {}
 
     # =========================================================================
     # 메인 파이프라인 (BaseStreamingAnalyzer 구현)
@@ -340,28 +343,42 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
             qualified = f"{schema_raw}.{table_name}" if schema_raw else table_name
             parsed_schema, parsed_name, _ = parse_table_identifier(qualified)
             schema = parsed_schema or ""
+            
+            # DDL에서 발견된 스키마 수집
+            if schema:
+                self._ddl_schemas.add(schema.lower())
 
             # Table 노드 생성
             merge_key = {**common, "schema": schema, "name": parsed_name}
             merge_str = ", ".join(f"`{k}`: '{v}'" for k, v in merge_key.items())
             
-            detail_lines = [f"설명: {comment}" if comment else "설명: ", "", "주요 컬럼:"]
+            column_metadata = {}
             for col in columns:
                 col_name = (col.get("name") or "").strip()
                 if not col_name:
                     continue
                 col_comment = (col.get("comment") or "").strip()
-                detail_lines.append(f"   {col_name}: {col_comment}" if col_comment else f"   {col_name}: ")
+                column_metadata[col_name] = {
+                    "description": col_comment,
+                    "dtype": (col.get("dtype") or col.get("type") or "").strip(),
+                    "nullable": col.get("nullable", True),
+                }
             
             set_props = {
                 **common,
                 "description": escape_for_cypher(comment),
                 "table_type": table_type,
-                "detailDescription": escape_for_cypher("\n".join(detail_lines)),
             }
             set_str = ", ".join(f"t.`{k}` = '{v}'" for k, v in set_props.items())
             queries.append(f"MERGE (t:Table {{{merge_str}}}) SET {set_str} RETURN t")
             ddl_stats["tables"] += 1
+            
+            # DDL 메타데이터 캐시 저장 (메모리)
+            table_key = (schema.lower(), parsed_name.lower())
+            self._ddl_table_metadata[table_key] = {
+                "description": comment,
+                "columns": column_metadata,
+            }
 
             # Column 노드 생성
             for col in columns:
@@ -424,6 +441,31 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
         return result, ddl_stats
 
     # =========================================================================
+    # 스키마 결정
+    # =========================================================================
+
+    def _resolve_default_schema(self, directory: str) -> str:
+        """파일 경로에서 기본 스키마를 결정합니다.
+        
+        우선순위:
+        1. 경로의 폴더명 중 DDL 스키마와 일치하는 것 (깊은 폴더 우선)
+        2. 매칭 실패 시 'public'
+        """
+        if not directory or not self._ddl_schemas:
+            return "public"
+        
+        # 경로를 폴더 목록으로 분리 (깊은 순서대로)
+        parts = directory.replace("\\", "/").split("/")
+        parts = [p.lower() for p in parts if p]
+        
+        # 깊은 폴더부터 매칭 (역순 순회)
+        for folder in reversed(parts):
+            if folder in self._ddl_schemas:
+                return folder
+        
+        return "public"
+
+    # =========================================================================
     # 파일 로드
     # =========================================================================
 
@@ -475,6 +517,9 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
         async def process_file(ctx: FileAnalysisContext):
             async with self._file_semaphore:
                 try:
+                    # 파일 경로 기반 기본 스키마 결정
+                    default_schema = self._resolve_default_schema(ctx.directory)
+                    
                     processor = DbmsAstProcessor(
                         antlr_data=ctx.ast_data,
                         file_content="".join(ctx.source_lines),
@@ -486,6 +531,8 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
                         dbms=orchestrator.target,
                         project_name=orchestrator.project_name,
                         last_line=len(ctx.source_lines),
+                        default_schema=default_schema,
+                        ddl_table_metadata=self._ddl_table_metadata,
                     )
                     ctx.processor = processor
                     
