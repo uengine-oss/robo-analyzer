@@ -314,11 +314,17 @@ class StatementCollector:
         st.children.extend(child_nodes)
 
         # 분석 대상 노드 카운트
-        if analyzable and class_key and class_key in self.classes:
-            self.classes[class_key].pending_nodes += 1
-
+        # analyzable=True인 노드는 배치에 포함되므로, completion_event는 배치 완료 시에만 설정
+        # analyzable=False인 노드는 배치에 포함되지 않으므로, 수집 시 처리
         if not analyzable and node_type not in CLASS_TYPES:
+            # 배치에 포함되지 않는 노드는 수집 시 summary + completion_event 설정
+            st.summary = st.get_raw_code()
             st.completion_event.set()
+        elif analyzable and class_key and class_key in self.classes:
+            # 클래스에 속한 분석 대상 노드
+            self.classes[class_key].pending_nodes += 1
+        # else: analyzable=True이지만 class_key 없음
+        # → 배치에서 LLM 분석 후 completion_event 설정됨
 
         self.nodes.append(st)
         log_process(
@@ -387,12 +393,12 @@ class FrameworkAstProcessor(BaseAstProcessor):
 
     async def _extract_parent_context(self, skeleton_code: str, ancestor_context: str) -> str:
         """부모 컨텍스트 추출"""
-                    result = await asyncio.to_thread(
+        result = await asyncio.to_thread(
             analyze_parent_context, skeleton_code, ancestor_context, self.api_key, self.locale
-                    )
-                    if isinstance(result, dict):
+        )
+        if isinstance(result, dict):
             return result.get("context_summary", "")
-                        raise ValueError(f"parent_context 규칙이 dict가 아닌 값을 반환했습니다: {type(result)}")
+        raise ValueError(f"parent_context 규칙이 dict가 아닌 값을 반환했습니다: {type(result)}")
 
     def _build_static_node_queries(self, node: StatementNode) -> List[str]:
         """정적 노드 생성 쿼리 리스트를 반환합니다."""
@@ -525,7 +531,8 @@ class FrameworkAstProcessor(BaseAstProcessor):
                 if isinstance(result, list):
                     queries.extend(result)
                 elif isinstance(result, Exception):
-                    log_process("ANALYZE", "PREPROCESS", f"선행 처리 오류: {result}", logging.WARNING)
+                    # 선행 처리 실패 시 즉시 중단
+                    raise AnalysisError(f"선행 처리 실패: {result}") from result
         
         return queries
 
@@ -555,17 +562,16 @@ class FrameworkAstProcessor(BaseAstProcessor):
         """LLM 분석 결과를 쿼리로 변환"""
         queries: List[str] = []
         
-        if not llm_result:
-            return queries
-        
-                        analysis_list = llm_result.get("analysis") or []
+        # 타입 검증 (실패 시 예외 발생 → 전체 분석 중단)
+        llm_result = self.validate_dict_result(llm_result, "llm_result", batch.batch_id)
+        analysis_list = llm_result.get("analysis") or []
         
         for node, analysis in zip(batch.nodes, analysis_list):
-                            if not analysis:
-                                continue
+            if not analysis:
+                continue
             
             # 요약 업데이트
-                            summary = analysis.get("summary") or ""
+            summary = analysis.get("summary") or ""
             if summary:
                 escaped_summary = escape_for_cypher(str(summary))
                 queries.append(
@@ -577,7 +583,7 @@ class FrameworkAstProcessor(BaseAstProcessor):
                 # 클래스별 summary 저장
                 if unit_summary_store is not None and node.unit_key:
                     if node.unit_key in unit_summary_store:
-                                key = f"{node.node_type}_{node.start_line}_{node.end_line}"
+                        key = f"{node.node_type}_{node.start_line}_{node.end_line}"
                         unit_summary_store[node.unit_key][key] = summary
             
             # DEPENDENCY 관계 (localDependencies)
@@ -657,80 +663,58 @@ class FrameworkAstProcessor(BaseAstProcessor):
             all_user_stories: List[Dict[str, Any]] = []
             final_summary = ""
             
-            try:
-                # 청크 분할
-                chunks = self._split_summaries_by_token(summaries, MAX_SUMMARY_CHUNK_TOKEN)
-                if not chunks:
-                    continue
-                
-                log_process("ANALYZE", "SUMMARY", f"📦 {info.name}: summary 청크 분할 완료 ({len(chunks)}개 청크)")
-                
-                # 청크별 처리
-                async def process_chunk(chunk_idx: int, chunk: dict) -> str:
-                    chunk_tokens = calculate_code_token(json.dumps(chunk, ensure_ascii=False))
-                    log_process("ANALYZE", "SUMMARY", f"  → 청크 {chunk_idx + 1}/{len(chunks)} 처리 시작 (토큰: {chunk_tokens})")
-                    
-                    summary_result = await asyncio.to_thread(
-                        analyze_class_summary_only,
-                        chunk,
-                        self.api_key,
-                        self.locale,
-                        ""
-                    )
-                    
-                    chunk_summary = ""
-                    if isinstance(summary_result, dict):
-                        chunk_summary = summary_result.get('summary', '')
-                    
-                    return chunk_summary
-                
-                chunk_results_raw = await asyncio.gather(
-                    *[process_chunk(idx, chunk) for idx, chunk in enumerate(chunks)]
-                )
-                
-                chunk_results = [r for r in chunk_results_raw if r]
-                
-                if not chunk_results:
-                    continue
-                
-                # 청크 통합
-                if len(chunk_results) == 1:
-                    final_summary = chunk_results[0]
-                else:
-                    combined_summaries = {f"CHUNK_{idx + 1}": s for idx, s in enumerate(chunk_results)}
-                    final_summary_result = await asyncio.to_thread(
-                        analyze_class_summary_only,
-                        combined_summaries,
-                        self.api_key,
-                        self.locale,
-                        ""
-                    )
-                    if isinstance(final_summary_result, dict):
-                        final_summary = final_summary_result.get('summary', "\n\n".join(chunk_results))
-                    else:
-                        final_summary = "\n\n".join(chunk_results)
-                
-                log_process("ANALYZE", "SUMMARY", f"✅ {info.name}: summary 통합 완료")
-                
-                # User Story 생성
-                if final_summary:
-                    user_story_result = await asyncio.to_thread(
-                        analyze_class_user_story,
-                        final_summary,
-                        self.api_key,
-                        self.locale
-                    )
-                    if isinstance(user_story_result, dict):
-                        all_user_stories = user_story_result.get('user_stories', []) or []
-                
-                if all_user_stories:
-                    log_process("ANALYZE", "SUMMARY", f"✅ {info.name}: User Story {len(all_user_stories)}개")
-                else:
-                    log_process("ANALYZE", "SUMMARY", f"✅ {info.name}: User Story 없음")
-                
-            except Exception as exc:
-                log_process("ANALYZE", "SUMMARY", f"❌ 클래스 요약 생성 오류: {info.name}", logging.ERROR, exc)
+            # 청크 분할
+            chunks = self._split_summaries_by_token(summaries, MAX_SUMMARY_CHUNK_TOKEN)
+            if not chunks:
                 continue
+            
+            log_process("ANALYZE", "SUMMARY", f"📦 {info.name}: summary 청크 분할 완료 ({len(chunks)}개 청크)")
+            
+            # 청크별 처리 (실패 시 예외 발생 → 전체 분석 중단)
+            async def process_chunk(chunk_idx: int, chunk: dict) -> str:
+                chunk_tokens = calculate_code_token(json.dumps(chunk, ensure_ascii=False))
+                log_process("ANALYZE", "SUMMARY", f"  → 청크 {chunk_idx + 1}/{len(chunks)} 처리 시작 (토큰: {chunk_tokens})")
+                
+                summary_result = await asyncio.to_thread(
+                    analyze_class_summary_only, chunk, self.api_key, self.locale, ""
+                )
+                validated = self.validate_dict_result(summary_result, "청크 분석")
+                return validated.get('summary', '')
+            
+            chunk_results_raw = await asyncio.gather(
+                *[process_chunk(idx, chunk) for idx, chunk in enumerate(chunks)]
+            )
+            
+            chunk_results = [r for r in chunk_results_raw if r]
+            
+            if not chunk_results:
+                raise AnalysisError(f"{info.name}: 청크 처리 결과가 모두 비어있음")
+            
+            # 청크 통합
+            if len(chunk_results) == 1:
+                final_summary = chunk_results[0]
+            else:
+                combined_summaries = {f"CHUNK_{idx + 1}": s for idx, s in enumerate(chunk_results)}
+                result = await asyncio.to_thread(
+                    analyze_class_summary_only, combined_summaries, self.api_key, self.locale, ""
+                )
+                validated = self.validate_dict_result(result, "청크 통합")
+                final_summary = validated.get('summary') or "\n\n".join(chunk_results)
+            
+            log_process("ANALYZE", "SUMMARY", f"✅ {info.name}: summary 통합 완료")
+            
+            # User Story 생성 (실패 시 예외 발생)
+            if final_summary:
+                us_result = await asyncio.to_thread(
+                    analyze_class_user_story, final_summary, self.api_key, self.locale
+                )
+                validated = self.validate_dict_result(us_result, "User Story")
+                all_user_stories = validated.get('user_stories', []) or []
+            
+            if all_user_stories:
+                log_process("ANALYZE", "SUMMARY", f"✅ {info.name}: User Story {len(all_user_stories)}개")
+            else:
+                log_process("ANALYZE", "SUMMARY", f"✅ {info.name}: User Story 없음")
             
             if not final_summary:
                 continue

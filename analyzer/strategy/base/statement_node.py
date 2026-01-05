@@ -88,7 +88,7 @@ class StatementNode:
         - 마지막 자식 이후 부모 코드 추가
         """
         if not self.children:
-            return self.get_raw_code()
+            return self.code  # 원본과 동일하게 self.code 반환
 
         result_lines: List[str] = []
         line_index = 0
@@ -107,7 +107,7 @@ class StatementNode:
                 child_summary = child.summary.strip()
                 summary_line = f"{child.start_line}~{child.end_line}: {child_summary}"
             else:
-                log_process("ANALYZE", "COLLECT", f"⚠️ 부모 {self.start_line}~{self.end_line}의 자식 {child.start_line}~{child.end_line} 요약 없음 - 원문 보관")
+                log_process("ANALYZE", "COLLECT", f"⚠️ 부모 {self.start_line}~{self.end_line}의 자식 {child.start_line}~{child.end_line} (type={child.node_type}, analyzable={child.analyzable}) 요약 없음 - 원문 보관")
                 summary_line = '\n'.join(
                     f"{line_no}: {text}"
                     for line_no, text in child.lines

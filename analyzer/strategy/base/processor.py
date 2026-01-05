@@ -496,9 +496,9 @@ class BaseAstProcessor(ABC):
             unit_queries = await self._process_unit_summaries(unit_summary_store)
             all_queries.extend(unit_queries)
         
-        # 실패 통계 로깅
+        # 배치 실패 시 즉시 중단 - 부분 실패 허용 안함
         if failed_batch_count > 0:
-            log_process("ANALYZE", "PHASE2", f"⚠️ {self.full_directory}: {failed_batch_count}개 배치 실패", logging.WARNING)
+            raise AnalysisError(f"{self.full_directory}: {failed_batch_count}개 배치 실패 (상세: {all_failed_details})")
         
         log_process("ANALYZE", "PHASE2", f"✅ {self.full_directory}: {len(all_queries)}개 업데이트 쿼리")
         return all_queries, failed_batch_count, all_failed_details
@@ -508,9 +508,12 @@ class BaseAstProcessor(ABC):
         
         기본 구현: llm_result가 dict이고 'analysis' 배열이 있는 경우 처리
         전략별로 오버라이드 가능
+        
+        Raises:
+            AnalysisError: llm_result가 None이거나 예상치 못한 타입일 때
         """
         if not llm_result:
-            return
+            raise AnalysisError(f"배치#{batch.batch_id} LLM 결과 없음")
         
         # 일반적인 경우: llm_result가 dict이고 analysis 배열이 있음
         if isinstance(llm_result, dict):
@@ -526,10 +529,45 @@ class BaseAstProcessor(ABC):
                 for node, analysis in zip(batch.nodes, analysis_list):
                     if analysis:
                         node.summary = analysis.get("summary") or ""
+        else:
+            raise AnalysisError(f"배치#{batch.batch_id} 알 수 없는 결과 타입: {type(llm_result).__name__}")
 
     # =========================================================================
     # 유틸리티 메서드
     # =========================================================================
+    
+    @staticmethod
+    def validate_dict_result(
+        result: Any,
+        context: str,
+        batch_id: Optional[int] = None,
+        allow_none: bool = False,
+    ) -> Dict[str, Any]:
+        """LLM 결과가 dict인지 검증하고, 아니면 예외를 발생시킵니다.
+        
+        Args:
+            result: 검증할 결과
+            context: 로그에 표시할 컨텍스트 (예: "청크 분석", "User Story")
+            batch_id: 배치 ID (있으면 로그에 포함)
+            allow_none: True면 None일 때 빈 dict 반환, False면 예외 발생
+            
+        Returns:
+            result가 dict이면 그대로 반환
+            
+        Raises:
+            AnalysisError: result가 dict가 아닐 때
+        """
+        if result is None:
+            if allow_none:
+                return {}
+            batch_info = f"배치#{batch_id} " if batch_id else ""
+            raise AnalysisError(f"{batch_info}{context} 결과가 None입니다")
+        
+        if isinstance(result, dict):
+            return result
+        
+        batch_info = f"배치#{batch_id} " if batch_id else ""
+        raise AnalysisError(f"{batch_info}{context} 결과가 dict가 아님: {type(result).__name__}")
     
     def _split_summaries_by_token(self, summaries: dict, max_token: int) -> List[dict]:
         """토큰 기준으로 summaries를 청크로 분할합니다."""

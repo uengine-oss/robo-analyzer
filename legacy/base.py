@@ -335,8 +335,8 @@ class BaseStreamingAnalyzer(AnalyzerStrategy):
                 yield self.emit_skip("추출할 User Story 없음")
                 
         except AnalysisError as e:
-            log_process("ANALYZE", "USER_STORY", f"User Story 생성 실패: {e}", logging.ERROR)
-            raise  # 즉시 중단 - 부분 실패 허용 안함
+            yield self.emit_warning(f"User Story 생성 실패: {e}")
+            log_process("ANALYZE", "USER_STORY", f"User Story 생성 실패: {e}", logging.WARNING)
 
     # =========================================================================
     # 공통 메시지 emit 헬퍼
@@ -497,4 +497,3 @@ class BaseStreamingAnalyzer(AnalyzerStrategy):
         조용히 지나가는 흐름을 방지하기 위해 반드시 출력.
         """
         return emit_message(f"   ⚠️ 알 수 없는 이벤트 타입 수신: {event_type}")
-

@@ -550,6 +550,7 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
                         "file": ctx.file_name,
                         "message": str(e),
                     })
+                    raise  # 즉시 중단 - 부분 실패 허용 안함
 
         # 모든 파일 병렬 처리 시작
         tasks = [asyncio.create_task(process_file(ctx)) for ctx in contexts]
@@ -637,13 +638,9 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
                             "failed_batches": failed_batch_count,
                         })
                     
-                    # 배치 실패가 있으면 경고 표시
+                    # 배치 실패가 있으면 즉시 중단 - 부분 실패 허용 안함
                     if failed_batch_count > 0:
-                        await results_queue.put({
-                            "type": "warning",
-                            "file": ctx.file_name,
-                            "message": f"{failed_batch_count}개 배치 실패 (부분 성공)",
-                        })
+                        raise AnalysisError(f"{ctx.file_name}: {failed_batch_count}개 배치 실패")
                         
                 except Exception as e:
                     log_process("ANALYZE", "ERROR", f"Phase 2 오류 ({ctx.file_name}): {e}", logging.ERROR, e)
@@ -654,6 +651,7 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
                         "file": ctx.file_name,
                         "message": str(e),
                     })
+                    raise  # 즉시 중단 - 부분 실패 허용 안함
 
         # 모든 파일 병렬 처리 시작
         tasks = [asyncio.create_task(analyze_file(ctx)) for ctx in contexts]

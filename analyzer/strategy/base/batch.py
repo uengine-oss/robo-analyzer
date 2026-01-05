@@ -53,7 +53,8 @@ class AnalysisBatch:
         context_parts: List[str] = []
         
         for node in self.nodes:
-            code = node.get_compact_code() if node.has_children else node.get_raw_code()
+            # 원본과 동일하게 항상 get_compact_code() 호출
+            code = node.get_compact_code()
             code_parts.append(code)
             
             context = node.get_ancestor_context()

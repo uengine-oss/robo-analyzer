@@ -289,11 +289,8 @@ class StatementCollector:
             if child_node is not None:
                 child_nodes.append(child_node)
 
-        # 분석 가능 여부 계산
-        if node_type in PROCEDURE_TYPES:
-            analyzable = self._should_treat_as_procedure(node_type, current_proc)
-        else:
-            analyzable = node_type not in NON_ANALYSIS_TYPES
+        # 분석 가능 여부 계산 (원본과 동일하게 NON_ANALYSIS_TYPES 기준)
+        analyzable = node_type not in NON_ANALYSIS_TYPES
         token = calculate_code_token(code)
         dml = node_type in DML_STATEMENT_TYPES
         has_children = bool(child_nodes)
@@ -326,10 +323,16 @@ class StatementCollector:
         statement_node.children.extend(child_nodes)
 
         # 프로시저 요약 완료 시점을 판별하기 위해 pending 노드 수를 추적합니다.
-        if analyzable and procedure_key and procedure_key in self.procedures:
-            self.procedures[procedure_key].pending_nodes += 1
-        else:
+        # analyzable=True인 노드는 배치에 포함되므로, completion_event는 배치 완료 시에만 설정
+        # analyzable=False인 노드는 배치에 포함되지 않으므로, 수집 시 처리
+        if not analyzable:
+            # 배치에 포함되지 않는 노드는 수집 시 summary + completion_event 설정
+            statement_node.summary = statement_node.get_raw_code()
             statement_node.completion_event.set()
+        elif procedure_key and procedure_key in self.procedures:
+            # 프로시저에 속한 분석 대상 노드
+            self.procedures[procedure_key].pending_nodes += 1
+        # else: analyzable=True이지만 procedure_key 없음 → 배치에서 LLM 분석 후 completion_event 설정됨
 
         self.nodes.append(statement_node)
         log_process("ANALYZE", "COLLECT", f"✅ {node_type} 노드 수집 완료: 라인 {start_line}~{end_line}, 토큰 {token}, 자식 {len(child_nodes)}개")
@@ -531,7 +534,9 @@ class DbmsAstProcessor(BaseAstProcessor):
             )
 
         if general_task and table_task:
-            return await asyncio.gather(general_task, table_task)
+            # asyncio.gather는 list를 반환하므로 tuple로 변환
+            results = await asyncio.gather(general_task, table_task)
+            return tuple(results)
         if general_task:
             return await general_task, None
         if table_task:
@@ -547,14 +552,17 @@ class DbmsAstProcessor(BaseAstProcessor):
         """LLM 분석 결과를 쿼리로 변환"""
         queries: List[str] = []
         
-        # llm_result는 (general_result, table_result) 튜플
+        # llm_result는 (general_result, table_result) 튜플이어야 함
         if not isinstance(llm_result, tuple):
-            return queries
+            raise AnalysisError(f"배치#{batch.batch_id} llm_result가 tuple이 아님: {type(llm_result).__name__}")
         
         general_result, table_result = llm_result
         
-        # 일반 분석 결과 처리
-        if general_result:
+        # 일반 분석 결과 처리 (None 허용 - 테이블 분석만 있는 경우)
+        general_result = self.validate_dict_result(
+            general_result, "general_result", batch.batch_id, allow_none=True
+        )
+        if general_result:  # 빈 dict이면 스킵
             analysis_list = general_result.get("analysis") or []
             for node, analysis in zip(batch.nodes, analysis_list):
                 if not analysis:
@@ -614,8 +622,11 @@ class DbmsAstProcessor(BaseAstProcessor):
                         f"RETURN v"
                     )
         
-        # 테이블 분석 결과 처리
-        if table_result:
+        # 테이블 분석 결과 처리 (None 허용 - 일반 분석만 있는 경우)
+        table_result = self.validate_dict_result(
+            table_result, "table_result", batch.batch_id, allow_none=True
+        )
+        if table_result:  # 빈 dict이면 스킵
             table_queries = self._build_table_queries(batch, table_result)
             queries.extend(table_queries)
         
@@ -647,100 +658,93 @@ class DbmsAstProcessor(BaseAstProcessor):
                 log_process("ANALYZE", "SUMMARY", f"⚠️ {info.procedure_name}: 하위 분석 실패로 최종 summary 생성 스킵")
                 continue
             
-            try:
-                # 청크 분할
-                chunks = self._split_summaries_by_token(summaries, MAX_SUMMARY_CHUNK_TOKEN)
-                if not chunks:
-                    continue
+            # 청크 분할
+            chunks = self._split_summaries_by_token(summaries, MAX_SUMMARY_CHUNK_TOKEN)
+            if not chunks:
+                continue
+            
+            log_process("ANALYZE", "SUMMARY", f"📦 {info.procedure_name}: summary 청크 분할 ({len(chunks)}개)")
+            
+            # 청크별 처리 (실패 시 예외 발생 → 전체 분석 중단)
+            async def process_chunk(chunk: dict) -> str:
+                result = await asyncio.to_thread(
+                    analyze_summary_only, chunk, self.api_key, self.locale, ""
+                )
+                validated = self.validate_dict_result(result, "청크 분석")
+                return validated.get('summary', '')
+            
+            chunk_results = await asyncio.gather(*[process_chunk(c) for c in chunks])
+            chunk_results = [r for r in chunk_results if r]
+            
+            if not chunk_results:
+                raise AnalysisError(f"{info.procedure_name}: 청크 처리 결과가 모두 비어있음")
+            
+            # 청크 통합
+            if len(chunk_results) == 1:
+                final_summary = chunk_results[0]
+            else:
+                combined = {f"CHUNK_{i+1}": s for i, s in enumerate(chunk_results)}
+                result = await asyncio.to_thread(
+                    analyze_summary_only, combined, self.api_key, self.locale, ""
+                )
+                validated = self.validate_dict_result(result, "청크 통합")
+                final_summary = validated.get('summary') or "\n\n".join(chunk_results)
+            
+            log_process("ANALYZE", "SUMMARY", f"✅ {info.procedure_name}: summary 통합 완료")
+            
+            # User Story 생성 (실패 시 예외 발생)
+            all_user_stories = []
+            if final_summary:
+                us_result = await asyncio.to_thread(
+                    analyze_user_story, final_summary, self.api_key, self.locale
+                )
+                validated = self.validate_dict_result(us_result, "User Story")
+                all_user_stories = validated.get('user_stories', []) or []
+            
+            # Neo4j 쿼리 생성
+            summary_json = json.dumps(final_summary, ensure_ascii=False)
+            queries.append(
+                f"MATCH (n:{info.procedure_type} {{procedure_name: '{escape_for_cypher(info.procedure_name)}', {self.node_base_props}}})\n"
+                f"SET n.summary = {summary_json}\n"
+                f"RETURN n"
+            )
+            
+            # User Story 노드 생성
+            proc_name_escaped = escape_for_cypher(info.procedure_name)
+            for us_idx, us in enumerate(all_user_stories, 1):
+                us_id = us.get('id', f"US-{us_idx}")
+                role = escape_for_cypher(us.get('role', ''))
+                goal = escape_for_cypher(us.get('goal', ''))
+                benefit = escape_for_cypher(us.get('benefit', ''))
                 
-                log_process("ANALYZE", "SUMMARY", f"📦 {info.procedure_name}: summary 청크 분할 ({len(chunks)}개)")
-                
-                # 청크별 처리
-                async def process_chunk(chunk: dict) -> str:
-                    result = await asyncio.to_thread(
-                        analyze_summary_only, chunk, self.api_key, self.locale, ""
-                    )
-                    if isinstance(result, dict):
-                        return result.get('summary', '')
-                    return ""
-                
-                chunk_results = await asyncio.gather(*[process_chunk(c) for c in chunks])
-                chunk_results = [r for r in chunk_results if r]
-                
-                if not chunk_results:
-                    continue
-                
-                # 청크 통합
-                if len(chunk_results) == 1:
-                    final_summary = chunk_results[0]
-                else:
-                    combined = {f"CHUNK_{i+1}": s for i, s in enumerate(chunk_results)}
-                    result = await asyncio.to_thread(
-                        analyze_summary_only, combined, self.api_key, self.locale, ""
-                    )
-                    if isinstance(result, dict):
-                        final_summary = result.get('summary', "\n\n".join(chunk_results))
-                    else:
-                        final_summary = "\n\n".join(chunk_results)
-                
-                log_process("ANALYZE", "SUMMARY", f"✅ {info.procedure_name}: summary 통합 완료")
-                
-                # User Story 생성
-                all_user_stories = []
-                if final_summary:
-                    us_result = await asyncio.to_thread(
-                        analyze_user_story, final_summary, self.api_key, self.locale
-                    )
-                    if isinstance(us_result, dict):
-                        all_user_stories = us_result.get('user_stories', []) or []
-                
-                # Neo4j 쿼리 생성
-                summary_json = json.dumps(final_summary, ensure_ascii=False)
                 queries.append(
-                    f"MATCH (n:{info.procedure_type} {{procedure_name: '{escape_for_cypher(info.procedure_name)}', {self.node_base_props}}})\n"
-                    f"SET n.summary = {summary_json}\n"
-                    f"RETURN n"
+                    f"MATCH (p:{info.procedure_type} {{procedure_name: '{proc_name_escaped}', {self.node_base_props}}})\n"
+                    f"MERGE (us:UserStory {{id: '{us_id}', procedure_name: '{proc_name_escaped}', {self.node_base_props}}})\n"
+                    f"SET us.role = '{role}', us.goal = '{goal}', us.benefit = '{benefit}'\n"
+                    f"MERGE (p)-[r:HAS_USER_STORY]->(us)\n"
+                    f"RETURN p, us, r"
                 )
                 
-                # User Story 노드 생성
-                proc_name_escaped = escape_for_cypher(info.procedure_name)
-                for us_idx, us in enumerate(all_user_stories, 1):
-                    us_id = us.get('id', f"US-{us_idx}")
-                    role = escape_for_cypher(us.get('role', ''))
-                    goal = escape_for_cypher(us.get('goal', ''))
-                    benefit = escape_for_cypher(us.get('benefit', ''))
+                # Acceptance Criteria 노드
+                for ac_idx, ac in enumerate(us.get('acceptance_criteria', []), 1):
+                    if not isinstance(ac, dict):
+                        continue
+                    ac_id = ac.get('id', f"AC-{us_idx}-{ac_idx}")
+                    ac_title = escape_for_cypher(ac.get('title', ''))
+                    ac_given = json.dumps(ac.get('given', []), ensure_ascii=False)
+                    ac_when = json.dumps(ac.get('when', []), ensure_ascii=False)
+                    ac_then = json.dumps(ac.get('then', []), ensure_ascii=False)
                     
                     queries.append(
-                        f"MATCH (p:{info.procedure_type} {{procedure_name: '{proc_name_escaped}', {self.node_base_props}}})\n"
-                        f"MERGE (us:UserStory {{id: '{us_id}', procedure_name: '{proc_name_escaped}', {self.node_base_props}}})\n"
-                        f"SET us.role = '{role}', us.goal = '{goal}', us.benefit = '{benefit}'\n"
-                        f"MERGE (p)-[r:HAS_USER_STORY]->(us)\n"
-                        f"RETURN p, us, r"
+                        f"MATCH (us:UserStory {{id: '{us_id}', {self.node_base_props}}})\n"
+                        f"MERGE (ac:AcceptanceCriteria {{id: '{ac_id}', user_story_id: '{us_id}', {self.node_base_props}}})\n"
+                        f"SET ac.title = '{ac_title}', ac.given = {ac_given}, ac.when = {ac_when}, ac.then = {ac_then}\n"
+                        f"MERGE (us)-[r:HAS_AC]->(ac)\n"
+                        f"RETURN us, ac, r"
                     )
-                    
-                    # Acceptance Criteria 노드
-                    for ac_idx, ac in enumerate(us.get('acceptance_criteria', []), 1):
-                        if not isinstance(ac, dict):
-                            continue
-                        ac_id = ac.get('id', f"AC-{us_idx}-{ac_idx}")
-                        ac_title = escape_for_cypher(ac.get('title', ''))
-                        ac_given = json.dumps(ac.get('given', []), ensure_ascii=False)
-                        ac_when = json.dumps(ac.get('when', []), ensure_ascii=False)
-                        ac_then = json.dumps(ac.get('then', []), ensure_ascii=False)
-                        
-                        queries.append(
-                            f"MATCH (us:UserStory {{id: '{us_id}', {self.node_base_props}}})\n"
-                            f"MERGE (ac:AcceptanceCriteria {{id: '{ac_id}', user_story_id: '{us_id}', {self.node_base_props}}})\n"
-                            f"SET ac.title = '{ac_title}', ac.given = {ac_given}, ac.when = {ac_when}, ac.then = {ac_then}\n"
-                            f"MERGE (us)-[r:HAS_AC]->(ac)\n"
-                            f"RETURN us, ac, r"
-                        )
-                
-                us_count = len(all_user_stories)
-                log_process("ANALYZE", "SUMMARY", f"✅ {info.procedure_name}: User Story {us_count}개 생성")
-                
-            except Exception as exc:
-                log_process("ANALYZE", "SUMMARY", f"❌ {info.procedure_name} 프로시저 요약 오류", logging.ERROR, exc)
+            
+            us_count = len(all_user_stories)
+            log_process("ANALYZE", "SUMMARY", f"✅ {info.procedure_name}: User Story {us_count}개 생성")
         
         # 테이블/컬럼 설명 요약 처리
         table_queries = await self._finalize_table_summaries()
@@ -763,15 +767,12 @@ class DbmsAstProcessor(BaseAstProcessor):
         semaphore = asyncio.Semaphore(VARIABLE_CONCURRENCY)
         
         async def analyze_one(node: StatementNode) -> List[str]:
+            """변수 분석 (실패 시 예외 발생 → 전체 분석 중단)"""
             async with semaphore:
-                try:
-                    result = await asyncio.to_thread(
-                        analyze_variables, node.code, self.api_key, self.locale
-                    )
-                    return self._build_variable_queries(node, result)
-                except Exception as e:
-                    log_process("ANALYZE", "VARIABLE", f"❌ 변수 분석 실패 (node={node.start_line}): {e}", logging.ERROR, e)
-                    return []
+                result = await asyncio.to_thread(
+                    analyze_variables, node.code, self.api_key, self.locale
+                )
+                return self._build_variable_queries(node, result)
         
         results = await asyncio.gather(*[analyze_one(n) for n in variable_nodes])
         for r in results:
@@ -784,7 +785,7 @@ class DbmsAstProcessor(BaseAstProcessor):
         queries: List[str] = []
         
         if not isinstance(result, dict):
-            return queries
+            raise AnalysisError(f"변수 분석 결과가 dict가 아님 (node={node.start_line}): {type(result).__name__}")
         
         variables = result.get("variables") or []
         if not variables:
@@ -836,8 +837,8 @@ class DbmsAstProcessor(BaseAstProcessor):
             try:
                 start_line = int(start_line)
                 end_line = int(end_line)
-            except (TypeError, ValueError):
-                continue
+            except (TypeError, ValueError) as e:
+                raise AnalysisError(f"LLM 테이블 분석 결과에 잘못된 라인 번호: startLine={range_entry.get('startLine')}, endLine={range_entry.get('endLine')}") from e
             
             node = node_map.get((start_line, end_line))
             if not node:
@@ -914,8 +915,13 @@ class DbmsAstProcessor(BaseAstProcessor):
                     nullable = 'true' if column.get('nullable', True) else 'false'
                     escaped_col_name = escape_for_cypher(column_name)
                     
+                    # 컬럼명에 특수문자가 있을 수 있으므로 모두 이스케이프
+                    escaped_name_part = escape_for_cypher(name_part)
+                    escaped_column_name_for_fqn = escape_for_cypher(column_name)
+                    
                     if schema_part:
-                        fqn = '.'.join(filter(None, [schema_part, name_part, column_name])).lower()
+                        escaped_schema_part = escape_for_cypher(schema_part)
+                        fqn = escape_for_cypher('.'.join(filter(None, [schema_part, name_part, column_name])).lower())
                         queries.append(
                             f"{table_merge}\nWITH t\n"
                             f"MERGE (c:Column {{user_id: '{self.user_id}', fqn: '{fqn}', project_name: '{self.project_name}'}})\n"
@@ -925,12 +931,12 @@ class DbmsAstProcessor(BaseAstProcessor):
                             f"RETURN t, c, r"
                         )
                     else:
+                        # schema가 없는 경우 동적 fqn 계산 대신 정적 fqn 사용
+                        # (CASE WHEN 구문은 컬럼명 특수문자로 인해 구문 오류 발생 가능)
+                        fqn = escape_for_cypher('.'.join(filter(None, [name_part, column_name])).lower())
                         queries.append(
-                            f"{table_merge}\n"
-                            f"WITH t, lower(CASE WHEN t.schema IS NOT NULL AND t.schema <> '' "
-                            f"THEN t.schema + '.' + '{name_part}' + '.' + '{column_name}' "
-                            f"ELSE '{name_part}' + '.' + '{column_name}' END) as fqn\n"
-                            f"MERGE (c:Column {{user_id: '{self.user_id}', fqn: fqn, project_name: '{self.project_name}'}})\n"
+                            f"{table_merge}\nWITH t\n"
+                            f"MERGE (c:Column {{user_id: '{self.user_id}', fqn: '{fqn}', project_name: '{self.project_name}'}})\n"
                             f"ON CREATE SET c.name = '{escaped_col_name}', c.dtype = '{col_type}', "
                             f"c.description = '{col_desc}', c.nullable = '{nullable}'\n"
                             f"MERGE (t)-[r:HAS_COLUMN]->(c)\n"
@@ -1124,7 +1130,7 @@ class DbmsAstProcessor(BaseAstProcessor):
         )
         
         if not isinstance(result, dict):
-            return []
+            raise AnalysisError(f"테이블 요약 결과가 dict가 아님 ({schema_key}.{name_key}): {type(result).__name__}")
         
         queries: List[str] = []
         llm_table_desc = (result.get('tableDescription') or '').strip()
