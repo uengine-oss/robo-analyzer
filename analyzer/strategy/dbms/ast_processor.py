@@ -985,8 +985,8 @@ class DbmsAstProcessor(BaseAstProcessor):
                 )
                 
                 for src_col, tgt_col in zip(src_columns, tgt_columns):
-                    src_fqn = '.'.join(filter(None, [src_schema, src_name, src_col])).lower()
-                    tgt_fqn = '.'.join(filter(None, [tgt_schema, tgt_name, tgt_col])).lower()
+                    src_fqn = escape_for_cypher('.'.join(filter(None, [src_schema, src_name, src_col])).lower())
+                    tgt_fqn = escape_for_cypher('.'.join(filter(None, [tgt_schema, tgt_name, tgt_col])).lower())
                     queries.append(
                         f"MATCH (sc:Column {{user_id: '{self.user_id}', fqn: '{src_fqn}', project_name: '{self.project_name}'}})\n"
                         f"MATCH (dc:Column {{user_id: '{self.user_id}', fqn: '{tgt_fqn}', project_name: '{self.project_name}'}})\n"
@@ -1150,9 +1150,12 @@ class DbmsAstProcessor(BaseAstProcessor):
             if not column_name or not llm_column_desc:
                 continue
             
+            # fqn과 column_name 모두 이스케이프 필요 (특수문자 포함 가능)
+            escaped_column_name = escape_for_cypher(column_name)
             fqn = '.'.join(filter(None, [schema_prop, name_key, column_name])).lower()
+            escaped_fqn = escape_for_cypher(fqn)
             column_props = (
-                f"user_id: '{self.user_id}', name: '{column_name}', fqn: '{fqn}', project_name: '{self.project_name}'"
+                f"user_id: '{self.user_id}', name: '{escaped_column_name}', fqn: '{escaped_fqn}', project_name: '{self.project_name}'"
             )
             queries.append(
                 f"MATCH (c:Column {{{column_props}}})\nSET c.description = '{escape_for_cypher(llm_column_desc)}'\nRETURN c"

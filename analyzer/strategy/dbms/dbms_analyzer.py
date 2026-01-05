@@ -367,8 +367,9 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
                 col_nullable = col.get("nullable", True)
                 col_comment = (col.get("comment") or "").strip()
                 fqn = ".".join(filter(None, [schema, parsed_name, col_name])).lower()
+                escaped_fqn = escape_for_cypher(fqn)
 
-                col_merge = {"user_id": orchestrator.user_id, "fqn": fqn, "project_name": orchestrator.project_name}
+                col_merge = {"user_id": orchestrator.user_id, "fqn": escaped_fqn, "project_name": orchestrator.project_name}
                 col_merge_str = ", ".join(f"`{k}`: '{v}'" for k, v in col_merge.items())
                 col_set = {
                     "name": escape_for_cypher(col_name),
@@ -376,7 +377,7 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
                     "description": escape_for_cypher(col_comment),
                     "nullable": "true" if col_nullable else "false",
                     "project_name": orchestrator.project_name,
-                    "fqn": fqn,
+                    "fqn": escaped_fqn,
                 }
                 if col_name.upper() in primary_keys:
                     col_set["pk_constraint"] = f"{parsed_name}_pkey"
