@@ -948,13 +948,14 @@ class DbmsAstProcessor(BaseAstProcessor):
                 link_name_raw = (link_item.get('name') or '').strip()
                 if not link_name_raw:
                     continue
-                mode = (link_item.get('mode') or 'r').lower()
+                mode = escape_for_cypher((link_item.get('mode') or 'r').lower())
                 schema_link, name_link, link_name = parse_table_identifier(link_name_raw)
+                escaped_link_name = escape_for_cypher(link_name)
                 remote_merge = self._build_table_merge(name_link, schema_link)
                 queries.append(
-                    f"{remote_merge}\nSET t.db_link = '{link_name}'\n"
+                    f"{remote_merge}\nSET t.db_link = '{escaped_link_name}'\n"
                     f"WITH t\n"
-                    f"MERGE (l:DBLink {{user_id: '{self.user_id}', name: '{link_name}', project_name: '{self.project_name}'}})\n"
+                    f"MERGE (l:DBLink {{user_id: '{self.user_id}', name: '{escaped_link_name}', project_name: '{self.project_name}'}})\n"
                     f"MERGE (l)-[r1:CONTAINS]->(t)\n"
                     f"WITH t, l\n{node_merge}\n"
                     f"MERGE (n)-[r2:DB_LINK {{mode: '{mode}'}}]->(t)\n"
@@ -974,8 +975,8 @@ class DbmsAstProcessor(BaseAstProcessor):
                 src_schema, src_name, _ = parse_table_identifier(src_table)
                 tgt_schema, tgt_name, _ = parse_table_identifier(tgt_table)
                 
-                src_props = f"user_id: '{self.user_id}', schema: '{src_schema or ''}', name: '{src_name}', db: '{self.dbms}', project_name: '{self.project_name}'"
-                tgt_props = f"user_id: '{self.user_id}', schema: '{tgt_schema or ''}', name: '{tgt_name}', db: '{self.dbms}', project_name: '{self.project_name}'"
+                src_props = f"user_id: '{self.user_id}', schema: '{escape_for_cypher(src_schema or '')}', name: '{escape_for_cypher(src_name)}', db: '{self.dbms}', project_name: '{self.project_name}'"
+                tgt_props = f"user_id: '{self.user_id}', schema: '{escape_for_cypher(tgt_schema or '')}', name: '{escape_for_cypher(tgt_name)}', db: '{self.dbms}', project_name: '{self.project_name}'"
                 
                 queries.append(
                     f"MATCH (st:Table {{{src_props}}})\n"
@@ -998,9 +999,10 @@ class DbmsAstProcessor(BaseAstProcessor):
     
     def _build_table_merge(self, table_name: str, schema: Optional[str]) -> str:
         """테이블 MERGE 쿼리"""
-        schema_value = schema or self.default_schema
+        schema_value = escape_for_cypher(schema or self.default_schema)
+        escaped_name = escape_for_cypher(table_name)
         return (
-            f"MERGE (t:Table {{{self.table_base_props}, name: '{table_name}', schema: '{schema_value}', db: '{self.dbms}', project_name: '{self.project_name}'}})"
+            f"MERGE (t:Table {{{self.table_base_props}, name: '{escaped_name}', schema: '{schema_value}', db: '{self.dbms}', project_name: '{self.project_name}'}})"
         )
 
     def _record_table_summary(self, schema: Optional[str], name: str, description: Optional[str]) -> Tuple[str, str]:
@@ -1134,9 +1136,10 @@ class DbmsAstProcessor(BaseAstProcessor):
         
         queries: List[str] = []
         llm_table_desc = (result.get('tableDescription') or '').strip()
-        schema_prop = schema_key
+        escaped_schema = escape_for_cypher(schema_key)
+        escaped_name = escape_for_cypher(name_key)
         table_props = (
-            f"user_id: '{self.user_id}', schema: '{schema_prop}', name: '{name_key}', db: '{self.dbms}', project_name: '{self.project_name}'"
+            f"user_id: '{self.user_id}', schema: '{escaped_schema}', name: '{escaped_name}', db: '{self.dbms}', project_name: '{self.project_name}'"
         )
         
         if llm_table_desc:
@@ -1152,7 +1155,7 @@ class DbmsAstProcessor(BaseAstProcessor):
             
             # fqn과 column_name 모두 이스케이프 필요 (특수문자 포함 가능)
             escaped_column_name = escape_for_cypher(column_name)
-            fqn = '.'.join(filter(None, [schema_prop, name_key, column_name])).lower()
+            fqn = '.'.join(filter(None, [schema_key, name_key, column_name])).lower()
             escaped_fqn = escape_for_cypher(fqn)
             column_props = (
                 f"user_id: '{self.user_id}', name: '{escaped_column_name}', fqn: '{escaped_fqn}', project_name: '{self.project_name}'"
