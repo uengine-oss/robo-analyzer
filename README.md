@@ -85,13 +85,42 @@ ROBO Analyzer는 소스 코드를 분석하여 Neo4j 그래프 데이터베이�
 - **성공/품질 추적**: `node.ok` 플래그로 불완전 요약 전파 방지
 - **Cypher 동시성 보호**: `asyncio.Lock`을 통한 Neo4j 쿼리 동시성 제어
 
-### 4. 실시간 스트리밍
+### 4. Fail-Fast 오류 처리
+
+- **즉시 중단 원칙**: 분석 중 오류 발생 시 즉시 중단 (조용한 실패/부분 실패 불허)
+- **예외 전파**: 모든 예외는 `AnalysisError`로 래핑되어 상위로 전파
+- **타입 검증**: `validate_dict_result()` 유틸리티로 LLM 결과 타입 검증
+- **토큰 낭비 방지**: 중간 실패 시 추가 LLM 호출 없이 즉시 종료
+
+**오류 처리 패턴:**
+
+```python
+# ❌ 잘못된 패턴 (조용한 실패)
+except Exception as e:
+    log_process("ANALYZE", "ERROR", f"오류: {e}", logging.WARNING)
+    # 계속 진행... (토큰 낭비)
+
+# ✅ 올바른 패턴 (Fail-Fast)
+except Exception as e:
+    log_process("ANALYZE", "ERROR", f"오류: {e}", logging.ERROR)
+    raise  # 즉시 중단
+```
+
+**LLM 결과 검증:**
+
+```python
+# dict 타입이 아니면 즉시 AnalysisError 발생
+validated = self.validate_dict_result(llm_result, "청크 분석", batch_id)
+summary = validated.get('summary', '')
+```
+
+### 5. 실시간 스트리밍
 
 - **NDJSON 형식**: 실시간 분석 진행 상황 전달
 - **이벤트 타입**: `message`, `data`, `error`, `complete`
 - **진행률 추적**: 파일별, 전체 분석 진행률 표시
 
-### 5. User Story 자동 생성
+### 6. User Story 자동 생성
 
 - **요구사항 문서 생성**: 분석 결과에서 User Story 및 Acceptance Criteria 자동 생성
 - **포괄적 도출**: 모든 비즈니스 로직(CRUD, 배치, 집계 등)에서 User Story 도출
@@ -423,6 +452,13 @@ robo_analyzer_core/
 │   │   └── ensure_constraints() # 제약조건 생성
 │   │
 │   └── strategy/               # 분석 전략 패턴
+│       ├── base/               # 공통 기반 클래스
+│       │   ├── processor.py   # AstProcessor (공통 처리 로직)
+│       │   │   ├── validate_dict_result() # LLM 결과 타입 검증 (Fail-Fast)
+│       │   │   ├── run_llm_analysis()   # LLM 분석 실행
+│       │   │   └── _apply_summary_to_nodes() # 요약 적용
+│       │   └── statement_node.py # StatementNode 클래스
+│       │
 │       ├── base_analyzer.py    # BaseStreamingAnalyzer (공통 프레임)
 │       │   ├── analyze()       # 템플릿 메서드 (공통 흐름)
 │       │   ├── run_pipeline() # 전략별 파이프라인 (추상 메서드)
@@ -471,7 +507,7 @@ robo_analyzer_core/
 ├── util/                        # 유틸리티 모듈
 │   ├── exception.py            # 계층화된 예외 클래스
 │   │   ├── RoboAnalyzerError   # 기본 예외
-│   │   ├── AnalysisError        # 분석 오류
+│   │   ├── AnalysisError        # 분석 오류 (Fail-Fast 중단)
 │   │   ├── CodeProcessError    # 코드 처리 오류
 │   │   ├── LLMCallError        # LLM 호출 오류
 │   │   └── QueryExecutionError # Neo4j 쿼리 오류
@@ -1133,7 +1169,21 @@ MIT License
 
 ## 버전 히스토리
 
-### v2.2.0 (현재)
+### v2.3.0 (현재)
+- **Fail-Fast 오류 처리**: 조용한 실패 및 부분 실패 완전 제거
+  - 모든 분석 오류 발생 시 즉시 중단 (`AnalysisError` 전파)
+  - 예외 삼키기 패턴 제거 (모든 `except` 블록에서 `raise`)
+  - 배치 실패 시 즉시 중단 (부분 성공 불허)
+- **LLM 결과 타입 검증 강화**
+  - `validate_dict_result()` 유틸리티 메서드 도입
+  - dict/tuple 외 타입 반환 시 즉시 `AnalysisError` 발생
+  - `asyncio.gather` 결과를 tuple로 변환하여 일관성 유지
+- **코드 품질 개선**
+  - 중복 예외 처리 패턴 정리
+  - DEBUG 로그 제거 및 로깅 최적화
+  - 코드 가독성 향상
+
+### v2.2.0
 - **컨텍스트 인식 분석 시스템**: 중첩된 DML 구조에서 별칭 오인 방지
   - Phase 1.5: 부모 노드의 컨텍스트 생성 (Top-down)
   - 컨텍스트 전달: 자식 노드 분석 시 부모 컨텍스트 활용
@@ -1161,4 +1211,4 @@ MIT License
 ---
 
 *작성일: 2025-01-XX*
-*마지막 업데이트: 2025-01-XX*
+*마지막 업데이트: 2025-01-05*
