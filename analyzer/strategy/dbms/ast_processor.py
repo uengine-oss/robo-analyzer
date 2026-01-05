@@ -47,6 +47,8 @@ VARIABLE_CONCURRENCY = settings.concurrency.variable_concurrency
 MAX_BATCH_TOKEN = settings.batch.max_batch_token
 MAX_CONCURRENCY = settings.concurrency.max_concurrency
 MAX_SUMMARY_CHUNK_TOKEN = settings.batch.max_summary_chunk_token
+MAX_CONTEXT_TOKEN = settings.batch.max_context_token
+PARENT_EXPAND_THRESHOLD = settings.batch.parent_expand_threshold
 
 # 정규식 패턴
 LINE_NUMBER_PATTERN = re.compile(r"^\d+\s*:")
@@ -61,6 +63,7 @@ class StatementNode:
     - 이후 배치가 만들어질 때 이 객체를 그대로 사용합니다.
     - LLM 요약이 끝나면 `summary`와 `completion_event`가 채워집니다.
     - `ok` 플래그로 성공 여부를 추적합니다 (자식 실패 시 부모도 False).
+    - `context`는 부모 컨텍스트 추출 결과를 저장합니다.
     """
     node_id: int
     start_line: int
@@ -79,11 +82,14 @@ class StatementNode:
     parent: Optional[StatementNode] = None
     children: List[StatementNode] = field(default_factory=list)
     summary: Optional[str] = None
+    context: Optional[str] = None  # 부모 컨텍스트 (자식 분석 시 전달됨)
     ok: bool = True  # LLM 분석 성공 여부 (자식 실패 시 부모도 False)
     completion_event: asyncio.Event = field(init=False, repr=False)
+    context_ready_event: asyncio.Event = field(init=False, repr=False)
 
     def __post_init__(self):
         object.__setattr__(self, "completion_event", asyncio.Event())
+        object.__setattr__(self, "context_ready_event", asyncio.Event())
 
     def get_raw_code(self) -> str:
         """라인 번호를 포함하여 노드의 원문 코드를 반환합니다."""
@@ -159,6 +165,79 @@ class StatementNode:
 
         return '\n'.join(result_lines)
 
+    def get_skeleton_code(self) -> str:
+        """자식 구간을 .... 로 압축한 스켈레톤 코드를 반환합니다.
+        
+        연속된 자식 구간은 하나의 .... 로 압축됩니다.
+        부모 컨텍스트 추출용으로 사용됩니다.
+        """
+        if not self.children:
+            return self.code
+
+        result_lines: List[str] = []
+        sorted_children = sorted(self.children, key=lambda child: child.start_line)
+        in_child_block = False
+
+        for line_no, text in self.lines:
+            is_child_line = any(
+                child.start_line <= line_no <= child.end_line
+                for child in sorted_children
+            )
+
+            if is_child_line:
+                if not in_child_block:
+                    result_lines.append("    ....")
+                    in_child_block = True
+                # 연속된 자식 라인은 스킵
+            else:
+                in_child_block = False
+                result_lines.append(f"{line_no}: {text}")
+
+        return '\n'.join(result_lines)
+
+    def get_ancestor_context(self, max_tokens: int = MAX_CONTEXT_TOKEN) -> str:
+        """조상 노드들의 컨텍스트를 결합하여 반환합니다.
+        
+        가장 가까운 조상부터 토큰 상한까지 누적합니다.
+        """
+        if not self.parent:
+            return ""
+
+        context_parts: List[str] = []
+        remaining = max_tokens
+        current = self.parent
+
+        while current and remaining > 0:
+            # 부모의 context가 있으면 사용 (LLM이 생성한 핵심 컨텍스트)
+            if current.context:
+                ctx_tokens = calculate_code_token(current.context)
+                if ctx_tokens <= remaining:
+                    context_parts.insert(0, current.context)
+                    remaining -= ctx_tokens
+                else:
+                    # 토큰 초과 시 중단
+                    break
+            current = current.parent
+
+        if not context_parts:
+            return ""
+
+        return "[CONTEXT]\n" + "\n---\n".join(context_parts) + "\n[/CONTEXT]\n"
+
+    def needs_context_generation(self) -> bool:
+        """이 노드가 컨텍스트 생성이 필요한 부모 노드인지 확인합니다.
+        
+        조건:
+        - has_children = True (자식이 있음)
+        - analyzable = True (분석 대상)
+        - node_type이 PROCEDURE_TYPES가 아님 (프로시저는 제외)
+        """
+        return (
+            self.has_children
+            and self.analyzable
+            and self.node_type not in PROCEDURE_TYPES
+        )
+
 
 @dataclass(slots=True)
 class ProcedureInfo:
@@ -179,19 +258,51 @@ class AnalysisBatch:
     dml_ranges: List[Dict[str, int]]
     progress_line: int
 
-    def build_general_payload(self) -> str:
-        """일반 LLM 호출용으로 노드들의 compact 코드를 결합합니다."""
-        return '\n\n'.join(node.get_compact_code() for node in self.nodes)
+    def build_general_payload(self) -> Tuple[str, str]:
+        """일반 LLM 호출용으로 노드들의 compact 코드와 컨텍스트를 분리하여 반환합니다.
+        
+        Returns:
+            (code, context) 튜플 - 코드와 컨텍스트를 분리
+        """
+        code_parts: List[str] = []
+        context_parts: List[str] = []
+        
+        for node in self.nodes:
+            code = node.get_compact_code()
+            code_parts.append(code)
+            
+            context = node.get_ancestor_context()
+            if context:
+                context_parts.append(context)
+            else:
+                context_parts.append("")
+        
+        return '\n\n'.join(code_parts), '\n\n'.join(context_parts)
 
-    def build_dml_payload(self) -> Optional[str]:
-        """DML 노드만 추린 원문 코드를 결합하여 테이블 분석 프롬프트에 전달합니다."""
+    def build_dml_payload(self) -> Optional[Tuple[str, str]]:
+        """DML 노드만 추린 코드와 컨텍스트를 분리하여 반환합니다.
+        
+        Returns:
+            (code, context) 튜플 또는 None - 코드와 컨텍스트를 분리
+        """
         dml_nodes = [node for node in self.nodes if node.dml]
         if not dml_nodes:
             return None
-        return '\n\n'.join(
-            node.get_compact_code() if node.has_children else node.get_raw_code()
-            for node in dml_nodes
-        )
+        
+        code_parts: List[str] = []
+        context_parts: List[str] = []
+        
+        for node in dml_nodes:
+            code = node.get_compact_code() if node.has_children else node.get_raw_code()
+            code_parts.append(code)
+            
+            context = node.get_ancestor_context()
+            if context:
+                context_parts.append(context)
+            else:
+                context_parts.append("")
+        
+        return '\n\n'.join(code_parts), '\n\n'.join(context_parts)
 
 
 @dataclass(slots=True)
@@ -252,18 +363,26 @@ def _rule_loader() -> RuleLoader:
     return RuleLoader(target_lang="dbms")
 
 
-def analyze_code(code: str, ranges: list, count: int, api_key: str, locale: str) -> Dict[str, Any]:
+def analyze_code(code: str, context: str, ranges: list, count: int, api_key: str, locale: str) -> Dict[str, Any]:
+    """코드 분석 (컨텍스트와 코드 분리 전달)"""
+    inputs = {"code": code, "ranges": ranges, "count": count, "locale": locale}
+    if context.strip():
+        inputs["context"] = context
     return _rule_loader().execute(
         "analysis",
-        {"code": code, "ranges": ranges, "count": count, "locale": locale},
+        inputs,
         api_key,
     )
 
 
-def analyze_dml_tables(code: str, ranges: list, api_key: str, locale: str) -> Dict[str, Any]:
+def analyze_dml_tables(code: str, context: str, ranges: list, api_key: str, locale: str) -> Dict[str, Any]:
+    """DML 테이블 분석 (컨텍스트와 코드 분리 전달)"""
+    inputs = {"code": code, "ranges": ranges, "locale": locale}
+    if context.strip():
+        inputs["context"] = context
     return _rule_loader().execute(
         "dml",
-        {"code": code, "ranges": ranges, "locale": locale},
+        inputs,
         api_key,
     )
 
@@ -326,6 +445,28 @@ def analyze_variables(declaration_code: str, api_key: str, locale: str) -> Dict[
         api_key,
     )
 
+
+def extract_parent_context(skeleton_code: str, ancestor_context: str, api_key: str, locale: str) -> str:
+    """부모 노드의 핵심 컨텍스트를 추출합니다.
+    
+    Args:
+        skeleton_code: 자식 구간이 .... 로 압축된 부모 코드
+        ancestor_context: 조상 노드들의 누적 컨텍스트
+        api_key: LLM API 키
+        locale: 출력 언어
+    
+    Returns:
+        핵심 컨텍스트 문자열 (2~3문장)
+    """
+    result = _rule_loader().execute(
+        "parent_context",
+        {"skeleton_code": skeleton_code, "ancestor_context": ancestor_context, "locale": locale},
+        api_key,
+    )
+
+    if isinstance(result, dict):
+        return result.get("context_summary", "").strip()
+    raise ValueError(f"parent_context 규칙이 dict가 아닌 값을 반환했습니다: {type(result)}")
 
 # ==================== 노드 수집기 ====================
 class StatementCollector:
@@ -526,9 +667,11 @@ class LLMInvoker:
         general_task = None
         if batch.ranges:
             # 일반 요약은 노드 compact code를 기반으로 동기식 호출을 스레드로 위임합니다.
+            code, context = batch.build_general_payload()
             general_task = asyncio.to_thread(
                 analyze_code,
-                batch.build_general_payload(),
+                code,
+                context,
                 batch.ranges,
                 len(batch.ranges),
                 self.api_key,
@@ -539,9 +682,11 @@ class LLMInvoker:
         dml_payload = batch.build_dml_payload()
         if dml_payload and batch.dml_ranges:
             # DML 분석은 별도의 프롬프트로 병렬 실행하여 테이블 메타데이터를 수집합니다.
+            code, context = dml_payload
             table_task = asyncio.to_thread(
                 analyze_dml_tables,
-                dml_payload,
+                code,
+                context,
                 batch.dml_ranges,
                 self.api_key,
                 self.locale,
@@ -761,6 +906,119 @@ class DbmsAstProcessor:
         )
 
     # =========================================================================
+    # Phase 1.5: 부모 컨텍스트 생성 (Top-down)
+    # =========================================================================
+    
+    async def _generate_parent_contexts(self) -> None:
+        """부모 노드들의 컨텍스트를 Top-down 순서로 생성합니다.
+        
+        처리 흐름:
+        1. 부모 노드들을 깊이 순으로 정렬 (얕은 것 먼저)
+        2. 각 부모에 대해 스켈레톤 + 조상 컨텍스트 → LLM → 컨텍스트 추출
+        3. 추출된 컨텍스트를 노드에 저장
+        4. context_ready_event 설정
+        
+        Note:
+        - PROCEDURE_TYPES는 제외 (컨텍스트 생성 불필요)
+        - 깊이 순 처리로 조상 컨텍스트가 먼저 준비됨을 보장
+        """
+        if not self._nodes:
+            return
+        
+        # 컨텍스트 생성이 필요한 부모 노드들 수집
+        parent_nodes = [
+            node for node in self._nodes
+            if node.needs_context_generation()
+        ]
+        
+        if not parent_nodes:
+            log_process("ANALYZE", "CONTEXT", "⏭️ 컨텍스트 생성이 필요한 부모 노드 없음")
+            # 모든 노드의 context_ready_event 설정
+            for node in self._nodes:
+                node.context_ready_event.set()
+            return
+        
+        # 깊이 계산 함수
+        def get_depth(node: StatementNode) -> int:
+            depth = 0
+            current = node.parent
+            while current:
+                depth += 1
+                current = current.parent
+            return depth
+        
+        # 깊이 순으로 정렬 (얕은 것 먼저 → Top-down 보장)
+        parent_nodes.sort(key=get_depth)
+        
+        log_process("ANALYZE", "CONTEXT", f"🔄 부모 컨텍스트 생성 시작: {len(parent_nodes)}개 노드")
+        
+        # 순차적으로 처리 (깊이 순서 보장)
+        # 같은 깊이의 노드들은 병렬 처리 가능
+        current_depth = -1
+        current_batch: List[StatementNode] = []
+        
+        async def process_context_batch(batch: List[StatementNode]) -> None:
+            """같은 깊이의 노드들을 병렬로 처리"""
+            semaphore = asyncio.Semaphore(min(MAX_CONCURRENCY, len(batch)))
+            
+            async def process_one(node: StatementNode) -> None:
+                async with semaphore:
+                    try:
+                        # 부모의 context_ready_event 대기 (있으면)
+                        if node.parent and node.parent.needs_context_generation():
+                            await node.parent.context_ready_event.wait()
+                        
+                        # 스켈레톤 코드 생성
+                        skeleton = node.get_skeleton_code()
+                        
+                        # 조상 컨텍스트 수집
+                        ancestor_ctx = node.get_ancestor_context()
+                        
+                        # LLM 호출하여 컨텍스트 추출
+                        context = await asyncio.to_thread(
+                            extract_parent_context,
+                            skeleton,
+                            ancestor_ctx,
+                            self.api_key,
+                            self.locale,
+                        )
+                        
+                        node.context = context
+                        log_process("ANALYZE", "CONTEXT", f"✅ 컨텍스트 생성 완료: {node.node_type}[{node.start_line}~{node.end_line}]")
+                    except Exception as e:
+                        log_process("ANALYZE", "CONTEXT", f"❌ 컨텍스트 생성 실패 (치명적): {node.node_type}[{node.start_line}]: {e}", logging.ERROR)
+                        # 컨텍스트 없이 분석하면 별칭 해석 오류 등으로 결과가 엉망이 됨
+                        # 예외를 다시 발생시켜서 실패를 명확히 표시
+                        raise
+                    finally:
+                        node.context_ready_event.set()
+            
+            await asyncio.gather(*[process_one(n) for n in batch])
+        
+        # 깊이별로 배치 처리
+        for node in parent_nodes:
+            depth = get_depth(node)
+            if depth != current_depth:
+                # 이전 깊이 배치 처리
+                if current_batch:
+                    await process_context_batch(current_batch)
+                current_depth = depth
+                current_batch = [node]
+            else:
+                current_batch.append(node)
+        
+        # 마지막 배치 처리
+        if current_batch:
+            await process_context_batch(current_batch)
+        
+        # 컨텍스트 생성 불필요한 노드들도 context_ready_event 설정
+        for node in self._nodes:
+            if not node.context_ready_event.is_set():
+                node.context_ready_event.set()
+        
+        log_process("ANALYZE", "CONTEXT", f"✅ 부모 컨텍스트 생성 완료: {len(parent_nodes)}개")
+
+    # =========================================================================
     # Phase 2: LLM 분석
     # =========================================================================
     
@@ -786,6 +1044,9 @@ class DbmsAstProcessor:
         # 변수 선행 처리
         variable_queries = await self._analyze_variable_nodes()
         all_queries.extend(variable_queries)
+        
+        # Phase 1.5: 부모 컨텍스트 생성 (Top-down)
+        await self._generate_parent_contexts()
         
         # 배치 분석
         planner = BatchPlanner()
@@ -816,8 +1077,12 @@ class DbmsAstProcessor:
             batch_failed = False
             async with semaphore:
                 try:
-                    # 1. 배치 내 모든 노드의 자식 완료를 기다림 (기존 방식 복원)
+                    # 1. 배치 내 모든 노드의 자식 완료 및 부모 컨텍스트 준비를 기다림
                     for node in batch.nodes:
+                        # 부모 컨텍스트가 준비될 때까지 대기
+                        if node.parent:
+                            await node.parent.context_ready_event.wait()
+                        
                         if node.has_children:
                             for child in node.children:
                                 await child.completion_event.wait()
@@ -1352,9 +1617,9 @@ class DbmsAstProcessor:
                     else:
                         queries.append(
                             f"{table_merge}\n"
-                            f"WITH t, lower(case when t.schema <> '' and t.schema IS NOT NULL "
-                            f"then t.schema + '.' + '{name_part}' + '.' + '{column_name}' "
-                            f"else '{name_part}' + '.' + '{column_name}' end) as fqn\n"
+                            f"WITH t, lower(CASE WHEN t.schema IS NOT NULL AND t.schema <> '' "
+                            f"THEN t.schema + '.' + '{name_part}' + '.' + '{column_name}' "
+                            f"ELSE '{name_part}' + '.' + '{column_name}' END) as fqn\n"
                             f"MERGE (c:Column {{user_id: '{self.user_id}', fqn: fqn, project_name: '{self.project_name}'}})\n"
                             f"ON CREATE SET c.name = '{escaped_col_name}', c.dtype = '{col_type}', "
                             f"c.description = '{col_desc}', c.nullable = '{nullable}'\n"
@@ -1557,7 +1822,7 @@ class DbmsAstProcessor:
                     "dtype": ddl_col.get("dtype") or "",
                     "nullable": ddl_col.get("nullable", True),
                     "examples": [],
-                }
+        }
         
         result = await asyncio.to_thread(
             summarize_table_metadata,

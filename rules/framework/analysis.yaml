@@ -8,9 +8,7 @@ input_schema:
     - ranges
     - count
     - locale
-  optional:
-    parent_code:
-      default: ""
+  optional: {}
 
 prompt: |
   [ROLE]
@@ -24,13 +22,17 @@ prompt: |
   
   
   [INPUT_DATA]
+  {% if context %}
+  부모 컨텍스트 (상위 코드 구조에서 추출한 핵심 정보):
+  {{ context }}
+  
+  이 컨텍스트는 현재 분석 대상 코드의 부모 노드에서 추출한 정보입니다.
+  - 변수/객체/조건 정보를 참고하여 현재 코드의 실행 맥락을 이해하세요.
+  - summary 작성 시 컨텍스트 정보를 참고하여 정확한 설명을 작성하세요.
+  
+  {% endif %}
   분석 대상 Java 코드:
   {{ code }}
-  
-  {% if parent_code %}
-  부모 블록 코드 (컨텍스트 참고용 - 결과에 포함하지 않음):
-  {{ parent_code }}
-  {% endif %}
   
   분석할 코드 범위 목록:
   {{ ranges }}

@@ -8,6 +8,11 @@ from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
 from typing import Optional
+from dotenv import load_dotenv
+
+# .env 파일 로드
+project_root = Path(__file__).resolve().parents[1]
+load_dotenv(dotenv_path=project_root / ".env")
 
 
 def _get_base_dir() -> str:
@@ -81,6 +86,9 @@ class BatchConfig:
     framework_max_batch_token: int = field(default_factory=lambda: int(os.getenv("FRAMEWORK_MAX_BATCH_TOKEN", "1000")))
     max_summary_chunk_token: int = field(default_factory=lambda: int(os.getenv("MAX_SUMMARY_CHUNK_TOKEN", "5000")))
     static_query_batch_size: int = field(default_factory=lambda: int(os.getenv("STATIC_QUERY_BATCH_SIZE", "40")))
+    # 부모 컨텍스트 관련 설정
+    max_context_token: int = field(default_factory=lambda: int(os.getenv("MAX_CONTEXT_TOKEN", "300")))
+    parent_expand_threshold: int = field(default_factory=lambda: int(os.getenv("PARENT_EXPAND_THRESHOLD", "1000")))
 
 
 @dataclass(frozen=True)

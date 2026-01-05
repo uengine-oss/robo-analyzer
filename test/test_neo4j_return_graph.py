@@ -295,7 +295,7 @@ async def main():
             f"WHERE existing_col.`name` = 'product_id' AND existing_col.`user_id` = '{test_user_id}' AND existing_col.`project_name` = '{test_project_name}'\n"
             f"WITH t, existing_col\n"
             f"WHERE existing_col IS NULL\n"
-            f"WITH t, lower(case when t.schema <> '' and t.schema IS NOT NULL then t.schema + '.' + 'products' + '.' + 'product_id' else 'products' + '.' + 'product_id' end) as fqn\n"
+            f"WITH t, lower(CASE WHEN t.schema IS NOT NULL AND t.schema <> '' THEN t.schema + '.' + 'products' + '.' + 'product_id' ELSE 'products' + '.' + 'product_id' END) as fqn\n"
             f"CREATE (c:Column {{`user_id`: '{test_user_id}', `fqn`: fqn, `project_name`: '{test_project_name}', "
             f"`name`: 'product_id', `dtype`: 'VARCHAR', `description`: '제품 ID', `nullable`: 'true'}})\n"
             f"WITH t, c\n"
