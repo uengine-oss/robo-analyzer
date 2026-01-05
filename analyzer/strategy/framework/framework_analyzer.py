@@ -23,14 +23,13 @@ import asyncio
 import json
 import logging
 import os
-from dataclasses import dataclass, field
-from enum import Enum
 from typing import Any, AsyncGenerator, Optional, List
 
 import aiofiles
 
 from analyzer.neo4j_client import Neo4jClient
 from analyzer.strategy.base_analyzer import BaseStreamingAnalyzer, AnalysisStats
+from analyzer.strategy.base.file_context import FileStatus, FileAnalysisContext
 from analyzer.strategy.framework.ast_processor import FrameworkAstProcessor
 from config.settings import settings
 from util.exception import AnalysisError
@@ -44,33 +43,6 @@ from util.utility_tool import (
     generate_user_story_document,
     log_process,
 )
-
-
-class FileStatus(Enum):
-    """파일 분석 상태"""
-    PENDING = "PENDING"      # 대기 중
-    PH1_OK = "PH1_OK"       # Phase 1 성공
-    PH1_FAIL = "PH1_FAIL"   # Phase 1 실패 → Phase 2 스킵
-    PH2_OK = "PH2_OK"       # Phase 2 성공
-    PH2_FAIL = "PH2_FAIL"   # Phase 2 실패
-    SKIPPED = "SKIPPED"     # 스킵됨
-
-
-@dataclass
-class FileAnalysisContext:
-    """파일 분석 컨텍스트
-    
-    파일별 상태 추적으로 토큰 절감:
-    - Phase1 실패 파일은 Phase2 LLM 호출을 스킵
-    - 실패 사유를 기록하여 최종 리포트에 포함
-    """
-    directory: str
-    file_name: str
-    ast_data: dict
-    source_lines: List[str]
-    processor: Optional[FrameworkAstProcessor] = None
-    status: FileStatus = field(default=FileStatus.PENDING)
-    error_message: str = ""
 
 
 class FrameworkAnalyzer(BaseStreamingAnalyzer):

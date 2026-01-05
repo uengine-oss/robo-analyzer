@@ -12,14 +12,13 @@ import asyncio
 import json
 import logging
 import os
-from dataclasses import dataclass, field
-from enum import Enum
 from typing import Any, AsyncGenerator, Optional, List, Dict, Tuple
 
 import aiofiles
 
 from analyzer.neo4j_client import Neo4jClient
 from analyzer.strategy.base_analyzer import BaseStreamingAnalyzer, AnalysisStats
+from analyzer.strategy.base.file_context import FileStatus, FileAnalysisContext
 from analyzer.strategy.dbms.ast_processor import DbmsAstProcessor
 from config.settings import settings
 from util.exception import AnalysisError
@@ -35,28 +34,6 @@ from util.utility_tool import (
     parse_table_identifier,
     generate_user_story_document,
 )
-
-
-class FileStatus(Enum):
-    """파일 분석 상태"""
-    PENDING = "PENDING"
-    PH1_OK = "PH1_OK"
-    PH1_FAIL = "PH1_FAIL"
-    PH2_OK = "PH2_OK"
-    PH2_FAIL = "PH2_FAIL"
-    SKIPPED = "SKIPPED"
-
-
-@dataclass
-class FileAnalysisContext:
-    """파일 분석 컨텍스트"""
-    directory: str
-    file_name: str
-    ast_data: dict
-    source_lines: List[str]
-    processor: Optional[DbmsAstProcessor] = None
-    status: FileStatus = field(default=FileStatus.PENDING)
-    error_message: str = ""
 
 
 class DbmsAnalyzer(BaseStreamingAnalyzer):
