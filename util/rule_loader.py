@@ -19,6 +19,7 @@ LLM 프롬프트를 YAML 파일로 관리하고 Jinja2로 렌더링합니다.
 import json
 import logging
 import os
+import re
 from functools import lru_cache
 from typing import Any, Dict
 
@@ -41,6 +42,63 @@ def _safe_copy(value: Any) -> Any:
         return json.loads(json.dumps(value, ensure_ascii=False))
     except (TypeError, ValueError):
         return value
+
+
+def _remove_trailing_commas(json_str: str) -> str:
+    """JSON 문자열에서 trailing comma를 제거합니다.
+    
+    예시:
+        '{"a": 1,}' -> '{"a": 1}'
+        '{"a": [1, 2,],}' -> '{"a": [1, 2]}'
+        '{"a": {"b": 1,}, "c": 2,}' -> '{"a": {"b": 1}, "c": 2}'
+    """
+    # 문자열 내부의 쉼표는 건드리지 않도록 주의
+    # 정규식으로 객체/배열 끝의 쉼표 제거
+    # 패턴: 쉼표 뒤에 공백/줄바꿈이 있고 그 다음 } 또는 ]가 오는 경우
+    
+    # 중첩된 구조도 처리하기 위해 여러 번 반복 (최대 10회)
+    prev_str = ""
+    iterations = 0
+    while json_str != prev_str and iterations < 10:
+        prev_str = json_str
+        # 1단계: 객체 내부의 trailing comma 제거 (}, } 앞의 쉼표)
+        json_str = re.sub(r',(\s*})', r'\1', json_str)
+        # 2단계: 배열 내부의 trailing comma 제거 (], ] 앞의 쉼표)
+        json_str = re.sub(r',(\s*])', r'\1', json_str)
+        iterations += 1
+    
+    return json_str
+
+
+class TolerantJsonOutputParser(JsonOutputParser):
+    """Trailing comma를 허용하는 JSON 파서
+    
+    LLM이 생성한 JSON에 trailing comma가 있어도 파싱할 수 있도록
+    자동으로 제거한 후 파싱합니다.
+    """
+    
+    def parse_result(self, generations, *, strict: bool = False):
+        """LLM 응답을 파싱하되, trailing comma를 자동으로 제거합니다."""
+        from langchain_core.exceptions import OutputParserException
+        from langchain_core.utils.json import parse_json_markdown
+        
+        if not generations:
+            raise OutputParserException("No generations to parse")
+        
+        text = generations[0].text if hasattr(generations[0], 'text') else str(generations[0])
+        
+        # trailing comma 제거 시도
+        cleaned_text = _remove_trailing_commas(text)
+        
+        try:
+            # parse_json_markdown을 직접 사용하여 파싱
+            return parse_json_markdown(cleaned_text, strict=strict)
+        except Exception as e:
+            # 원본 오류 메시지에 cleaned text 포함
+            raise OutputParserException(
+                f"Invalid json output: {text[:500]}",
+                llm_output=text
+            ) from e
 
 
 class RuleLoader:
@@ -138,7 +196,7 @@ class RuleLoader:
                 RunnablePassthrough()
                 | PromptTemplate.from_template("{prompt}")
                 | llm
-                | JsonOutputParser()
+                | TolerantJsonOutputParser()
             )
 
             result = invoke_with_audit(

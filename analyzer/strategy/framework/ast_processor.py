@@ -1131,7 +1131,7 @@ class FrameworkAstProcessor:
             f"MERGE (p)-[r:CONTAINS]->(f)\n"
             f"RETURN r"
         ]
-    
+
     def _build_relationship_queries(self) -> List[str]:
         """정적 관계 쿼리 (HAS_METHOD, HAS_FIELD, CONTAINS, PARENT_OF)를 생성합니다.
         
@@ -1168,12 +1168,12 @@ class FrameworkAstProcessor:
     def _build_contains_query(self, parent: StatementNode, child: StatementNode) -> str:
         """CONTAINS 관계 쿼리를 생성합니다 (File → 직접 자식만)."""
         return (
-            f"MATCH (p:{parent.node_type} {{startLine: {parent.start_line}, {self.node_base_props}}})\n"
+                f"MATCH (p:{parent.node_type} {{startLine: {parent.start_line}, {self.node_base_props}}})\n"
             f"MATCH (c:{child.node_type} {{startLine: {child.start_line}, {self.node_base_props}}})\n"
             f"MERGE (p)-[r:CONTAINS]->(c)\n"
-            f"RETURN r"
-        )
-    
+                f"RETURN r"
+            )
+        
     def _build_has_method_query(self, parent: StatementNode, child: StatementNode) -> str:
         """HAS_METHOD 관계 쿼리를 생성합니다."""
         return (

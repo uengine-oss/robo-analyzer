@@ -723,7 +723,7 @@ class DbmsAstProcessor:
             f"MERGE (p)-[r:CONTAINS]->(f)\n"
             f"RETURN r"
         ]
-    
+
     def _build_relationship_queries(self) -> List[str]:
         """정적 관계 쿼리 (CONTAINS, PARENT_OF, NEXT)를 생성합니다.
         
@@ -1507,6 +1507,13 @@ class DbmsAstProcessor:
         DDL 메타데이터를 LLM 입력에 포함하여 통합된 description을 생성합니다.
         """
         schema_key, name_key = table_key
+        
+        # DDL 메타데이터 조회 (메모리 캐시) - 먼저 조회하여 체크에 활용
+        ddl_key = (schema_key.lower(), name_key.lower())
+        ddl_meta = self._ddl_table_metadata.get(ddl_key, {})
+        ddl_description = (ddl_meta.get('description') or '').strip()
+        ddl_columns = ddl_meta.get('columns') or {}
+        
         summaries = list(data.get('summaries') or [])
         columns_map = data.get('columns') or {}
         column_sentences = {
@@ -1514,18 +1521,22 @@ class DbmsAstProcessor:
             for entry in columns_map.values()
             if entry.get('summaries')
         }
-        if not summaries and not column_sentences:
-            return []
-        
-        # DDL 메타데이터 조회 (메모리 캐시)
-        ddl_key = (schema_key.lower(), name_key.lower())
-        ddl_meta = self._ddl_table_metadata.get(ddl_key, {})
-        ddl_description = (ddl_meta.get('description') or '').strip()
-        ddl_columns = ddl_meta.get('columns') or {}
         
         # DDL description이 있으면 summaries에 추가 (LLM 입력에 포함)
         if ddl_description:
             summaries.insert(0, f"[DDL 메타데이터] {ddl_description}")
+        
+        # DDL 컬럼 description도 column_sentences에 추가
+        for col_name, ddl_col in ddl_columns.items():
+            ddl_col_desc = (ddl_col.get('description') or '').strip()
+            if ddl_col_desc and col_name not in column_sentences:
+                column_sentences[col_name] = [f"[DDL 메타데이터] {ddl_col_desc}"]
+            elif ddl_col_desc and col_name in column_sentences:
+                column_sentences[col_name].insert(0, f"[DDL 메타데이터] {ddl_col_desc}")
+        
+        # DDL 메타데이터나 DML 분석 결과가 하나라도 있어야 처리
+        if not summaries and not column_sentences:
+            return []
         
         # DDL 컬럼 정보를 column_metadata에 병합
         table_display = f"{schema_key}.{name_key}" if schema_key else name_key
@@ -1539,13 +1550,14 @@ class DbmsAstProcessor:
                 "examples": sorted(list(entry.get("examples") or []))[:5],
             }
         
-        # DDL 컬럼 description도 column_sentences에 추가
+        # DDL 컬럼도 column_metadata에 추가 (DML에서 발견되지 않은 컬럼)
         for col_name, ddl_col in ddl_columns.items():
-            ddl_col_desc = (ddl_col.get('description') or '').strip()
-            if ddl_col_desc and col_name not in column_sentences:
-                column_sentences[col_name] = [f"[DDL 메타데이터] {ddl_col_desc}"]
-            elif ddl_col_desc and col_name in column_sentences:
-                column_sentences[col_name].insert(0, f"[DDL 메타데이터] {ddl_col_desc}")
+            if col_name not in column_metadata:
+                column_metadata[col_name] = {
+                    "dtype": ddl_col.get("dtype") or "",
+                    "nullable": ddl_col.get("nullable", True),
+                    "examples": [],
+                }
         
         result = await asyncio.to_thread(
             summarize_table_metadata,
