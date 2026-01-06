@@ -10,6 +10,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.router import router
+from api.glossary_router import router as glossary_router
 from config.settings import settings
 from util.logger import setup_logging, get_logger
 
@@ -42,6 +43,7 @@ app.add_middleware(
 
 # 라우터 등록
 app.include_router(router)
+app.include_router(glossary_router)
 
 
 # =============================================================================

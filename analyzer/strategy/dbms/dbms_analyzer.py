@@ -296,9 +296,10 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
         )
         
         queries = []
+        # db 속성은 DML 처리(ast_processor)와 일관성을 위해 소문자로 변환
         common = {
             "user_id": orchestrator.user_id,
-            "db": orchestrator.target,
+            "db": (orchestrator.target or 'postgres').lower(),
             "project_name": orchestrator.project_name,
         }
 

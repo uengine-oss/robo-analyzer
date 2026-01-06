@@ -998,8 +998,13 @@ class DbmsAstProcessor(BaseAstProcessor):
         return queries
     
     def _build_table_merge(self, table_name: str, schema: Optional[str]) -> str:
-        """테이블 MERGE 쿼리"""
-        schema_value = escape_for_cypher(schema or self.default_schema)
+        """테이블 MERGE 쿼리
+        
+        DDL 처리와 일관성을 위해 schema가 없으면 빈 문자열 사용.
+        (DDL에서는 schema가 없으면 ''을 사용함)
+        """
+        # DDL 처리와 일관성: schema가 None이거나 빈 문자열이면 '' 사용
+        schema_value = escape_for_cypher(schema) if schema else ''
         escaped_name = escape_for_cypher(table_name)
         return (
             f"MERGE (t:Table {{{self.table_base_props}, name: '{escaped_name}', schema: '{schema_value}', db: '{self.dbms}', project_name: '{self.project_name}'}})"

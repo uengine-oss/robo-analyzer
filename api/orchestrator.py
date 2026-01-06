@@ -47,19 +47,26 @@ def extract_user_id(request: Request) -> str:
 
 
 def extract_api_key(request: Request, user_id: str, missing_status: int = 401) -> str:
-    """API 키 추출 (테스트 세션은 환경 변수 사용)"""
+    """API 키 추출 (헤더 → 환경 변수 순서로 폴백)"""
+    # 1. 테스트 세션이면 환경 변수 사용
     if user_id in settings.test.test_sessions:
         api_key = settings.llm.api_key
         if not api_key:
             raise HTTPException(missing_status, "환경 변수에 API 키가 설정되어 있지 않습니다.")
         return api_key
 
+    # 2. 헤더에서 API 키 추출
     api_key = (
         request.headers.get("OpenAI-Api-Key") or
         request.headers.get("Anthropic-Api-Key")
     )
+    
+    # 3. 헤더에 없으면 환경 변수에서 폴백
     if not api_key:
-        raise HTTPException(401, "요청 헤더 누락: OpenAI-Api-Key 또는 Anthropic-Api-Key")
+        api_key = settings.llm.api_key
+    
+    if not api_key:
+        raise HTTPException(401, "요청 헤더 누락: OpenAI-Api-Key 또는 Anthropic-Api-Key (환경변수 LLM_API_KEY도 설정되지 않음)")
     return api_key
 
 
