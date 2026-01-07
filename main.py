@@ -6,13 +6,22 @@ FastAPI 기반 소스 코드 분석 서버.
     uvicorn main:app --host 0.0.0.0 --port 5502 --reload
 """
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
 from api.router import router
 from api.glossary_router import router as glossary_router
 from config.settings import settings
 from util.logger import setup_logging, get_logger
+from util.exception import (
+    RoboAnalyzerError,
+    AnalysisError,
+    LLMCallError,
+    FileProcessError,
+    Neo4jError,
+    ConfigError,
+)
 
 
 # 로깅 초기화
@@ -44,6 +53,88 @@ app.add_middleware(
 # 라우터 등록
 app.include_router(router)
 app.include_router(glossary_router)
+
+
+# =============================================================================
+# 예외 핸들러 - 정확한 오류 메시지 전달
+# =============================================================================
+
+@app.exception_handler(LLMCallError)
+async def llm_call_error_handler(request: Request, exc: LLMCallError):
+    """LLM 호출 오류 처리 (OpenAI API 오류 등)"""
+    return JSONResponse(
+        status_code=503,  # Service Unavailable
+        content={
+            "detail": exc.message,
+            "error_type": "LLMCallError",
+            "context": exc.context,
+        }
+    )
+
+
+@app.exception_handler(FileProcessError)
+async def file_process_error_handler(request: Request, exc: FileProcessError):
+    """파일 처리 오류"""
+    return JSONResponse(
+        status_code=400,  # Bad Request
+        content={
+            "detail": exc.message,
+            "error_type": "FileProcessError",
+            "context": exc.context,
+        }
+    )
+
+
+@app.exception_handler(Neo4jError)
+async def neo4j_error_handler(request: Request, exc: Neo4jError):
+    """Neo4j 오류"""
+    return JSONResponse(
+        status_code=503,  # Service Unavailable
+        content={
+            "detail": exc.message,
+            "error_type": "Neo4jError",
+            "context": exc.context,
+        }
+    )
+
+
+@app.exception_handler(ConfigError)
+async def config_error_handler(request: Request, exc: ConfigError):
+    """설정 오류"""
+    return JSONResponse(
+        status_code=500,  # Internal Server Error
+        content={
+            "detail": exc.message,
+            "error_type": "ConfigError",
+            "context": exc.context,
+        }
+    )
+
+
+@app.exception_handler(AnalysisError)
+async def analysis_error_handler(request: Request, exc: AnalysisError):
+    """분석 오류"""
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": exc.message,
+            "error_type": "AnalysisError",
+            "context": exc.context,
+        }
+    )
+
+
+@app.exception_handler(RoboAnalyzerError)
+async def robo_analyzer_error_handler(request: Request, exc: RoboAnalyzerError):
+    """ROBO Analyzer 기본 예외 처리"""
+    return JSONResponse(
+        status_code=500,
+        content={
+            "detail": exc.message,
+            "error_type": exc.__class__.__name__,
+            "context": exc.context,
+        }
+    )
 
 
 # =============================================================================

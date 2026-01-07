@@ -1011,8 +1011,13 @@ class DbmsAstProcessor(BaseAstProcessor):
         )
 
     def _record_table_summary(self, schema: Optional[str], name: str, description: Optional[str]) -> Tuple[str, str]:
-        """테이블 설명 누적"""
-        schema_key = schema or self.default_schema
+        """테이블 설명 누적
+        
+        DDL/DML 처리에서 테이블 생성 시 schema가 없으면 빈 문자열('')을 사용하므로,
+        여기서도 동일하게 처리하여 MATCH 쿼리가 정확히 매칭되도록 함.
+        """
+        # 테이블 생성 시 schema 처리와 일관성 유지 (빈 문자열 사용)
+        schema_key = schema if schema else ''
         name_key = name
         bucket = self._table_summary_store.get((schema_key, name_key))
         if bucket is None:
