@@ -91,11 +91,18 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
         total_files = len(file_names)
         self._file_semaphore = asyncio.Semaphore(settings.concurrency.file_concurrency)
 
-        yield emit_message(f"⚡ 병렬 처리: 파일 {settings.concurrency.file_concurrency}개 동시")
+        if total_files > 0:
+            yield emit_message(f"⚡ 병렬 처리: 파일 {settings.concurrency.file_concurrency}개 동시")
 
         # ========== DDL 처리 ==========
         async for chunk in self._run_ddl_phase(client, orchestrator, stats):
             yield chunk
+
+        # DDL만 있는 경우 (소스 파일 없음) - Phase 1,2 스킵
+        if total_files == 0:
+            yield emit_message("")
+            yield emit_message("📋 DDL 파일만 처리되었습니다 (소스 파일 없음)")
+            return
 
         # ========== 파일 로드 ==========
         yield emit_message("")
@@ -178,8 +185,10 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
         async with self._cypher_lock:
             results = await client.execute_queries([query])
         
+        # DDL만 있는 경우 또는 분석 결과가 없는 경우 None 반환 (오류 대신)
         if not results or not results[0]:
-            raise AnalysisError("User Story 생성을 위한 분석 결과가 없습니다")
+            log_process("ANALYZE", "USER_STORY", "User Story 생성 스킵: 분석된 프로시저/함수가 없습니다", logging.INFO)
+            return None
         
         filtered = [
             r for r in results[0]
@@ -356,7 +365,23 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
                 "table_type": table_type,
             }
             set_str = ", ".join(f"t.`{k}` = '{v}'" for k, v in set_props.items())
+            
+            # Schema 노드 생성 (스키마가 없으면 'public' 사용)
+            schema_name = schema if schema else 'public'
+            schema_merge = {
+                "db": common["db"],
+                "name": schema_name.lower(),
+            }
+            schema_merge_str = ", ".join(f"`{k}`: '{v}'" for k, v in schema_merge.items())
+            queries.append(f"MERGE (s:Schema {{{schema_merge_str}}}) RETURN s")
+            
+            # Table 노드 생성 및 Schema에 BELONGS_TO 관계 연결
             queries.append(f"MERGE (t:Table {{{merge_str}}}) SET {set_str} RETURN t")
+            queries.append(
+                f"MATCH (t:Table {{{merge_str}}})\n"
+                f"MATCH (s:Schema {{{schema_merge_str}}})\n"
+                f"MERGE (t)-[r:BELONGS_TO]->(s) RETURN t, r, s"
+            )
             ddl_stats["tables"] += 1
             
             # DDL 메타데이터 캐시 저장 (메모리)

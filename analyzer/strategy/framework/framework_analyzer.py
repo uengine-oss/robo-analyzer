@@ -189,10 +189,10 @@ class FrameworkAnalyzer(BaseStreamingAnalyzer):
         if not results or not results[0]:
             log_process(
                 "ANALYZE", "USER_STORY",
-                "⚠️ Neo4j 쿼리 결과가 비어있습니다. 클래스/인터페이스에 summary가 설정되었는지 확인하세요.",
-                logging.WARNING
+                "User Story 생성 스킵: 분석된 클래스/인터페이스가 없습니다",
+                logging.INFO
             )
-            raise AnalysisError("User Story 생성을 위한 분석 결과가 없습니다 (Neo4j에 summary가 있는 클래스/인터페이스가 없음)")
+            return None
         
         filtered = [
             r for r in results[0]

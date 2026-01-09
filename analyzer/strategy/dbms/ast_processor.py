@@ -998,16 +998,21 @@ class DbmsAstProcessor(BaseAstProcessor):
         return queries
     
     def _build_table_merge(self, table_name: str, schema: Optional[str]) -> str:
-        """테이블 MERGE 쿼리
+        """테이블 MERGE 쿼리 (Schema 노드 및 BELONGS_TO 관계 포함)
         
-        DDL 처리와 일관성을 위해 schema가 없으면 빈 문자열 사용.
-        (DDL에서는 schema가 없으면 ''을 사용함)
+        DDL 처리와 일관성을 위해 schema가 없으면 'public' 사용.
+        Schema 노드를 먼저 생성하고 Table이 Schema에 BELONGS_TO 관계로 연결됨.
         """
-        # DDL 처리와 일관성: schema가 None이거나 빈 문자열이면 '' 사용
-        schema_value = escape_for_cypher(schema) if schema else ''
+        # schema가 없으면 'public' 사용
+        schema_value = escape_for_cypher(schema) if schema else 'public'
         escaped_name = escape_for_cypher(table_name)
+        
+        # Schema MERGE + Table MERGE + BELONGS_TO 관계
         return (
-            f"MERGE (t:Table {{{self.table_base_props}, name: '{escaped_name}', schema: '{schema_value}', db: '{self.dbms}', project_name: '{self.project_name}'}})"
+            f"MERGE (s:Schema {{db: '{self.dbms}', name: '{schema_value}'}})\n"
+            f"WITH s\n"
+            f"MERGE (t:Table {{{self.table_base_props}, name: '{escaped_name}', schema: '{schema_value}', db: '{self.dbms}', project_name: '{self.project_name}'}})\n"
+            f"MERGE (t)-[:BELONGS_TO]->(s)"
         )
 
     def _record_table_summary(self, schema: Optional[str], name: str, description: Optional[str]) -> Tuple[str, str]:

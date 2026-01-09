@@ -164,6 +164,18 @@ class AnalysisOrchestrator:
             "analysis": os.path.join(self.dirs["analysis"], directory),
         }
 
+    def has_ddl_files(self) -> bool:
+        """DDL 디렉토리에 파일이 있는지 확인"""
+        ddl_dir = self.dirs.get("ddl", "")
+        if not ddl_dir or not os.path.isdir(ddl_dir):
+            return False
+        
+        # DDL 디렉토리에 파일이 있는지 확인
+        for _, _, files in os.walk(ddl_dir):
+            if files:
+                return True
+        return False
+
     # -------------------------------------------------------------------------
     # 파일 탐색
     # -------------------------------------------------------------------------
@@ -172,6 +184,7 @@ class AnalysisOrchestrator:
         """source/ 디렉토리에서 분석 가능한 소스 파일 목록 탐색
         
         analysis/ 디렉토리에 해당 JSON 파일이 있는 소스 파일만 반환.
+        DDL만 있는 경우(source 디렉토리가 없는 경우) 빈 리스트 반환.
         
         Returns:
             [(directory, file_name), ...] 형태의 튜플 리스트
@@ -179,11 +192,14 @@ class AnalysisOrchestrator:
         source_dir = self.dirs.get("src", "")
         analysis_dir = self.dirs.get("analysis", "")
         
+        # DDL만 있는 경우 source/analysis 디렉토리가 없을 수 있음 - 빈 리스트 반환
         if not source_dir or not os.path.isdir(source_dir):
-            raise FileProcessError(f"source 디렉토리가 존재하지 않습니다: {source_dir}")
+            logging.info("source 디렉토리가 없습니다 (DDL만 있는 경우일 수 있음): %s", source_dir)
+            return []
         
         if not analysis_dir or not os.path.isdir(analysis_dir):
-            raise FileProcessError(f"analysis 디렉토리가 존재하지 않습니다: {analysis_dir}")
+            logging.info("analysis 디렉토리가 없습니다 (DDL만 있는 경우일 수 있음): %s", analysis_dir)
+            return []
         
         extensions = STRATEGY_EXTENSIONS.get(self.strategy, DEFAULT_EXTENSIONS)
         result = []

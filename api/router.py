@@ -116,14 +116,18 @@ async def analyze_source_code(request: Request):
     orchestrator = await create_orchestrator(request, body)
     
     file_names = orchestrator.discover_source_files()
-    if not file_names:
-        raise HTTPException(400, "분석할 소스 파일이 없습니다.")
+    has_ddl = orchestrator.has_ddl_files()
+    
+    # 소스 파일도 없고 DDL도 없으면 오류
+    if not file_names and not has_ddl:
+        raise HTTPException(400, "분석할 소스 파일 또는 DDL이 없습니다.")
 
     logger.info(
-        "[API] 분석 시작 | project=%s | strategy=%s | files=%d",
+        "[API] 분석 시작 | project=%s | strategy=%s | files=%d | has_ddl=%s",
         orchestrator.project_name,
         orchestrator.strategy,
         len(file_names),
+        has_ddl,
     )
 
     return StreamingResponse(
