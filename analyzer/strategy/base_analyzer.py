@@ -109,6 +109,10 @@ class AnalysisStats:
     llm_nodes_updated: int = 0
     llm_rels_created: int = 0
     
+    # 벡터라이징 결과
+    tables_vectorized: int = 0
+    columns_vectorized: int = 0
+    
     # 전체 합계 (자동 계산용)
     total_nodes: int = 0
     total_rels: int = 0

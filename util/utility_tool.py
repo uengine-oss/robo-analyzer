@@ -68,17 +68,33 @@ def parse_json_maybe(data):
 #==============================================================================
 
 def parse_table_identifier(qualified_table_name: str) -> tuple[str, str, str | None]:
-    """'SCHEMA.TABLE@DBLINK'에서 (schema, table, dblink) 추출"""
+    """'SCHEMA.TABLE@DBLINK'에서 (schema, table, dblink) 추출
+    
+    따옴표(", ', `, [])를 자동으로 제거합니다.
+    예: "RWIS"."TABLE" → (rwis, table, None)
+    """
     if not qualified_table_name:
         return '', '', None
+    
+    def strip_quotes(s: str) -> str:
+        """따옴표 제거: "name", 'name', `name`, [name] 형식 처리"""
+        s = s.strip()
+        if len(s) >= 2:
+            if (s[0] == '"' and s[-1] == '"') or \
+               (s[0] == "'" and s[-1] == "'") or \
+               (s[0] == '`' and s[-1] == '`'):
+                return s[1:-1]
+            if s[0] == '[' and s[-1] == ']':
+                return s[1:-1]
+        return s
     
     text = qualified_table_name.strip()
     left, _, link = text.partition('@')
     s, _, t = left.partition('.')
     
-    schema_raw = s.strip() if t else ''
-    table_raw = t.strip() if t else left.strip()
-    link_raw = link.strip() or None
+    schema_raw = strip_quotes(s.strip()) if t else ''
+    table_raw = strip_quotes(t.strip()) if t else strip_quotes(left.strip())
+    link_raw = strip_quotes(link.strip()) if link.strip() else None
 
     schema = (schema_raw or '').lower()
     table = (table_raw or '').lower()

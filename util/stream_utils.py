@@ -134,6 +134,38 @@ def emit_complete(summary: Optional[str] = None) -> bytes:
     return emit_bytes(payload)
 
 
+def emit_canvas_update(
+    update_type: str,
+    table_name: str,
+    schema: str = "public",
+    field: Optional[str] = None,
+    changes: Optional[dict[str, Any]] = None,
+) -> bytes:
+    """캔버스 실시간 업데이트 이벤트 전송
+    
+    캔버스에 표시된 테이블 관련 변경사항을 실시간으로 알림.
+    
+    Args:
+        update_type: "table_description", "column_description", "relationship_added", 
+                     "column_added", "table_added"
+        table_name: 업데이트된 테이블 이름
+        schema: 스키마 이름 (기본: public)
+        field: 컬럼명 (컬럼 업데이트 시)
+        changes: 변경 내용 {"description": "...", "analyzed_description": "..." 등}
+    """
+    payload = {
+        "type": "canvas_update",
+        "updateType": update_type,
+        "tableName": table_name,
+        "schema": schema,
+    }
+    if field:
+        payload["field"] = field
+    if changes:
+        payload["changes"] = changes
+    return emit_bytes(payload)
+
+
 def emit_phase_event(
     phase_num: int,
     phase_name: str,

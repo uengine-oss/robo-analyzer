@@ -103,6 +103,18 @@ class FrameworkAnalyzer(BaseStreamingAnalyzer):
         total_files = len(file_names)
         self._file_semaphore = asyncio.Semaphore(settings.concurrency.file_concurrency)
 
+        # LLM 캐시 상태 표시
+        if settings.llm.cache_enabled:
+            cache_path = settings.llm.cache_db_path
+            if not os.path.isabs(cache_path):
+                cache_path = os.path.join(settings.path.base_dir, cache_path)
+            cache_exists = os.path.exists(cache_path)
+            cache_size = os.path.getsize(cache_path) if cache_exists else 0
+            cache_size_str = f"{cache_size / 1024:.1f}KB" if cache_size < 1024*1024 else f"{cache_size / (1024*1024):.1f}MB"
+            yield emit_message(f"🗄️ LLM 캐시: 활성화 ({cache_size_str if cache_exists else '신규'})")
+        else:
+            yield emit_message("🔄 LLM 캐시: 비활성화 (매번 새로운 LLM 호출)")
+
         yield emit_message(f"⚡ 병렬 처리: 파일 {settings.concurrency.file_concurrency}개 동시")
 
         # ========== 파일 로드 ==========

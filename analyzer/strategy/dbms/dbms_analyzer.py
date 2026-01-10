@@ -20,12 +20,15 @@ from analyzer.neo4j_client import Neo4jClient
 from analyzer.strategy.base_analyzer import BaseStreamingAnalyzer, AnalysisStats
 from analyzer.strategy.base.file_context import FileStatus, FileAnalysisContext
 from analyzer.strategy.dbms.ast_processor import DbmsAstProcessor
+from analyzer.pipeline_control import pipeline_controller, PipelinePhase
 from config.settings import settings
 from util.exception import AnalysisError
 from util.rule_loader import RuleLoader
+from util.utility_tool import escape_for_cypher
 from util.stream_utils import (
     emit_data,
     emit_message,
+    emit_phase_event,
     format_graph_result,
 )
 from util.utility_tool import (
@@ -34,6 +37,7 @@ from util.utility_tool import (
     parse_table_identifier,
     generate_user_story_document,
 )
+from util.embedding_client import EmbeddingClient
 
 
 class DbmsAnalyzer(BaseStreamingAnalyzer):
@@ -90,21 +94,51 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
         """
         total_files = len(file_names)
         self._file_semaphore = asyncio.Semaphore(settings.concurrency.file_concurrency)
+        
+        # 파이프라인 상태 초기화
+        pipeline_state = pipeline_controller.get_state(orchestrator.user_id)
+
+        # LLM 캐시 상태 표시
+        if settings.llm.cache_enabled:
+            cache_path = settings.llm.cache_db_path
+            if not os.path.isabs(cache_path):
+                cache_path = os.path.join(settings.path.base_dir, cache_path)
+            cache_exists = os.path.exists(cache_path)
+            cache_size = os.path.getsize(cache_path) if cache_exists else 0
+            cache_size_str = f"{cache_size / 1024:.1f}KB" if cache_size < 1024*1024 else f"{cache_size / (1024*1024):.1f}MB"
+            yield emit_message(f"🗄️ LLM 캐시: 활성화 ({cache_size_str if cache_exists else '신규'})")
+        else:
+            yield emit_message("🔄 LLM 캐시: 비활성화 (매번 새로운 LLM 호출)")
 
         if total_files > 0:
             yield emit_message(f"⚡ 병렬 처리: 파일 {settings.concurrency.file_concurrency}개 동시")
 
-        # ========== DDL 처리 ==========
+        # ========== Phase 0: DDL 처리 ==========
+        pipeline_state.set_phase(PipelinePhase.DDL_PROCESSING, "DDL 파일 처리 중", 0)
+        yield emit_phase_event(0, "DDL 처리", "started", 0, {"canPause": True})
+        
         async for chunk in self._run_ddl_phase(client, orchestrator, stats):
             yield chunk
+        
+        yield emit_phase_event(0, "DDL 처리", "completed", 100)
+        
+        # DDL 후 일시정지 체크
+        if not await pipeline_state.wait_if_paused():
+            yield emit_message("⏹️ 파이프라인이 중단되었습니다")
+            pipeline_state.set_phase(PipelinePhase.CANCELLED)
+            return
 
         # DDL만 있는 경우 (소스 파일 없음) - Phase 1,2 스킵
         if total_files == 0:
             yield emit_message("")
             yield emit_message("📋 DDL 파일만 처리되었습니다 (소스 파일 없음)")
+            pipeline_state.set_phase(PipelinePhase.COMPLETED)
             return
 
-        # ========== 파일 로드 ==========
+        # ========== Phase 1: AST 그래프 생성 ==========
+        pipeline_state.set_phase(PipelinePhase.AST_GENERATION, "AST 구조 그래프 생성 중", 0)
+        yield emit_phase_event(1, "AST 구조 생성", "started", 0, {"canPause": True})
+        
         yield emit_message("")
         yield self.emit_separator()
         yield self.emit_phase_header(1, "🏗️ AST 구조 그래프 생성", f"{total_files}개 파일 병렬")
@@ -113,7 +147,6 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
         contexts = await self._load_all_files(file_names, orchestrator)
         yield emit_message(f"   ✓ {len(contexts)}개 파일 로드 완료")
 
-        # ========== Phase 1: AST 그래프 생성 (병렬) ==========
         async for chunk in self._run_phase1(contexts, client, orchestrator, stats):
             yield chunk
 
@@ -123,11 +156,22 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
         
         yield emit_message("")
         yield self.emit_phase_complete(1, f"{stats.static_nodes_created}개 노드 생성")
+        yield emit_phase_event(1, "AST 구조 생성", "completed", 100, {"nodes": stats.static_nodes_created})
+        
         if ph1_fail_count > 0:
             yield self.emit_warning(f"Phase 1 실패: {ph1_fail_count}개 파일 → Phase 2 스킵 (토큰 절감)")
 
-        # ========== Phase 2: LLM 분석 (병렬) - Phase1 성공 파일만 ==========
+        # Phase 1 후 일시정지 체크
+        if not await pipeline_state.wait_if_paused():
+            yield emit_message("⏹️ 파이프라인이 중단되었습니다")
+            pipeline_state.set_phase(PipelinePhase.CANCELLED)
+            return
+
+        # ========== Phase 2: LLM 분석 ==========
         ph2_targets = [c for c in contexts if c.status == FileStatus.PH1_OK]
+        
+        pipeline_state.set_phase(PipelinePhase.LLM_ANALYSIS, "AI 분석 중", 0)
+        yield emit_phase_event(2, "AI 분석", "started", 0, {"canPause": True, "files": len(ph2_targets)})
         
         yield emit_message("")
         yield self.emit_separator()
@@ -142,6 +186,61 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
 
         yield emit_message("")
         yield self.emit_phase_complete(2, f"{stats.llm_batches_executed}개 분석 완료")
+        yield emit_phase_event(2, "AI 분석", "completed", 100, {"batches": stats.llm_batches_executed})
+        
+        # Phase 2 후 일시정지 체크
+        if not await pipeline_state.wait_if_paused():
+            yield emit_message("⏹️ 파이프라인이 중단되었습니다")
+            pipeline_state.set_phase(PipelinePhase.CANCELLED)
+            return
+        
+        # ========== Phase 3: 테이블/컬럼 설명 보강 ==========
+        # Note: 실제 테이블 요약은 Phase 2의 run_llm_analysis 내에서 이미 수행됨
+        # 여기서는 진행 상태만 표시
+        pipeline_state.set_phase(PipelinePhase.TABLE_ENRICHMENT, "테이블/컬럼 설명 보강 중", 0)
+        yield emit_phase_event(3, "테이블 설명 보강", "started", 0, {"canPause": True})
+        yield self.emit_phase_header(3, "📊 테이블/컬럼 설명 보강", "LLM 분석 결과 적용")
+        
+        # 테이블 요약 결과 카운트 (이미 Phase 2에서 수행됨)
+        table_count = sum(
+            1 for ctx in ph2_targets 
+            if ctx.processor and hasattr(ctx.processor, '_table_summary_store') 
+            and ctx.processor._table_summary_store
+        )
+        
+        yield emit_message(f"   ✅ 테이블/컬럼 설명 보강 완료")
+        yield self.emit_phase_complete(3, "설명 보강 완료")
+        yield emit_phase_event(3, "테이블 설명 보강", "completed", 100)
+        
+        # Phase 3 후 일시정지 체크
+        if not await pipeline_state.wait_if_paused():
+            yield emit_message("⏹️ 파이프라인이 중단되었습니다")
+            pipeline_state.set_phase(PipelinePhase.CANCELLED)
+            return
+
+        # ========== Phase 4: 벡터라이징 (임베딩 생성) ==========
+        pipeline_state.set_phase(PipelinePhase.VECTORIZING, "테이블/컬럼 벡터라이징 중", 0)
+        yield emit_phase_event(4, "벡터라이징", "started", 0, {"canPause": True})
+        yield emit_message("")
+        yield self.emit_separator()
+        yield self.emit_phase_header(4, "🔢 벡터라이징", "임베딩 생성")
+        yield self.emit_separator()
+        
+        async for chunk in self._run_vectorize_phase(client, orchestrator, stats):
+            yield chunk
+        
+        yield emit_message("")
+        yield self.emit_phase_complete(4, "벡터라이징 완료")
+        yield emit_phase_event(4, "벡터라이징", "completed", 100, {
+            "tables_vectorized": stats.tables_vectorized,
+            "columns_vectorized": stats.columns_vectorized
+        })
+        
+        # Phase 4 후 일시정지 체크
+        if not await pipeline_state.wait_if_paused():
+            yield emit_message("⏹️ 파이프라인이 중단되었습니다")
+            pipeline_state.set_phase(PipelinePhase.CANCELLED)
+            return
 
     # =========================================================================
     # User Story 문서 생성 (BaseStreamingAnalyzer 구현)
@@ -337,14 +436,21 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
             
             qualified = f"{schema_raw}.{table_name}" if schema_raw else table_name
             parsed_schema, parsed_name, _ = parse_table_identifier(qualified)
-            schema = parsed_schema or ""
+            # 스키마가 없으면 'public' 사용 (SP 분석의 _build_table_merge와 일관성 유지)
+            schema = parsed_schema if parsed_schema else "public"
             
             # DDL에서 발견된 스키마 수집
-            if schema:
+            if schema and schema != 'public':
                 self._ddl_schemas.add(schema.lower())
 
-            # Table 노드 생성
-            merge_key = {**common, "schema": schema, "name": parsed_name}
+            # Table 노드 생성 (MERGE 키: user_id, db, schema, name만 사용 - project_name 제외)
+            # 같은 스키마/테이블명이면 같은 노드로 취급해야 함
+            merge_key = {
+                "user_id": orchestrator.user_id,
+                "db": common["db"],
+                "schema": schema,
+                "name": parsed_name
+            }
             merge_str = ", ".join(f"`{k}`: '{v}'" for k, v in merge_key.items())
             
             column_metadata = {}
@@ -425,7 +531,9 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
                 )
                 ddl_stats["columns"] += 1
 
-            # FK 관계 생성
+            # FK 관계 생성 - 각 FK 매핑마다 별도의 FK_TO_TABLE 관계 생성
+            # 속성: sourceColumn, targetColumn, type, source
+            # source='ddl': DDL에서 추출 (실선 표시)
             for fk in foreign_keys:
                 src_col = (fk.get("column") or "").strip()
                 ref = (fk.get("ref") or "").strip()
@@ -433,16 +541,28 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
                     continue
 
                 ref_table_part, ref_col = ref.rsplit(".", 1)
-                ref_schema, ref_table, _ = parse_table_identifier(ref_table_part)
-                ref_schema = ref_schema or schema
+                ref_schema_parsed, ref_table, _ = parse_table_identifier(ref_table_part)
+                ref_schema_final = ref_schema_parsed or schema
 
-                ref_table_merge = {**common, "schema": ref_schema or "", "name": ref_table or ""}
+                # 참조 테이블 MERGE (project_name 제외 - 스키마/이름으로만 매칭)
+                ref_table_merge = {
+                    "user_id": orchestrator.user_id,
+                    "db": common["db"],
+                    "schema": ref_schema_final or "",
+                    "name": ref_table or ""
+                }
                 ref_merge_str = ", ".join(f"`{k}`: '{v}'" for k, v in ref_table_merge.items())
                 queries.append(f"MERGE (rt:Table {{{ref_merge_str}}}) RETURN rt")
+                
+                escaped_src_col = escape_for_cypher(src_col)
+                escaped_tgt_col = escape_for_cypher(ref_col)
+                
                 queries.append(
                     f"MATCH (t:Table {{{merge_str}}})\n"
                     f"MATCH (rt:Table {{{ref_merge_str}}})\n"
-                    f"MERGE (t)-[r:FK_TO_TABLE]->(rt) RETURN t, r, rt"
+                    f"MERGE (t)-[r:FK_TO_TABLE {{sourceColumn: '{escaped_src_col}', targetColumn: '{escaped_tgt_col}'}}]->(rt)\n"
+                    f"ON CREATE SET r.type = 'many_to_one', r.source = 'ddl'\n"
+                    f"RETURN t, r, rt"
                 )
                 ddl_stats["fks"] += 1
 
@@ -737,3 +857,134 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
 
         # 모든 작업 완료 대기
         await asyncio.gather(*tasks, return_exceptions=True)
+
+    # =========================================================================
+    # Phase 4: 벡터라이징 (임베딩 생성)
+    # =========================================================================
+    
+    async def _run_vectorize_phase(
+        self,
+        client: Neo4jClient,
+        orchestrator: Any,
+        stats: AnalysisStats,
+    ) -> AsyncGenerator[bytes, None]:
+        """Phase 4: 테이블/컬럼 벡터라이징
+        
+        Neo4j에 저장된 테이블/컬럼의 description을 기반으로 임베딩 생성
+        """
+        from openai import AsyncOpenAI
+        
+        # OpenAI 클라이언트 초기화
+        api_key = orchestrator.api_key or settings.openai_api_key
+        if not api_key:
+            yield emit_message("   ⚠️ OpenAI API 키가 없어 벡터라이징을 건너뜁니다")
+            return
+        
+        openai_client = AsyncOpenAI(api_key=api_key)
+        embedding_client = EmbeddingClient(openai_client)
+        
+        user_id = escape_for_cypher(orchestrator.user_id)
+        
+        # 테이블 벡터라이징
+        yield emit_message("   📊 테이블 벡터라이징 중...")
+        
+        table_query = f"""
+        MATCH (t:Table)
+        WHERE t.user_id = '{user_id}'
+          AND (t.vector IS NULL OR size(t.vector) = 0)
+          AND (t.description IS NOT NULL OR t.analyzed_description IS NOT NULL)
+        RETURN elementId(t) AS tid, 
+               t.name AS name,
+               t.schema AS schema,
+               coalesce(t.description, t.analyzed_description, '') AS description
+        ORDER BY t.schema, t.name
+        """
+        
+        try:
+            async with self._cypher_lock:
+                result = await client.execute_queries([table_query])
+            
+            tables = result[0] if result and result[0] else []
+            
+            for item in tables:
+                description = item.get("description", "") or ""
+                if not description:
+                    continue
+                
+                text = embedding_client.format_table_text(
+                    table_name=item.get("name", ""),
+                    description=description
+                )
+                vector = await embedding_client.embed_text(text)
+                
+                if vector:
+                    set_query = f"""
+                    MATCH (t)
+                    WHERE elementId(t) = '{item['tid']}'
+                    SET t.vector = {vector}
+                    """
+                    async with self._cypher_lock:
+                        await client.execute_queries([set_query])
+                    stats.tables_vectorized += 1
+            
+            yield emit_message(f"   ✅ 테이블 {stats.tables_vectorized}개 벡터라이징 완료")
+            
+        except Exception as e:
+            yield emit_message(f"   ⚠️ 테이블 벡터라이징 실패: {str(e)[:100]}")
+        
+        # 컬럼 벡터라이징
+        yield emit_message("   📊 컬럼 벡터라이징 중...")
+        
+        column_query = f"""
+        MATCH (t:Table)-[:HAS_COLUMN]->(c:Column)
+        WHERE t.user_id = '{user_id}'
+          AND (c.vector IS NULL OR size(c.vector) = 0)
+          AND c.description IS NOT NULL AND c.description <> ''
+        RETURN elementId(c) AS cid,
+               c.name AS column_name,
+               t.name AS table_name,
+               coalesce(c.dtype, '') AS dtype,
+               c.description AS description
+        ORDER BY t.schema, t.name, c.name
+        """
+        
+        try:
+            async with self._cypher_lock:
+                result = await client.execute_queries([column_query])
+            
+            columns = result[0] if result and result[0] else []
+            
+            # 배치 처리
+            batch_size = 50
+            for i in range(0, len(columns), batch_size):
+                batch = columns[i:i + batch_size]
+                texts = []
+                
+                for item in batch:
+                    text = embedding_client.format_column_text(
+                        column_name=item.get("column_name", ""),
+                        table_name=item.get("table_name", ""),
+                        dtype=item.get("dtype", ""),
+                        description=item.get("description", "")
+                    )
+                    texts.append(text)
+                
+                vectors = await embedding_client.embed_batch(texts)
+                
+                for item, vector in zip(batch, vectors):
+                    if vector:
+                        set_query = f"""
+                        MATCH (c)
+                        WHERE elementId(c) = '{item['cid']}'
+                        SET c.vector = {vector}
+                        """
+                        async with self._cypher_lock:
+                            await client.execute_queries([set_query])
+                        stats.columns_vectorized += 1
+                
+                yield emit_message(f"   ... 컬럼 {min(i + batch_size, len(columns))}/{len(columns)} 처리 중")
+            
+            yield emit_message(f"   ✅ 컬럼 {stats.columns_vectorized}개 벡터라이징 완료")
+            
+        except Exception as e:
+            yield emit_message(f"   ⚠️ 컬럼 벡터라이징 실패: {str(e)[:100]}")

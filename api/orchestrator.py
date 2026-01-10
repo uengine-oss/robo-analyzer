@@ -268,17 +268,38 @@ class AnalysisOrchestrator:
     # 데이터 정리
     # -------------------------------------------------------------------------
 
-    async def cleanup_all_data(self) -> None:
-        """사용자 데이터 전체 삭제 (파일 + Neo4j)"""
+    async def cleanup_neo4j_data(self) -> None:
+        """Neo4j 그래프 데이터만 삭제 (파일 시스템 유지)"""
         client = Neo4jClient()
         
         try:
-            # 파일 시스템 정리
-            dir_path = os.path.join(settings.path.data_dir, self.user_id)
-            if os.path.exists(dir_path):
-                shutil.rmtree(dir_path)
-                os.makedirs(dir_path)
-                logging.info("디렉토리 초기화: %s", dir_path)
+            await client.execute_queries([
+                f"MATCH (n {{user_id: '{self.user_id}'}}) DETACH DELETE n"
+            ])
+            logging.info("Neo4j 데이터 삭제 완료 (파일 유지): %s", self.user_id)
+        
+        except Exception as e:
+            logging.error("Neo4j 데이터 삭제 오류: %s", e)
+            raise FileProcessError(f"Neo4j 데이터 삭제 오류: {e}", cause=e)
+        finally:
+            await client.close()
+
+    async def cleanup_all_data(self, include_files: bool = True) -> None:
+        """사용자 데이터 전체 삭제
+        
+        Args:
+            include_files: True면 파일 시스템도 함께 삭제, False면 Neo4j만 삭제
+        """
+        client = Neo4jClient()
+        
+        try:
+            # 파일 시스템 정리 (옵션)
+            if include_files:
+                dir_path = os.path.join(settings.path.data_dir, self.user_id)
+                if os.path.exists(dir_path):
+                    shutil.rmtree(dir_path)
+                    os.makedirs(dir_path)
+                    logging.info("디렉토리 초기화: %s", dir_path)
             
             # Neo4j 데이터 삭제
             await client.execute_queries([

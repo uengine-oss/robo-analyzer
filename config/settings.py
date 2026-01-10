@@ -58,6 +58,9 @@ class LLMConfig:
     reasoning_effort: str = field(default_factory=lambda: os.getenv("LLM_REASONING_EFFORT", "medium"))
     is_custom: bool = field(default_factory=lambda: os.getenv("IS_CUSTOM_LLM", "").lower() == "true")
     company_name: Optional[str] = field(default_factory=lambda: os.getenv("COMPANY_NAME"))
+    # LLM 캐싱 설정
+    cache_enabled: bool = field(default_factory=lambda: os.getenv("LLM_CACHE_ENABLED", "true").lower() == "true")
+    cache_db_path: str = field(default_factory=lambda: os.getenv("LLM_CACHE_DB", ".llm_cache.db"))
 
 
 @dataclass(frozen=True)

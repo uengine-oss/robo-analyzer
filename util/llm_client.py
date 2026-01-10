@@ -2,18 +2,55 @@
 
 OpenAI 호환 API 또는 커스텀 LLM 클라이언트를 생성합니다.
 
+LLM 캐싱:
+    LLM_CACHE_ENABLED=true 환경변수로 SQLite 기반 캐싱 활성화
+    동일한 프롬프트 호출 시 캐싱된 결과 반환 (테스트 시 유용)
+
 사용법:
     llm = get_llm(api_key="...")
     response = llm.invoke("안녕하세요")
 """
 
 import logging
+import os
 from typing import Optional
 
 from langchain_openai import ChatOpenAI
+from langchain_community.cache import SQLiteCache
+from langchain_core.globals import set_llm_cache
 
 from config.settings import settings
 from util.custom_llm_client import CustomLLMClient
+
+
+# LLM 캐싱 초기화 (한 번만 실행)
+_cache_initialized = False
+
+
+def _init_llm_cache():
+    """LLM 캐싱 초기화"""
+    global _cache_initialized
+    
+    if _cache_initialized:
+        return
+    
+    config = settings.llm
+    
+    if config.cache_enabled:
+        cache_path = config.cache_db_path
+        # 상대 경로면 프로젝트 루트 기준으로 변환
+        if not os.path.isabs(cache_path):
+            cache_path = os.path.join(settings.path.base_dir, cache_path)
+        
+        try:
+            set_llm_cache(SQLiteCache(database_path=cache_path))
+            logging.info("LLM 캐싱 활성화: %s", cache_path)
+        except Exception as e:
+            logging.warning("LLM 캐싱 초기화 실패: %s", e)
+    else:
+        logging.debug("LLM 캐싱 비활성화됨")
+    
+    _cache_initialized = True
 
 
 # 추론 모델 (thinking 기반)
@@ -50,6 +87,9 @@ def get_llm(
     Returns:
         ChatOpenAI 또는 CustomLLMClient 인스턴스
     """
+    # LLM 캐싱 초기화
+    _init_llm_cache()
+    
     config = settings.llm
     
     # 매개변수 기본값 설정

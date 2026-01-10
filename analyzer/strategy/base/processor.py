@@ -491,10 +491,9 @@ class BaseAstProcessor(ABC):
         failed_batch_count += fail_count
         all_failed_details.extend(failed_details)
         
-        # 단위별 summary 처리
-        if self._unit_info:
-            unit_queries = await self._process_unit_summaries(unit_summary_store)
-            all_queries.extend(unit_queries)
+        # 단위별 summary 처리 (프로시저/클래스가 없어도 테이블 설명 보강 등 후처리 수행)
+        unit_queries = await self._process_unit_summaries(unit_summary_store)
+        all_queries.extend(unit_queries)
         
         # 배치 실패 시 즉시 중단 - 부분 실패 허용 안함
         if failed_batch_count > 0:

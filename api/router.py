@@ -239,9 +239,183 @@ async def get_graph_data(request: Request):
         await client.close()
 
 
+@router.get("/graph/related-tables/{table_name}")
+async def get_related_tables(table_name: str, request: Request):
+    """특정 테이블과 연결된 모든 테이블 조회 (FK_TO_TABLE 관계 포함)
+    
+    Path Params:
+        table_name: 기준 테이블명
+    
+    Request Headers:
+        Session-UUID: 세션 UUID (필수)
+    
+    Response: JSON
+        tables: [{ name, schema, description }, ...]
+        relationships: [{ from_table, to_table, type, column_pairs: [{source, target}] }, ...]
+    """
+    user_id = extract_user_id(request)
+    logger.info("[API] 관련 테이블 조회 요청 | user=%s | table=%s", user_id, table_name)
+    
+    client = Neo4jClient()
+    try:
+        safe_table_name = table_name.replace("'", "\\'").replace('"', '\\"')
+        
+        # 1. FK_TO_TABLE 관계 조회 (sourceColumn, targetColumn, source 포함)
+        # 새 구조: 각 FK_TO_TABLE 관계마다 sourceColumn, targetColumn 속성 (단일 값)
+        fk_query = f"""
+            MATCH (t1:Table)-[r:FK_TO_TABLE]->(t2:Table)
+            WHERE t1.name = '{safe_table_name}' OR t2.name = '{safe_table_name}'
+               OR t1.fqn ENDS WITH '{safe_table_name}' OR t2.fqn ENDS WITH '{safe_table_name}'
+            RETURN t1.name AS from_table, 
+                   t1.schema_name AS from_schema,
+                   t1.description AS from_desc,
+                   t2.name AS to_table, 
+                   t2.schema_name AS to_schema,
+                   t2.description AS to_desc,
+                   r.sourceColumn AS source_column,
+                   r.targetColumn AS target_column,
+                   COALESCE(r.source, 'ddl') AS source,
+                   type(r) AS rel_type
+        """
+        
+        # 2. 같은 프로시저에서 참조되는 테이블 (CO_REFERENCED)
+        proc_query = f"""
+            MATCH (t:Table)
+            WHERE t.name = '{safe_table_name}' OR t.fqn ENDS WITH '{safe_table_name}'
+            
+            OPTIONAL MATCH (t)<-[:FROM|WRITES]-(s1)<-[:PARENT_OF*]-(proc)
+            OPTIONAL MATCH (proc)-[:PARENT_OF*]->(s2)-[:FROM|WRITES]->(t2:Table)
+            WHERE t2 <> t
+            
+            WITH t, COLLECT(DISTINCT {{
+                name: t2.name, 
+                schema: t2.schema_name, 
+                description: t2.description
+            }}) AS proc_related
+            
+            RETURN t.name AS base_table, 
+                   t.schema_name AS base_schema,
+                   proc_related
+        """
+        
+        fk_results = await client.execute_queries([fk_query])
+        proc_results = await client.execute_queries([proc_query])
+        
+        fk_result = fk_results[0] if fk_results else []
+        proc_result = proc_results[0] if proc_results else []
+        
+        tables = []
+        relationships = []
+        seen_tables = set()
+        seen_rels = set()
+        
+        # 기준 테이블 추가
+        seen_tables.add(table_name)
+        
+        # FK_TO_TABLE 관계 처리 (sourceColumn/targetColumn/source 정보 포함)
+        # 새 구조: 각 FK 관계마다 하나의 sourceColumn, targetColumn
+        # 같은 테이블 간에 여러 FK 관계가 있을 수 있으므로 column_pairs로 그룹화
+        fk_by_table_pair = {}  # (from_table, to_table) -> { source, column_pairs }
+        
+        for record in fk_result:
+            from_table = record.get("from_table")
+            to_table = record.get("to_table")
+            source_column = record.get("source_column") or ""
+            target_column = record.get("target_column") or ""
+            source_type = record.get("source") or "ddl"  # ddl, procedure, user
+            
+            # 테이블 추가
+            if from_table and from_table not in seen_tables:
+                seen_tables.add(from_table)
+                tables.append({
+                    "name": from_table,
+                    "schema": record.get("from_schema") or "public",
+                    "description": record.get("from_desc")
+                })
+            
+            if to_table and to_table not in seen_tables:
+                seen_tables.add(to_table)
+                tables.append({
+                    "name": to_table,
+                    "schema": record.get("to_schema") or "public",
+                    "description": record.get("to_desc")
+                })
+            
+            # 테이블 페어별로 column_pairs 그룹화
+            pair_key = (from_table, to_table)
+            if pair_key not in fk_by_table_pair:
+                fk_by_table_pair[pair_key] = {
+                    "source": source_type,
+                    "column_pairs": []
+                }
+            
+            # 컬럼 페어 추가 (비어있지 않은 경우만)
+            if source_column or target_column:
+                fk_by_table_pair[pair_key]["column_pairs"].append({
+                    "source": source_column,
+                    "target": target_column
+                })
+        
+        # 관계 리스트로 변환
+        for (from_table, to_table), data in fk_by_table_pair.items():
+            rel_key = f"{from_table}->{to_table}"
+            if rel_key not in seen_rels:
+                seen_rels.add(rel_key)
+                relationships.append({
+                    "from_table": from_table,
+                    "to_table": to_table,
+                    "type": "FK_TO_TABLE",
+                    "source": data["source"],  # ddl, procedure, user
+                    "column_pairs": data["column_pairs"]
+                })
+        
+        # CO_REFERENCED 관계 처리 (프로시저 분석에서 발견된 관계)
+        for record in proc_result:
+            base_table = record.get("base_table")
+            for item in record.get("proc_related", []):
+                if item.get("name") and item["name"] not in seen_tables:
+                    seen_tables.add(item["name"])
+                    tables.append({
+                        "name": item["name"],
+                        "schema": item.get("schema") or "public",
+                        "description": item.get("description")
+                    })
+                    
+                    rel_key = f"{base_table}->{item['name']}"
+                    if rel_key not in seen_rels:
+                        seen_rels.add(rel_key)
+                        relationships.append({
+                            "from_table": base_table,
+                            "to_table": item["name"],
+                            "type": "CO_REFERENCED",
+                            "source": "procedure",  # 프로시저 분석에서 발견
+                            "column_pairs": []
+                        })
+        
+        logger.info("[API] 관련 테이블 조회 완료 | table=%s | tables=%d | rels=%d", 
+                    table_name, len(tables), len(relationships))
+        
+        return {
+            "base_table": table_name,
+            "tables": tables,
+            "relationships": relationships
+        }
+    except Exception as e:
+        logger.error("[API] 관련 테이블 조회 실패 | table=%s | error=%s", table_name, e)
+        raise HTTPException(500, build_error_body(e))
+    finally:
+        await client.close()
+
+
 @router.delete("/delete/")
-async def delete_user_data(request: Request):
-    """사용자 데이터 전체 삭제 (임시 파일 + Neo4j 그래프)
+async def delete_user_data(request: Request, include_files: bool = False):
+    """사용자 데이터 삭제
+    
+    기본적으로 Neo4j 그래프 데이터만 삭제하고 파일은 유지합니다.
+    파일도 함께 삭제하려면 include_files=true 파라미터를 전달하세요.
+    
+    Query Params:
+        include_files: 파일 시스템도 삭제할지 여부 (기본값: false)
     
     Request Headers:
         Session-UUID: 세션 UUID (필수)
@@ -249,21 +423,27 @@ async def delete_user_data(request: Request):
     Response: JSON
     """
     user_id = extract_user_id(request)
-    logger.info("[API] 데이터 삭제 요청 | user=%s", user_id)
+    logger.info("[API] 데이터 삭제 요청 | user=%s | include_files=%s", user_id, include_files)
 
     try:
-        await AnalysisOrchestrator(
+        orchestrator = AnalysisOrchestrator(
             user_id=user_id,
             api_key="",
             locale="",
             project_name="",
-        ).cleanup_all_data()
-        logger.info("[API] 데이터 삭제 완료 | user=%s", user_id)
+        )
+        
+        if include_files:
+            await orchestrator.cleanup_all_data(include_files=True)
+            logger.info("[API] 전체 데이터 삭제 완료 (파일 포함) | user=%s", user_id)
+            return {"message": "모든 데이터(파일 + Neo4j)가 삭제되었습니다."}
+        else:
+            await orchestrator.cleanup_neo4j_data()
+            logger.info("[API] Neo4j 데이터만 삭제 완료 | user=%s", user_id)
+            return {"message": "Neo4j 그래프 데이터가 삭제되었습니다. (파일은 유지됨)"}
     except Exception as e:
         logger.error("[API] 데이터 삭제 실패 | user=%s | error=%s", user_id, e)
         raise HTTPException(500, build_error_body(e))
-
-    return {"message": "모든 데이터가 삭제되었습니다."}
 
 
 # =============================================================================
@@ -540,6 +720,158 @@ class AddRelationshipRequest(BaseModel):
     description: str = ""
 
 
+class SemanticSearchRequest(BaseModel):
+    """시멘틱 검색 요청"""
+    query: str
+    project_name: Optional[str] = None
+    limit: int = 10
+
+
+class SemanticSearchResult(BaseModel):
+    """시멘틱 검색 결과"""
+    name: str
+    schema: str
+    description: str
+    similarity: float  # 유사도 점수 (0~1)
+
+
+@router.post("/schema/semantic-search")
+async def semantic_search_tables(
+    request: Request,
+    body: SemanticSearchRequest
+):
+    """시멘틱 검색: 테이블 설명의 의미적 유사도 기반 검색
+    
+    OpenAI 임베딩을 사용하여 검색 쿼리와 테이블 설명 간의 유사도를 계산합니다.
+    
+    Request Headers:
+        Session-UUID: 세션 UUID (필수)
+        X-API-Key: OpenAI API 키 (선택, 없으면 환경변수 사용)
+    
+    Request Body:
+        query: 검색 쿼리
+        project_name: 프로젝트명 필터 (선택)
+        limit: 결과 제한 (기본 10)
+    
+    Response: JSON
+        [{ name, schema, description, similarity }, ...]
+    """
+    user_id = extract_user_id(request)
+    api_key = request.headers.get("X-API-Key") or getattr(settings, 'openai_api_key', None)
+    
+    if not api_key:
+        logger.warning("[API] 시멘틱 검색: API 키 없음")
+        raise HTTPException(400, {"error": "OpenAI API 키가 필요합니다. 설정에서 API 키를 입력해주세요."})
+    
+    logger.info("[API] 시멘틱 검색 요청 | user=%s | query=%s", user_id, body.query[:50])
+    
+    # numpy와 openai 동적 import (설치되지 않은 경우 에러 처리)
+    try:
+        import numpy as np
+        from openai import AsyncOpenAI
+    except ImportError as e:
+        logger.error("[API] 시멘틱 검색: 필수 라이브러리 미설치 - %s", e)
+        raise HTTPException(500, {"error": f"필수 라이브러리가 설치되지 않았습니다: {e}"})
+    
+    client = Neo4jClient()
+    
+    try:
+        openai_client = AsyncOpenAI(api_key=api_key)
+    except Exception as e:
+        logger.error("[API] OpenAI 클라이언트 초기화 실패: %s", e)
+        raise HTTPException(400, {"error": f"OpenAI API 키가 유효하지 않습니다: {e}"})
+    
+    try:
+        # 1. 테이블 목록 조회 (설명 포함)
+        where_conditions = [f"t.user_id = '{escape_for_cypher(user_id)}'"]
+        if body.project_name:
+            where_conditions.append(f"t.project_name = '{escape_for_cypher(body.project_name)}'")
+        
+        where_clause = " AND ".join(where_conditions)
+        
+        cypher_query = f"""
+            MATCH (t:Table)
+            WHERE {where_clause} AND t.description IS NOT NULL AND t.description <> ''
+            RETURN t.name AS name,
+                   t.schema AS schema,
+                   t.description AS description
+            ORDER BY t.name
+            LIMIT 200
+        """
+        
+        results = await client.execute_queries([cypher_query])
+        records = results[0] if results else []
+        
+        logger.info("[API] 시멘틱 검색: %d개 테이블 조회됨", len(records))
+        
+        if not records:
+            logger.info("[API] 시멘틱 검색: 설명이 있는 테이블이 없음")
+            return []
+        
+        # 2. 쿼리 임베딩 생성
+        try:
+            query_response = await openai_client.embeddings.create(
+                model="text-embedding-3-small",
+                input=body.query
+            )
+            query_embedding = np.array(query_response.data[0].embedding)
+        except Exception as e:
+            logger.error("[API] 쿼리 임베딩 생성 실패: %s", e)
+            raise HTTPException(500, {"error": f"임베딩 생성 실패: {e}"})
+        
+        # 3. 테이블 설명 임베딩 생성 (배치 처리)
+        descriptions = []
+        for r in records:
+            desc = r.get("description") or ""
+            descriptions.append(desc[:500] if desc else "no description")  # 500자 제한
+        
+        try:
+            desc_response = await openai_client.embeddings.create(
+                model="text-embedding-3-small",
+                input=descriptions
+            )
+        except Exception as e:
+            logger.error("[API] 설명 임베딩 생성 실패: %s", e)
+            raise HTTPException(500, {"error": f"설명 임베딩 생성 실패: {e}"})
+        
+        # 4. 유사도 계산 (코사인 유사도)
+        results_with_similarity = []
+        for i, record in enumerate(records):
+            desc_embedding = np.array(desc_response.data[i].embedding)
+            
+            # 코사인 유사도
+            norm_product = np.linalg.norm(query_embedding) * np.linalg.norm(desc_embedding)
+            if norm_product == 0:
+                similarity = 0.0
+            else:
+                similarity = float(np.dot(query_embedding, desc_embedding) / norm_product)
+            
+            results_with_similarity.append({
+                "name": record["name"],
+                "schema": record["schema"] or "public",
+                "description": record["description"][:200],  # 응답에서 200자로 제한
+                "similarity": round(similarity, 4)
+            })
+        
+        # 5. 유사도 높은 순 정렬 및 제한
+        results_with_similarity.sort(key=lambda x: x["similarity"], reverse=True)
+        top_results = results_with_similarity[:body.limit]
+        
+        # 유사도가 0.3 이상인 것만 반환
+        filtered_results = [r for r in top_results if r["similarity"] >= 0.3]
+        
+        logger.info("[API] 시멘틱 검색 완료 | query=%s | results=%d", 
+                    body.query[:30], len(filtered_results))
+        
+        return filtered_results
+    
+    except Exception as e:
+        logger.error("[API] 시멘틱 검색 실패 | user=%s | error=%s", user_id, e)
+        raise HTTPException(500, build_error_body(e))
+    finally:
+        await client.close()
+
+
 @router.get("/schema/tables", response_model=List[SchemaTableInfo])
 async def list_schema_tables(
     request: Request,
@@ -717,16 +1049,17 @@ async def list_schema_relationships(
         
         where_clause = " AND ".join(where_conditions)
         
+        # FK_TO_TABLE 중 source='user'인 것만 조회 (사용자 추가 관계)
         query = f"""
-            MATCH (t1:Table)-[r:FK_TO_TABLE|USER_RELATIONSHIP]->(t2:Table)
-            WHERE {where_clause}
+            MATCH (t1:Table)-[r:FK_TO_TABLE]->(t2:Table)
+            WHERE {where_clause} AND r.source = 'user'
             RETURN t1.name AS from_table,
                    t1.schema AS from_schema,
-                   r.from_column AS from_column,
+                   r.sourceColumn AS from_column,
                    t2.name AS to_table,
                    t2.schema AS to_schema,
-                   r.to_column AS to_column,
-                   type(r) AS relationship_type,
+                   r.targetColumn AS to_column,
+                   r.type AS relationship_type,
                    r.description AS description
             ORDER BY from_table, to_table
         """
@@ -741,8 +1074,8 @@ async def list_schema_relationships(
                 "from_column": r["from_column"] or "",
                 "to_table": r["to_table"],
                 "to_schema": r["to_schema"] or "",
-                "to_column": r["to_column"] or "id",
-                "relationship_type": r["relationship_type"],
+                "to_column": r["to_column"] or "",
+                "relationship_type": r["relationship_type"] or "many_to_one",
                 "description": r["description"] or ""
             }
             for r in records
@@ -779,15 +1112,16 @@ async def add_schema_relationship(
     
     client = Neo4jClient()
     try:
-        # 관계 생성 쿼리
+        # FK_TO_TABLE 관계 생성 (source: 'user' - 사용자 추가)
         query = f"""
             MATCH (t1:Table {{user_id: '{escape_for_cypher(user_id)}', name: '{escape_for_cypher(body.from_table)}'}})
             MATCH (t2:Table {{user_id: '{escape_for_cypher(user_id)}', name: '{escape_for_cypher(body.to_table)}'}})
-            MERGE (t1)-[r:USER_RELATIONSHIP {{
-                from_column: '{escape_for_cypher(body.from_column)}',
-                to_column: '{escape_for_cypher(body.to_column)}'
+            MERGE (t1)-[r:FK_TO_TABLE {{
+                sourceColumn: '{escape_for_cypher(body.from_column)}',
+                targetColumn: '{escape_for_cypher(body.to_column)}'
             }}]->(t2)
-            SET r.relationship_type = '{escape_for_cypher(body.relationship_type)}',
+            SET r.type = '{escape_for_cypher(body.relationship_type)}',
+                r.source = 'user',
                 r.description = '{escape_for_cypher(body.description)}',
                 r.created_at = datetime()
             RETURN count(r) AS count
@@ -829,9 +1163,10 @@ async def delete_schema_relationship(
     
     client = Neo4jClient()
     try:
+        # FK_TO_TABLE 중 source='user'인 관계만 삭제 (사용자 추가 관계)
         query = f"""
             MATCH (t1:Table {{user_id: '{escape_for_cypher(user_id)}', name: '{escape_for_cypher(from_table)}'}})-
-                  [r:USER_RELATIONSHIP {{from_column: '{escape_for_cypher(from_column)}', to_column: '{escape_for_cypher(to_column)}'}}]->
+                  [r:FK_TO_TABLE {{sourceColumn: '{escape_for_cypher(from_column)}', targetColumn: '{escape_for_cypher(to_column)}', source: 'user'}}]->
                   (t2:Table {{name: '{escape_for_cypher(to_table)}'}})
             DELETE r
             RETURN count(r) AS count
@@ -847,3 +1182,74 @@ async def delete_schema_relationship(
         raise HTTPException(500, build_error_body(e))
     finally:
         await client.close()
+
+
+# =============================================================================
+# 파이프라인 제어 API
+# =============================================================================
+
+from analyzer.pipeline_control import pipeline_controller, PipelineAction
+
+
+class PipelineControlRequest(BaseModel):
+    """파이프라인 제어 요청"""
+    action: str  # "pause" | "resume" | "stop"
+
+
+@router.get("/pipeline/status")
+async def get_pipeline_status(request: Request):
+    """파이프라인 상태 조회
+    
+    Request Headers:
+        Session-UUID: 세션 UUID (필수)
+    
+    Response: JSON
+        { sessionId, currentPhase, phaseName, isPaused, isStopped, phaseProgress, phases: [...] }
+    """
+    session_id = extract_user_id(request)
+    return pipeline_controller.get_status(session_id)
+
+
+@router.get("/pipeline/phases")
+async def get_pipeline_phases():
+    """파이프라인 단계 정보 조회
+    
+    Response: JSON
+        [{ phase, name, description, order, canPause }, ...]
+    """
+    return pipeline_controller.get_phases_info()
+
+
+@router.post("/pipeline/control")
+async def control_pipeline(request: Request, body: PipelineControlRequest):
+    """파이프라인 제어 (일시정지/재개/중단)
+    
+    Request Headers:
+        Session-UUID: 세션 UUID (필수)
+    
+    Request Body:
+        action: "pause" | "resume" | "stop"
+    
+    Response: JSON
+        { success, action, status: { ... } }
+    """
+    session_id = extract_user_id(request)
+    action = body.action.lower()
+    
+    logger.info("[API] 파이프라인 제어 | session=%s | action=%s", session_id, action)
+    
+    success = False
+    if action == "pause":
+        success = pipeline_controller.pause(session_id)
+    elif action == "resume":
+        success = pipeline_controller.resume(session_id)
+    elif action == "stop":
+        success = pipeline_controller.stop(session_id)
+    else:
+        raise HTTPException(400, f"알 수 없는 액션: {action}")
+    
+    return {
+        "success": success,
+        "action": action,
+        "status": pipeline_controller.get_status(session_id)
+    }
