@@ -95,6 +95,7 @@ async def create_orchestrator(
         project_name=project_name,
         strategy=(body.get("strategy") or "framework").strip().lower(),
         target=(body.get("target") or "java").strip().lower(),
+        name_case=(body.get("nameCase") or "original").strip().lower(),
     )
     await orchestrator.validate_api_key()
     return orchestrator
@@ -114,11 +115,12 @@ class AnalysisOrchestrator:
         project_name: 프로젝트명
         strategy: 분석 전략 (framework, dbms)
         target: 타겟 언어 (java, oracle 등)
+        name_case: 메타데이터 대소문자 변환 옵션 (original, uppercase, lowercase)
     """
 
     __slots__ = (
         "user_id", "api_key", "locale", "project_name", 
-        "strategy", "target", "project_name_cap", "_user_base", "dirs"
+        "strategy", "target", "name_case", "project_name_cap", "_user_base", "dirs"
     )
 
     def __init__(
@@ -129,6 +131,7 @@ class AnalysisOrchestrator:
         project_name: str,
         strategy: str = "framework",
         target: str = "java",
+        name_case: str = "original",
     ):
         self.user_id = user_id
         self.api_key = api_key
@@ -136,6 +139,7 @@ class AnalysisOrchestrator:
         self.project_name = project_name
         self.strategy = (strategy or "framework").lower()
         self.target = (target or "java").lower()
+        self.name_case = (name_case or "original").lower()  # original, uppercase, lowercase
         self.project_name_cap = project_name.capitalize() if project_name else ""
         
         # 디렉토리 경로 초기화

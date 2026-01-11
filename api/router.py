@@ -683,6 +683,8 @@ class SchemaTableInfo(BaseModel):
     name: str
     table_schema: str  # Renamed from 'schema' to avoid BaseModel attribute conflict
     description: str
+    description_source: Optional[str] = ""  # 설명 출처: ddl, procedure, user
+    analyzed_description: Optional[str] = ""  # 프로시저 분석에서 도출된 설명
     column_count: int
     project_name: Optional[str] = None
 
@@ -694,6 +696,8 @@ class SchemaColumnInfo(BaseModel):
     dtype: str
     nullable: bool
     description: str
+    description_source: Optional[str] = ""  # 설명 출처: ddl, procedure, user
+    analyzed_description: Optional[str] = ""  # 프로시저 분석에서 도출된 설명
 
 
 class SchemaRelationshipInfo(BaseModel):
@@ -925,6 +929,8 @@ async def list_schema_tables(
             RETURN t.name AS name,
                    t.schema AS schema,
                    t.description AS description,
+                   t.description_source AS description_source,
+                   t.analyzed_description AS analyzed_description,
                    col_count AS column_count,
                    t.project_name AS project_name
             ORDER BY t.name
@@ -939,6 +945,8 @@ async def list_schema_tables(
                 name=r["name"],
                 table_schema=r["schema"] or "",
                 description=r["description"] or "",
+                description_source=r["description_source"] or "",
+                analyzed_description=r["analyzed_description"] or "",
                 column_count=r["column_count"] or 0,
                 project_name=r["project_name"]
             )
@@ -999,7 +1007,9 @@ async def list_table_columns(
                    t.name AS table_name,
                    c.dtype AS dtype,
                    c.nullable AS nullable,
-                   c.description AS description
+                   c.description AS description,
+                   c.description_source AS description_source,
+                   c.analyzed_description AS analyzed_description
             ORDER BY c.name
         """
         
@@ -1012,7 +1022,9 @@ async def list_table_columns(
                 table_name=r["table_name"],
                 dtype=r["dtype"] or "unknown",
                 nullable=r.get("nullable", True),
-                description=r["description"] or ""
+                description=r["description"] or "",
+                description_source=r.get("description_source") or "",
+                analyzed_description=r.get("analyzed_description") or ""
             )
             for r in records
         ]
@@ -1086,6 +1098,183 @@ async def list_schema_relationships(
     
     except Exception as e:
         logger.error("[API] 관계 목록 조회 실패 | error=%s", e)
+        raise HTTPException(500, build_error_body(e))
+    finally:
+        await client.close()
+
+
+class ProcedureReferenceInfo(BaseModel):
+    """프로시저 참조 정보"""
+    procedure_name: str
+    procedure_type: str  # PROCEDURE, FUNCTION 등
+    start_line: int
+    access_type: str  # FROM (읽기), WRITES (쓰기)
+    statement_type: Optional[str] = None  # SELECT, INSERT, UPDATE 등
+    statement_line: Optional[int] = None
+    file_name: Optional[str] = None  # 파일명
+    file_directory: Optional[str] = None  # 파일 경로
+
+
+@router.get("/schema/tables/{table_name}/references")
+async def get_table_references(
+    request: Request,
+    table_name: str,
+    schema: str = "",
+    column_name: Optional[str] = None
+):
+    """테이블 또는 컬럼이 참조된 프로시저 목록 조회
+    
+    Path Params:
+        table_name: 테이블명
+        
+    Query Params:
+        schema: 스키마명 (선택)
+        column_name: 컬럼명 (선택 - 특정 컬럼 참조 조회 시)
+    
+    Response: JSON
+        { references: [{ procedure_name, procedure_type, start_line, access_type, statement_type, statement_line }, ...] }
+    """
+    user_id = extract_user_id(request)
+    logger.info("[API] 테이블 참조 조회 | table=%s | schema=%s | column=%s", table_name, schema, column_name)
+    
+    client = Neo4jClient()
+    try:
+        # 테이블 조건
+        table_conditions = [
+            f"t.user_id = '{escape_for_cypher(user_id)}'",
+            f"t.name = '{escape_for_cypher(table_name)}'"
+        ]
+        if schema:
+            table_conditions.append(f"t.schema = '{escape_for_cypher(schema)}'")
+        
+        table_where = " AND ".join(table_conditions)
+        
+        # Statement -> Table 관계 (FROM, WRITES)를 통해 프로시저 탐색
+        # Statement는 PROCEDURE 또는 FUNCTION의 하위 노드 (PARENT_OF 관계)
+        # FILE -> PROCEDURE 관계 (CONTAINS)를 통해 파일 정보도 함께 조회
+        query = f"""
+            MATCH (t:Table)
+            WHERE {table_where}
+            MATCH (s)-[rel:FROM|WRITES]->(t)
+            WHERE s.user_id = '{escape_for_cypher(user_id)}'
+            OPTIONAL MATCH (s)<-[:PARENT_OF*]-(proc)
+            WHERE proc:PROCEDURE OR proc:FUNCTION
+            OPTIONAL MATCH (file:FILE)-[:CONTAINS]->(proc)
+            RETURN DISTINCT 
+                COALESCE(proc.name, s.name) AS procedure_name,
+                COALESCE(labels(proc)[0], labels(s)[0]) AS procedure_type,
+                COALESCE(proc.startLine, s.startLine) AS start_line,
+                type(rel) AS access_type,
+                labels(s)[0] AS statement_type,
+                s.startLine AS statement_line,
+                file.file_name AS file_name,
+                file.directory AS file_directory
+            ORDER BY procedure_name, statement_line
+        """
+        
+        results = await client.execute_queries([query])
+        records = results[0] if results else []
+        
+        references = [
+            ProcedureReferenceInfo(
+                procedure_name=r["procedure_name"] or "",
+                procedure_type=r["procedure_type"] or "",
+                start_line=r["start_line"] or 0,
+                access_type=r["access_type"] or "",
+                statement_type=r["statement_type"],
+                statement_line=r["statement_line"],
+                file_name=r.get("file_name"),
+                file_directory=r.get("file_directory")
+            )
+            for r in records
+        ]
+        
+        logger.info("[API] 테이블 참조 조회 완료 | table=%s | count=%d", table_name, len(references))
+        return {"references": references}
+    
+    except Exception as e:
+        logger.error("[API] 테이블 참조 조회 실패 | error=%s", e)
+        raise HTTPException(500, build_error_body(e))
+    finally:
+        await client.close()
+
+
+class StatementSummaryInfo(BaseModel):
+    """Statement 요약 정보"""
+    start_line: int
+    end_line: Optional[int] = None
+    statement_type: str
+    summary: Optional[str] = None
+    ai_description: Optional[str] = None
+
+
+@router.get("/schema/procedures/{procedure_name}/statements")
+async def get_procedure_statements(
+    request: Request,
+    procedure_name: str,
+    file_directory: Optional[str] = None
+):
+    """프로시저의 모든 Statement와 AI 설명 조회
+    
+    Path Params:
+        procedure_name: 프로시저명
+        
+    Query Params:
+        file_directory: 파일 경로 (선택)
+    
+    Response: JSON
+        { statements: [{ start_line, end_line, statement_type, summary, ai_description }, ...] }
+    """
+    user_id = extract_user_id(request)
+    logger.info("[API] 프로시저 Statement 조회 | proc=%s | file=%s", procedure_name, file_directory)
+    
+    client = Neo4jClient()
+    try:
+        # 프로시저 조건
+        proc_conditions = [
+            f"proc.user_id = '{escape_for_cypher(user_id)}'",
+            f"proc.name = '{escape_for_cypher(procedure_name)}'"
+        ]
+        if file_directory:
+            proc_conditions.append(f"proc.directory = '{escape_for_cypher(file_directory)}'")
+        
+        proc_where = " AND ".join(proc_conditions)
+        
+        # 프로시저의 모든 하위 노드(Statement)와 그 summary 조회
+        query = f"""
+            MATCH (proc)
+            WHERE (proc:PROCEDURE OR proc:FUNCTION) AND {proc_where}
+            OPTIONAL MATCH (proc)-[:PARENT_OF*]->(s)
+            WHERE s.user_id = '{escape_for_cypher(user_id)}'
+            RETURN DISTINCT
+                s.startLine AS start_line,
+                s.endLine AS end_line,
+                labels(s)[0] AS statement_type,
+                s.summary AS summary,
+                s.ai_description AS ai_description
+            ORDER BY s.startLine
+        """
+        
+        results = await client.execute_queries([query])
+        records = results[0] if results else []
+        
+        statements = [
+            StatementSummaryInfo(
+                start_line=r["start_line"] or 0,
+                end_line=r.get("end_line"),
+                statement_type=r["statement_type"] or "",
+                summary=r.get("summary"),
+                ai_description=r.get("ai_description")
+            )
+            for r in records
+            if r["start_line"]  # start_line이 있는 것만
+        ]
+        
+        logger.info("[API] 프로시저 Statement 조회 완료 | proc=%s | count=%d", procedure_name, len(statements))
+        return {"statements": statements}
+    
+    except Exception as e:
+        logger.error("[API] 프로시저 Statement 조회 실패 | error=%s", e)
         raise HTTPException(500, build_error_body(e))
     finally:
         await client.close()
@@ -1253,3 +1442,357 @@ async def control_pipeline(request: Request, body: PipelineControlRequest):
         "action": action,
         "status": pipeline_controller.get_status(session_id)
     }
+
+
+# =============================================================================
+# Schema Edit API - 테이블/컬럼 설명 편집 및 벡터라이징
+# =============================================================================
+
+class TableDescriptionUpdateRequest(BaseModel):
+    """테이블 설명 업데이트 요청"""
+    name: str
+    schema: str = "public"
+    description: Optional[str] = None
+
+
+class ColumnDescriptionUpdateRequest(BaseModel):
+    """컬럼 설명 업데이트 요청"""
+    table_name: str
+    table_schema: str = "public"
+    column_name: str
+    description: Optional[str] = None
+
+
+class VectorizeRequest(BaseModel):
+    """벡터라이징 요청"""
+    db_name: Optional[str] = "postgres"
+    schema: Optional[str] = None
+    include_tables: bool = True
+    include_columns: bool = True
+    reembed_existing: bool = False
+    batch_size: int = 100
+
+
+@router.put("/schema/tables/{table_name}/description")
+async def update_table_description(
+    table_name: str,
+    request: Request,
+    body: TableDescriptionUpdateRequest
+):
+    """테이블 설명 업데이트 및 임베딩 재생성
+    
+    Request Body:
+        name, schema, description
+    
+    Response:
+        { message, data: { name, description }, embedding_updated: bool }
+    """
+    from openai import AsyncOpenAI
+    from util.embedding_client import EmbeddingClient
+    
+    user_id = extract_user_id(request)
+    api_key = request.headers.get("X-API-Key") or settings.llm.api_key
+    
+    logger.info("[API] 테이블 설명 업데이트 | user=%s | table=%s.%s", user_id, body.schema, table_name)
+    
+    client = Neo4jClient()
+    try:
+        # 1. 테이블 정보 조회 (컬럼 목록 포함)
+        info_query = f"""
+            MATCH (t:Table {{user_id: '{escape_for_cypher(user_id)}', name: '{escape_for_cypher(table_name)}', schema: '{escape_for_cypher(body.schema)}'}})
+            OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column)
+            RETURN t.name AS name, t.schema AS schema, collect(c.name) AS columns
+        """
+        
+        results = await client.execute_queries([info_query])
+        records = results[0] if results else []
+        
+        if not records:
+            raise HTTPException(404, "테이블을 찾을 수 없습니다")
+        
+        table_info = records[0]
+        columns = table_info.get("columns", [])
+        
+        # 2. 임베딩 생성 (설명 + 컬럼 목록 포함)
+        embedding = None
+        if api_key and body.description:
+            try:
+                openai_client = AsyncOpenAI(api_key=api_key)
+                embedding_client = EmbeddingClient(openai_client)
+                embed_text = embedding_client.format_table_text(
+                    table_name=table_name,
+                    description=body.description or "",
+                    columns=columns
+                )
+                embedding = await embedding_client.embed_text(embed_text)
+                logger.info("[API] 테이블 '%s' 임베딩 재생성 완료 (dim=%d)", table_name, len(embedding))
+            except Exception as e:
+                logger.warning("[API] 테이블 '%s' 임베딩 생성 실패: %s", table_name, e)
+        
+        # 3. 설명 및 벡터 업데이트
+        escaped_desc = escape_for_cypher(body.description or "")
+        if embedding:
+            update_query = f"""
+                MATCH (t:Table {{user_id: '{escape_for_cypher(user_id)}', name: '{escape_for_cypher(table_name)}', schema: '{escape_for_cypher(body.schema)}'}})
+                SET t.description = '{escaped_desc}', t.description_source = 'user', t.vector = {embedding}, t.updated_at = datetime()
+                RETURN t.name AS name, t.description AS description, t.description_source AS description_source
+            """
+        else:
+            update_query = f"""
+                MATCH (t:Table {{user_id: '{escape_for_cypher(user_id)}', name: '{escape_for_cypher(table_name)}', schema: '{escape_for_cypher(body.schema)}'}})
+                SET t.description = '{escaped_desc}', t.description_source = 'user'
+                RETURN t.name AS name, t.description AS description, t.description_source AS description_source
+            """
+        
+        results = await client.execute_queries([update_query])
+        records = results[0] if results else []
+        
+        if not records:
+            raise HTTPException(404, "테이블을 찾을 수 없습니다")
+        
+        return {
+            "message": "테이블 설명 업데이트 완료" + (" (임베딩 포함)" if embedding else ""),
+            "data": records[0],
+            "embedding_updated": embedding is not None
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("[API] 테이블 설명 업데이트 실패: %s", e)
+        raise HTTPException(500, build_error_body(e))
+    finally:
+        await client.close()
+
+
+@router.put("/schema/tables/{table_name}/columns/{column_name}/description")
+async def update_column_description(
+    table_name: str,
+    column_name: str,
+    request: Request,
+    body: ColumnDescriptionUpdateRequest
+):
+    """컬럼 설명 업데이트 및 임베딩 재생성
+    
+    Request Body:
+        table_name, table_schema, column_name, description
+    
+    Response:
+        { message, data: { name, description }, embedding_updated: bool }
+    """
+    from openai import AsyncOpenAI
+    from util.embedding_client import EmbeddingClient
+    
+    user_id = extract_user_id(request)
+    api_key = request.headers.get("X-API-Key") or settings.llm.api_key
+    
+    logger.info("[API] 컬럼 설명 업데이트 | user=%s | column=%s.%s.%s", user_id, body.table_schema, table_name, column_name)
+    
+    client = Neo4jClient()
+    try:
+        # 1. 컬럼 정보 조회
+        info_query = f"""
+            MATCH (t:Table {{user_id: '{escape_for_cypher(user_id)}', name: '{escape_for_cypher(table_name)}', schema: '{escape_for_cypher(body.table_schema)}'}})-[:HAS_COLUMN]->(c:Column {{name: '{escape_for_cypher(column_name)}'}})
+            RETURN c.name AS name, c.dtype AS dtype
+        """
+        
+        results = await client.execute_queries([info_query])
+        records = results[0] if results else []
+        
+        if not records:
+            raise HTTPException(404, "컬럼을 찾을 수 없습니다")
+        
+        col_info = records[0]
+        dtype = col_info.get("dtype", "unknown")
+        
+        # 2. 임베딩 생성
+        embedding = None
+        if api_key and body.description:
+            try:
+                openai_client = AsyncOpenAI(api_key=api_key)
+                embedding_client = EmbeddingClient(openai_client)
+                embed_text = embedding_client.format_column_text(
+                    column_name=column_name,
+                    table_name=table_name,
+                    dtype=dtype or "",
+                    description=body.description or ""
+                )
+                embedding = await embedding_client.embed_text(embed_text)
+                logger.info("[API] 컬럼 '%s.%s' 임베딩 재생성 완료 (dim=%d)", table_name, column_name, len(embedding))
+            except Exception as e:
+                logger.warning("[API] 컬럼 '%s.%s' 임베딩 생성 실패: %s", table_name, column_name, e)
+        
+        # 3. 설명 및 벡터 업데이트
+        escaped_desc = escape_for_cypher(body.description or "")
+        if embedding:
+            update_query = f"""
+                MATCH (t:Table {{user_id: '{escape_for_cypher(user_id)}', name: '{escape_for_cypher(table_name)}', schema: '{escape_for_cypher(body.table_schema)}'}})-[:HAS_COLUMN]->(c:Column {{name: '{escape_for_cypher(column_name)}'}})
+                SET c.description = '{escaped_desc}', c.description_source = 'user', c.vector = {embedding}, c.updated_at = datetime()
+                RETURN c.name AS name, c.description AS description, c.description_source AS description_source
+            """
+        else:
+            update_query = f"""
+                MATCH (t:Table {{user_id: '{escape_for_cypher(user_id)}', name: '{escape_for_cypher(table_name)}', schema: '{escape_for_cypher(body.table_schema)}'}})-[:HAS_COLUMN]->(c:Column {{name: '{escape_for_cypher(column_name)}'}})
+                SET c.description = '{escaped_desc}', c.description_source = 'user'
+                RETURN c.name AS name, c.description AS description, c.description_source AS description_source
+            """
+        
+        results = await client.execute_queries([update_query])
+        records = results[0] if results else []
+        
+        if not records:
+            raise HTTPException(404, "컬럼을 찾을 수 없습니다")
+        
+        return {
+            "message": "컬럼 설명 업데이트 완료" + (" (임베딩 포함)" if embedding else ""),
+            "data": records[0],
+            "embedding_updated": embedding is not None
+        }
+    
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("[API] 컬럼 설명 업데이트 실패: %s", e)
+        raise HTTPException(500, build_error_body(e))
+    finally:
+        await client.close()
+
+
+@router.post("/schema/vectorize")
+async def vectorize_schema(
+    request: Request,
+    body: VectorizeRequest
+):
+    """테이블/컬럼 벡터라이징 (임베딩 생성)
+    
+    기존 Neo4j 그래프의 테이블/컬럼 description을 기반으로 임베딩 생성
+    
+    Request Body:
+        db_name, schema, include_tables, include_columns, reembed_existing, batch_size
+    
+    Response:
+        { message, status, tables_vectorized, columns_vectorized }
+    """
+    from openai import AsyncOpenAI
+    from util.embedding_client import EmbeddingClient
+    
+    user_id = extract_user_id(request)
+    api_key = request.headers.get("X-API-Key") or settings.llm.api_key
+    
+    if not api_key:
+        raise HTTPException(400, "OpenAI API 키가 필요합니다")
+    
+    logger.info("[API] 벡터라이징 시작 | user=%s | schema=%s", user_id, body.schema)
+    
+    openai_client = AsyncOpenAI(api_key=api_key)
+    embedding_client = EmbeddingClient(openai_client)
+    client = Neo4jClient()
+    
+    total_tables = 0
+    total_columns = 0
+    
+    try:
+        # 테이블 벡터라이징
+        if body.include_tables:
+            where_parts = [f"t.user_id = '{escape_for_cypher(user_id)}'"]
+            if body.schema:
+                where_parts.append(f"toLower(t.schema) = toLower('{escape_for_cypher(body.schema)}')")
+            if not body.reembed_existing:
+                where_parts.append("(t.vector IS NULL OR size(t.vector) = 0)")
+            where_parts.append("(t.description IS NOT NULL OR t.analyzed_description IS NOT NULL)")
+            
+            where_clause = " AND ".join(where_parts)
+            
+            table_query = f"""
+                MATCH (t:Table)
+                WHERE {where_clause}
+                RETURN elementId(t) AS tid, t.name AS name, t.schema AS schema,
+                       coalesce(t.description, t.analyzed_description, '') AS description
+                ORDER BY t.schema, t.name
+            """
+            
+            results = await client.execute_queries([table_query])
+            tables = results[0] if results else []
+            
+            for item in tables:
+                description = item.get("description", "") or ""
+                if not description:
+                    continue
+                
+                text = embedding_client.format_table_text(
+                    table_name=item.get("name", ""),
+                    description=description
+                )
+                vector = await embedding_client.embed_text(text)
+                
+                if vector:
+                    set_query = f"""
+                        MATCH (t)
+                        WHERE elementId(t) = '{item['tid']}'
+                        SET t.vector = {vector}, t.updated_at = datetime()
+                    """
+                    await client.execute_queries([set_query])
+                    total_tables += 1
+        
+        # 컬럼 벡터라이징
+        if body.include_columns:
+            where_parts = [f"t.user_id = '{escape_for_cypher(user_id)}'"]
+            if body.schema:
+                where_parts.append(f"toLower(t.schema) = toLower('{escape_for_cypher(body.schema)}')")
+            if not body.reembed_existing:
+                where_parts.append("(c.vector IS NULL OR size(c.vector) = 0)")
+            where_parts.append("c.description IS NOT NULL AND c.description <> ''")
+            
+            where_clause = " AND ".join(where_parts)
+            
+            column_query = f"""
+                MATCH (t:Table)-[:HAS_COLUMN]->(c:Column)
+                WHERE {where_clause}
+                RETURN elementId(c) AS cid, c.name AS column_name, t.name AS table_name,
+                       coalesce(c.dtype, '') AS dtype, c.description AS description
+                ORDER BY t.schema, t.name, c.name
+            """
+            
+            results = await client.execute_queries([column_query])
+            columns = results[0] if results else []
+            
+            batch_size = max(1, body.batch_size)
+            for i in range(0, len(columns), batch_size):
+                batch = columns[i:i + batch_size]
+                texts = []
+                
+                for item in batch:
+                    text = embedding_client.format_column_text(
+                        column_name=item.get("column_name", ""),
+                        table_name=item.get("table_name", ""),
+                        dtype=item.get("dtype", ""),
+                        description=item.get("description", "")
+                    )
+                    texts.append(text)
+                
+                vectors = await embedding_client.embed_batch(texts)
+                
+                for item, vector in zip(batch, vectors):
+                    if vector:
+                        set_query = f"""
+                            MATCH (c)
+                            WHERE elementId(c) = '{item['cid']}'
+                            SET c.vector = {vector}, c.updated_at = datetime()
+                        """
+                        await client.execute_queries([set_query])
+                        total_columns += 1
+        
+        logger.info("[API] 벡터라이징 완료 | tables=%d | columns=%d", total_tables, total_columns)
+        
+        return {
+            "message": "벡터라이징 완료",
+            "status": "success",
+            "tables_vectorized": total_tables,
+            "columns_vectorized": total_columns
+        }
+    
+    except Exception as e:
+        logger.error("[API] 벡터라이징 실패: %s", e)
+        raise HTTPException(500, build_error_body(e))
+    finally:
+        await client.close()

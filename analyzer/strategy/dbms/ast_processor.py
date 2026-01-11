@@ -360,6 +360,7 @@ class DbmsAstProcessor(BaseAstProcessor):
         last_line: int,
         default_schema: str = "public",
         ddl_table_metadata: Optional[Dict[Tuple[str, str], Dict[str, Any]]] = None,
+        name_case: str = "original",
     ):
         """DBMS Analyzer 초기화"""
         super().__init__(
@@ -377,11 +378,29 @@ class DbmsAstProcessor(BaseAstProcessor):
         self.dbms = (dbms or 'postgres').lower()
         self.default_schema = default_schema
         self._ddl_table_metadata = ddl_table_metadata or {}
+        self.name_case = (name_case or 'original').lower()  # original, uppercase, lowercase
         
         self.table_base_props = f"user_id: '{user_id}'"
         
         # 테이블/컬럼 설명 요약용 저장소 (DML 분석에서 수집)
         self._table_summary_store: Dict[Tuple[str, str], Dict[str, Any]] = {}
+
+    def _apply_name_case(self, name: str) -> str:
+        """메타데이터 대소문자 변환 적용
+        
+        Args:
+            name: 변환할 이름 (테이블명, 컬럼명, 스키마명 등)
+        
+        Returns:
+            변환된 이름
+        """
+        if not name:
+            return name
+        if self.name_case == "uppercase":
+            return name.upper()
+        elif self.name_case == "lowercase":
+            return name.lower()
+        return name  # original: 그대로 반환
 
     # =========================================================================
     # BaseAstProcessor 추상 메서드 구현
@@ -855,7 +874,10 @@ class DbmsAstProcessor(BaseAstProcessor):
                     table_name = (entry.get('table') or '').strip()
                     if not table_name:
                         continue
-                    schema_part, name_part, _ = parse_table_identifier(table_name)
+                    schema_part_raw, name_part_raw, _ = parse_table_identifier(table_name)
+                    # 대소문자 변환 적용
+                    schema_part = self._apply_name_case(schema_part_raw)
+                    name_part = self._apply_name_case(name_part_raw)
                     queries.append(
                         f"{node_merge}\n"
                         f"SET n:Table, n.name = '{escape_for_cypher(name_part)}', "
@@ -870,7 +892,10 @@ class DbmsAstProcessor(BaseAstProcessor):
                 if not table_name:
                     continue
                 
-                schema_part, name_part, db_link_value = parse_table_identifier(table_name)
+                schema_part_raw, name_part_raw, db_link_value = parse_table_identifier(table_name)
+                # 대소문자 변환 적용 (_build_table_merge 내부에서도 적용되지만 bucket_key 등에도 필요)
+                schema_part = self._apply_name_case(schema_part_raw)
+                name_part = self._apply_name_case(name_part_raw)
                 
                 access_mode = (entry.get('accessMode') or entry.get('mode') or 'r').lower()
                 rel_types = []
@@ -899,9 +924,12 @@ class DbmsAstProcessor(BaseAstProcessor):
                 table_merge_for_column = self._build_table_merge(name_part, schema_part, preserve_vars=None)
                 
                 for column in entry.get('columns', []) or []:
-                    column_name = (column.get('name') or '').strip()
-                    if not column_name:
+                    column_name_raw = (column.get('name') or '').strip()
+                    if not column_name_raw:
                         continue
+                    
+                    # 대소문자 변환 적용
+                    column_name = self._apply_name_case(column_name_raw)
                     
                     raw_dtype = column.get('dtype') or ''
                     raw_column_desc = (column.get('description') or column.get('comment') or '').strip()
@@ -920,13 +948,17 @@ class DbmsAstProcessor(BaseAstProcessor):
                     nullable = 'true' if column.get('nullable', True) else 'false'
                     escaped_col_name = escape_for_cypher(column_name)
                     
+                    # 대소문자 변환이 이미 _build_table_merge에서 적용됨
+                    converted_name_part = self._apply_name_case(name_part)
+                    converted_schema_part = self._apply_name_case(schema_part) if schema_part else None
+                    
                     # 컬럼명에 특수문자가 있을 수 있으므로 모두 이스케이프
-                    escaped_name_part = escape_for_cypher(name_part)
+                    escaped_name_part = escape_for_cypher(converted_name_part)
                     escaped_column_name_for_fqn = escape_for_cypher(column_name)
                     
-                    if schema_part:
-                        escaped_schema_part = escape_for_cypher(schema_part)
-                        fqn = escape_for_cypher('.'.join(filter(None, [schema_part, name_part, column_name])).lower())
+                    if converted_schema_part:
+                        escaped_schema_part = escape_for_cypher(converted_schema_part)
+                        fqn = escape_for_cypher('.'.join(filter(None, [converted_schema_part, converted_name_part, column_name])).lower())
                         # Column MERGE: user_id, fqn만 사용 (project_name 제외 - fqn이 고유함)
                         queries.append(
                             f"{table_merge_for_column}\nWITH t\n"
@@ -939,7 +971,7 @@ class DbmsAstProcessor(BaseAstProcessor):
                     else:
                         # schema가 없는 경우 동적 fqn 계산 대신 정적 fqn 사용
                         # (CASE WHEN 구문은 컬럼명 특수문자로 인해 구문 오류 발생 가능)
-                        fqn = escape_for_cypher('.'.join(filter(None, [name_part, column_name])).lower())
+                        fqn = escape_for_cypher('.'.join(filter(None, [converted_name_part, column_name])).lower())
                         # Column MERGE: user_id, fqn만 사용 (project_name 제외)
                         queries.append(
                             f"{table_merge_for_column}\nWITH t\n"
@@ -956,7 +988,10 @@ class DbmsAstProcessor(BaseAstProcessor):
                 if not link_name_raw:
                     continue
                 mode = escape_for_cypher((link_item.get('mode') or 'r').lower())
-                schema_link, name_link, link_name = parse_table_identifier(link_name_raw)
+                schema_link_raw, name_link_raw, link_name = parse_table_identifier(link_name_raw)
+                # 대소문자 변환 적용
+                schema_link = self._apply_name_case(schema_link_raw)
+                name_link = self._apply_name_case(name_link_raw)
                 escaped_link_name = escape_for_cypher(link_name)
                 remote_merge = self._build_table_merge(name_link, schema_link)
                 queries.append(
@@ -979,12 +1014,18 @@ class DbmsAstProcessor(BaseAstProcessor):
                 if not (src_table and tgt_table and src_columns and tgt_columns):
                     continue
                 
-                src_schema, src_name, _ = parse_table_identifier(src_table)
-                tgt_schema, tgt_name, _ = parse_table_identifier(tgt_table)
+                src_schema_raw, src_name_raw, _ = parse_table_identifier(src_table)
+                tgt_schema_raw, tgt_name_raw, _ = parse_table_identifier(tgt_table)
+                
+                # 대소문자 변환 적용
+                src_schema = self._apply_name_case(src_schema_raw)
+                src_name = self._apply_name_case(src_name_raw)
+                tgt_schema = self._apply_name_case(tgt_schema_raw)
+                tgt_name = self._apply_name_case(tgt_name_raw)
                 
                 # schema가 없으면 default_schema 사용 (테이블 생성과 일관성 유지)
-                effective_src_schema = src_schema if src_schema else self.default_schema
-                effective_tgt_schema = tgt_schema if tgt_schema else self.default_schema
+                effective_src_schema = src_schema if src_schema else self._apply_name_case(self.default_schema)
+                effective_tgt_schema = tgt_schema if tgt_schema else self._apply_name_case(self.default_schema)
                 
                 src_props = f"user_id: '{self.user_id}', schema: '{escape_for_cypher(effective_src_schema)}', name: '{escape_for_cypher(src_name)}', db: '{self.dbms}', project_name: '{self.project_name}'"
                 tgt_props = f"user_id: '{self.user_id}', schema: '{escape_for_cypher(effective_tgt_schema)}', name: '{escape_for_cypher(tgt_name)}', db: '{self.dbms}', project_name: '{self.project_name}'"
@@ -993,8 +1034,9 @@ class DbmsAstProcessor(BaseAstProcessor):
                 # 속성: sourceColumn, targetColumn, type, source
                 # source='procedure': 스토어드 프로시저 분석에서 추출 (점선 표시)
                 for src_col, tgt_col in zip(src_columns, tgt_columns):
-                    escaped_src_col = escape_for_cypher(src_col)
-                    escaped_tgt_col = escape_for_cypher(tgt_col)
+                    # 컬럼명에도 대소문자 변환 적용
+                    escaped_src_col = escape_for_cypher(self._apply_name_case(src_col))
+                    escaped_tgt_col = escape_for_cypher(self._apply_name_case(tgt_col))
                     
                     queries.append(
                         f"MATCH (st:Table {{{src_props}}})\n"
@@ -1006,9 +1048,12 @@ class DbmsAstProcessor(BaseAstProcessor):
                 
                 # Column 간 FK_TO 관계도 생성
                 for src_col, tgt_col in zip(src_columns, tgt_columns):
+                    # 컬럼명에도 대소문자 변환 적용
+                    converted_src_col = self._apply_name_case(src_col)
+                    converted_tgt_col = self._apply_name_case(tgt_col)
                     # fqn 생성 시에도 effective_schema 사용 (테이블 생성과 일관성 유지)
-                    src_fqn = escape_for_cypher('.'.join(filter(None, [effective_src_schema, src_name, src_col])).lower())
-                    tgt_fqn = escape_for_cypher('.'.join(filter(None, [effective_tgt_schema, tgt_name, tgt_col])).lower())
+                    src_fqn = escape_for_cypher('.'.join(filter(None, [effective_src_schema, src_name, converted_src_col])).lower())
+                    tgt_fqn = escape_for_cypher('.'.join(filter(None, [effective_tgt_schema, tgt_name, converted_tgt_col])).lower())
                     queries.append(
                         f"MATCH (sc:Column {{user_id: '{self.user_id}', fqn: '{src_fqn}', project_name: '{self.project_name}'}})\n"
                         f"MATCH (dc:Column {{user_id: '{self.user_id}', fqn: '{tgt_fqn}', project_name: '{self.project_name}'}})\n"
@@ -1032,8 +1077,11 @@ class DbmsAstProcessor(BaseAstProcessor):
         """
         # schema가 없으면 default_schema 사용, default_schema도 없으면 'public'
         effective_schema = schema if schema else (self.default_schema if self.default_schema else 'public')
+        # 대소문자 변환 적용
+        effective_schema = self._apply_name_case(effective_schema)
+        converted_table_name = self._apply_name_case(table_name)
         schema_value = escape_for_cypher(effective_schema)
-        escaped_name = escape_for_cypher(table_name)
+        escaped_name = escape_for_cypher(converted_table_name)
         
         # WITH 절 구성: preserve_vars가 있으면 해당 변수들도 함께 유지
         if preserve_vars:
@@ -1202,13 +1250,14 @@ class DbmsAstProcessor(BaseAstProcessor):
         if llm_table_desc:
             escaped_llm_table_desc = escape_for_cypher(llm_table_desc)
             # 프로시저 분석 결과는 analyzed_description에 항상 저장
-            # 기존 description이 비어있을 때만 description에도 저장
+            # 기존 description이 비어있을 때만 description에도 저장 + description_source='procedure' 설정
+            # description_source는 description이 비어있을 때만 'procedure'로 설정
             queries.append(
                 f"MATCH (t:Table {{{table_props}}})\n"
                 f"SET t.analyzed_description = '{escaped_llm_table_desc}'\n"
                 f"WITH t\n"
                 f"WHERE t.description IS NULL OR t.description = ''\n"
-                f"SET t.description = '{escaped_llm_table_desc}'\n"
+                f"SET t.description = '{escaped_llm_table_desc}', t.description_source = 'procedure'\n"
                 f"RETURN t"
             )
         
@@ -1228,13 +1277,13 @@ class DbmsAstProcessor(BaseAstProcessor):
             )
             escaped_llm_column_desc = escape_for_cypher(llm_column_desc)
             # 프로시저 분석 결과는 analyzed_description에 항상 저장
-            # 기존 description이 비어있을 때만 description에도 저장
+            # 기존 description이 비어있을 때만 description에도 저장 + description_source='procedure' 설정
             queries.append(
                 f"MATCH (c:Column {{{column_props}}})\n"
                 f"SET c.analyzed_description = '{escaped_llm_column_desc}'\n"
                 f"WITH c\n"
                 f"WHERE c.description IS NULL OR c.description = ''\n"
-                f"SET c.description = '{escaped_llm_column_desc}'\n"
+                f"SET c.description = '{escaped_llm_column_desc}', c.description_source = 'procedure'\n"
                 f"RETURN c"
             )
         

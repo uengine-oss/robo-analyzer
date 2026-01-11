@@ -391,6 +391,24 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
             log_process("ANALYZE", "DDL", f"DDL 디렉토리 읽기 실패: {ddl_dir} - {e}")
             return []
 
+    def _apply_name_case(self, name: str, name_case: str) -> str:
+        """메타데이터 대소문자 변환 적용
+        
+        Args:
+            name: 변환할 이름 (테이블명, 컬럼명, 스키마명 등)
+            name_case: 변환 옵션 (original, uppercase, lowercase)
+        
+        Returns:
+            변환된 이름
+        """
+        if not name:
+            return name
+        if name_case == "uppercase":
+            return name.upper()
+        elif name_case == "lowercase":
+            return name.lower()
+        return name  # original: 그대로 반환
+
     async def _process_ddl(
         self,
         ddl_path: str,
@@ -418,6 +436,9 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
             "db": (orchestrator.target or 'postgres').lower(),
             "project_name": orchestrator.project_name,
         }
+        
+        # 대소문자 변환 옵션
+        name_case = getattr(orchestrator, 'name_case', 'original')
 
         for table_info in parsed.get("analysis", []):
             table = table_info.get("table", {})
@@ -429,18 +450,22 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
                 if pk
             ]
 
+            # 원본 값에서 따옴표 제거 후 대소문자 변환 적용
             schema_raw = (table.get("schema") or "").strip()
-            table_name = (table.get("name") or "").strip()
+            table_name_raw = (table.get("name") or "").strip()
             comment = (table.get("comment") or "").strip()
             table_type = (table.get("table_type") or "BASE TABLE").strip().upper()
             
-            qualified = f"{schema_raw}.{table_name}" if schema_raw else table_name
+            # parse_table_identifier로 따옴표 제거 및 스키마/테이블 분리
+            qualified = f"{schema_raw}.{table_name_raw}" if schema_raw else table_name_raw
             parsed_schema, parsed_name, _ = parse_table_identifier(qualified)
-            # 스키마가 없으면 'public' 사용 (SP 분석의 _build_table_merge와 일관성 유지)
-            schema = parsed_schema if parsed_schema else "public"
             
-            # DDL에서 발견된 스키마 수집
-            if schema and schema != 'public':
+            # parse_table_identifier가 소문자로 변환하므로, 여기서 다시 대소문자 변환 적용
+            schema = self._apply_name_case(parsed_schema if parsed_schema else "public", name_case)
+            parsed_name = self._apply_name_case(parsed_name, name_case)
+            
+            # DDL에서 발견된 스키마 수집 (내부 비교용으로 소문자 저장)
+            if schema and schema.lower() != 'public':
                 self._ddl_schemas.add(schema.lower())
 
             # Table 노드 생성 (MERGE 키: user_id, db, schema, name만 사용 - project_name 제외)
@@ -455,9 +480,10 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
             
             column_metadata = {}
             for col in columns:
-                col_name = (col.get("name") or "").strip()
-                if not col_name:
+                col_name_raw = (col.get("name") or "").strip()
+                if not col_name_raw:
                     continue
+                col_name = self._apply_name_case(col_name_raw, name_case)
                 col_comment = (col.get("comment") or "").strip()
                 column_metadata[col_name] = {
                     "description": col_comment,
@@ -468,15 +494,17 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
             set_props = {
                 **common,
                 "description": escape_for_cypher(comment),
+                "description_source": "ddl" if comment else "",  # DDL에서 추출된 설명
                 "table_type": table_type,
             }
             set_str = ", ".join(f"t.`{k}` = '{v}'" for k, v in set_props.items())
             
             # Schema 노드 생성 (스키마가 없으면 'public' 사용)
-            schema_name = schema if schema else 'public'
+            # 대소문자 변환은 이미 schema 변수에 적용됨
+            schema_name = schema if schema else self._apply_name_case('public', name_case)
             schema_merge = {
                 "db": common["db"],
-                "name": schema_name.lower(),
+                "name": schema_name,  # 대소문자 변환이 이미 적용됨
             }
             schema_merge_str = ", ".join(f"`{k}`: '{v}'" for k, v in schema_merge.items())
             queries.append(f"MERGE (s:Schema {{{schema_merge_str}}}) RETURN s")
@@ -499,9 +527,12 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
 
             # Column 노드 생성
             for col in columns:
-                col_name = (col.get("name") or "").strip()
-                if not col_name:
+                col_name_raw = (col.get("name") or "").strip()
+                if not col_name_raw:
                     continue
+                
+                # 대소문자 변환 적용
+                col_name = self._apply_name_case(col_name_raw, name_case)
                 
                 col_type = (col.get("dtype") or col.get("type") or "").strip()
                 col_nullable = col.get("nullable", True)
@@ -515,11 +546,12 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
                     "name": escape_for_cypher(col_name),
                     "dtype": escape_for_cypher(col_type),
                     "description": escape_for_cypher(col_comment),
+                    "description_source": "ddl" if col_comment else "",  # DDL에서 추출된 설명
                     "nullable": "true" if col_nullable else "false",
                     "project_name": orchestrator.project_name,
                     "fqn": escaped_fqn,
                 }
-                if col_name.upper() in primary_keys:
+                if col_name_raw.upper() in primary_keys:  # PK 체크는 원본 대문자로
                     col_set["pk_constraint"] = f"{parsed_name}_pkey"
                 
                 col_set_str = ", ".join(f"c.`{k}` = '{v}'" for k, v in col_set.items())
@@ -535,14 +567,19 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
             # 속성: sourceColumn, targetColumn, type, source
             # source='ddl': DDL에서 추출 (실선 표시)
             for fk in foreign_keys:
-                src_col = (fk.get("column") or "").strip()
+                src_col_raw = (fk.get("column") or "").strip()
                 ref = (fk.get("ref") or "").strip()
-                if not src_col or not ref or "." not in ref:
+                if not src_col_raw or not ref or "." not in ref:
                     continue
 
-                ref_table_part, ref_col = ref.rsplit(".", 1)
-                ref_schema_parsed, ref_table, _ = parse_table_identifier(ref_table_part)
-                ref_schema_final = ref_schema_parsed or schema
+                ref_table_part, ref_col_raw = ref.rsplit(".", 1)
+                ref_schema_parsed, ref_table_raw, _ = parse_table_identifier(ref_table_part)
+                ref_schema_final = self._apply_name_case(ref_schema_parsed or schema, name_case)
+                ref_table = self._apply_name_case(ref_table_raw, name_case)
+                
+                # 컬럼명에도 대소문자 변환 적용
+                src_col = self._apply_name_case(src_col_raw, name_case)
+                ref_col = self._apply_name_case(ref_col_raw, name_case)
 
                 # 참조 테이블 MERGE (project_name 제외 - 스키마/이름으로만 매칭)
                 ref_table_merge = {
@@ -665,6 +702,7 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
                         last_line=len(ctx.source_lines),
                         default_schema=default_schema,
                         ddl_table_metadata=self._ddl_table_metadata,
+                        name_case=getattr(orchestrator, 'name_case', 'original'),
                     )
                     ctx.processor = processor
                     
