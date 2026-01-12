@@ -97,8 +97,10 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
         total_files = len(file_names)
         self._file_semaphore = asyncio.Semaphore(settings.concurrency.file_concurrency)
         
-        # 파이프라인 상태 초기화
-        pipeline_state = pipeline_controller.get_state()
+        # 파이프라인 상태 초기화 (기존 상태 제거 후 새로 생성)
+        # 이전 세션에서 일시정지된 상태가 유지되는 버그 방지
+        pipeline_controller.remove_state(orchestrator.user_id)
+        pipeline_state = pipeline_controller.get_state(orchestrator.user_id)
 
         # LLM 캐시 상태 표시
         if settings.llm.cache_enabled:

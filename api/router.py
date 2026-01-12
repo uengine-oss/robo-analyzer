@@ -699,7 +699,8 @@ async def semantic_search_tables(
     Response: JSON
         [{ name, schema, description, similarity }, ...]
     """
-    api_key = request.headers.get("X-API-Key") or getattr(settings, 'openai_api_key', None)
+    user_id = extract_user_id(request)
+    api_key = request.headers.get("X-API-Key") or settings.llm.api_key
     
     if not api_key:
         logger.warning("[API] 시멘틱 검색: API 키 없음")
@@ -1626,7 +1627,7 @@ async def vectorize_schema(
             if body.schema:
                 where_parts.append(f"toLower(t.schema) = toLower('{escape_for_cypher(body.schema)}')")
             if not body.reembed_existing:
-                where_parts.append("(c.vector IS NULL OR size(c.vector) = 0)")
+                where_parts.append("(c.embedding IS NULL OR size(c.embedding) = 0)")
             where_parts.append("c.description IS NOT NULL AND c.description <> ''")
             
             where_clause = " AND ".join(where_parts) if where_parts else "true"
