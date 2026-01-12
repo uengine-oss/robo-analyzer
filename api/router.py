@@ -24,7 +24,6 @@ from pydantic import BaseModel
 from api.orchestrator import (
     AnalysisOrchestrator,
     create_orchestrator,
-    extract_user_id,
 )
 from analyzer.neo4j_client import Neo4jClient
 from analyzer.lineage_analyzer import LineageAnalyzer, analyze_lineage_from_sql
@@ -101,12 +100,10 @@ async def analyze_source_code(request: Request):
     """소스 파일을 분석하여 Neo4j 그래프 데이터 생성
     
     Request Headers:
-        Session-UUID: 사용자 세션 ID (필수)
         OpenAI-Api-Key: LLM API 키 (필수)
         Accept-Language: 출력 언어 (기본: ko)
     
     Request Body:
-        projectName: 프로젝트명 (필수)
         strategy: "framework" | "dbms" (기본: framework)
         target: "java" | "oracle" | ... (기본: java)
     
@@ -123,8 +120,7 @@ async def analyze_source_code(request: Request):
         raise HTTPException(400, "분석할 소스 파일 또는 DDL이 없습니다.")
 
     logger.info(
-        "[API] 분석 시작 | project=%s | strategy=%s | files=%d | has_ddl=%s",
-        orchestrator.project_name,
+        "[API] 분석 시작 | strategy=%s | files=%d | has_ddl=%s",
         orchestrator.strategy,
         len(file_names),
         has_ddl,
@@ -140,20 +136,16 @@ async def analyze_source_code(request: Request):
 async def check_existing_data(request: Request):
     """Neo4j에 기존 데이터 존재 여부 확인
     
-    Request Headers:
-        Session-UUID: 세션 UUID (필수)
-    
     Response: JSON
         hasData: bool - 기존 데이터 존재 여부
         nodeCount: int - 노드 개수
     """
-    user_id = extract_user_id(request)
-    logger.info("[API] 데이터 존재 확인 요청 | user=%s", user_id)
+    logger.info("[API] 데이터 존재 확인 요청")
 
     client = Neo4jClient()
     try:
         result = await client.execute_queries([
-            f"MATCH (n {{user_id: '{user_id}'}}) RETURN count(n) as count"
+            "MATCH (n) RETURN count(n) as count"
         ])
         node_count = result[0][0]["count"] if result and result[0] else 0
         
@@ -162,7 +154,7 @@ async def check_existing_data(request: Request):
             "nodeCount": node_count
         }
     except Exception as e:
-        logger.error("[API] 데이터 확인 실패 | user=%s | error=%s", user_id, e)
+        logger.error("[API] 데이터 확인 실패 | error=%s", e)
         raise HTTPException(500, build_error_body(e))
     finally:
         await client.close()
@@ -172,25 +164,21 @@ async def check_existing_data(request: Request):
 async def get_graph_data(request: Request):
     """Neo4j에서 기존 그래프 데이터 조회
     
-    Request Headers:
-        Session-UUID: 세션 UUID (필수)
-    
     Response: JSON
         Nodes: [{ "Node ID", "Labels", "Properties" }, ...]
         Relationships: [{ "Relationship ID", "Start Node ID", "End Node ID", "Type", "Properties" }, ...]
     """
-    user_id = extract_user_id(request)
-    logger.info("[API] 그래프 데이터 조회 요청 | user=%s", user_id)
+    logger.info("[API] 그래프 데이터 조회")
 
     client = Neo4jClient()
     try:
-        # 노드 조회 (전체 노드 - user_id 필터 제거)
+        # 노드 조회 (전체 노드)
         node_query = """
             MATCH (n)
             RETURN elementId(n) AS nodeId, labels(n) AS labels, properties(n) AS props
         """
         
-        # 관계 조회 (전체 관계 - user_id 필터 제거)
+        # 관계 조회 (전체 관계)
         rel_query = """
             MATCH (a)-[r]->(b)
             RETURN elementId(r) AS relId, 
@@ -233,7 +221,7 @@ async def get_graph_data(request: Request):
             "Relationships": relationships
         }
     except Exception as e:
-        logger.error("[API] 그래프 조회 실패 | user=%s | error=%s", user_id, e)
+        logger.error("[API] 그래프 조회 실패 | error=%s", e)
         raise HTTPException(500, build_error_body(e))
     finally:
         await client.close()
@@ -246,15 +234,11 @@ async def get_related_tables(table_name: str, request: Request):
     Path Params:
         table_name: 기준 테이블명
     
-    Request Headers:
-        Session-UUID: 세션 UUID (필수)
-    
     Response: JSON
         tables: [{ name, schema, description }, ...]
         relationships: [{ from_table, to_table, type, column_pairs: [{source, target}] }, ...]
     """
-    user_id = extract_user_id(request)
-    logger.info("[API] 관련 테이블 조회 요청 | user=%s | table=%s", user_id, table_name)
+    logger.info("[API] 관련 테이블 조회 요청 | table=%s", table_name)
     
     client = Neo4jClient()
     try:
@@ -418,31 +402,26 @@ async def delete_user_data(request: Request, include_files: bool = False):
         include_files: 파일 시스템도 삭제할지 여부 (기본값: false)
     
     Request Headers:
-        Session-UUID: 세션 UUID (필수)
-    
     Response: JSON
     """
-    user_id = extract_user_id(request)
-    logger.info("[API] 데이터 삭제 요청 | user=%s | include_files=%s", user_id, include_files)
+    logger.info("[API] 데이터 삭제 요청 | include_files=%s", include_files)
 
     try:
         orchestrator = AnalysisOrchestrator(
-            user_id=user_id,
             api_key="",
             locale="",
-            project_name="",
         )
         
         if include_files:
             await orchestrator.cleanup_all_data(include_files=True)
-            logger.info("[API] 전체 데이터 삭제 완료 (파일 포함) | user=%s", user_id)
+            logger.info("[API] 전체 데이터 삭제 완료 (파일 포함)")
             return {"message": "모든 데이터(파일 + Neo4j)가 삭제되었습니다."}
         else:
             await orchestrator.cleanup_neo4j_data()
-            logger.info("[API] Neo4j 데이터만 삭제 완료 | user=%s", user_id)
+            logger.info("[API] Neo4j 데이터만 삭제 완료")
             return {"message": "Neo4j 그래프 데이터가 삭제되었습니다. (파일은 유지됨)"}
     except Exception as e:
-        logger.error("[API] 데이터 삭제 실패 | user=%s | error=%s", user_id, e)
+        logger.error("[API] 데이터 삭제 실패 | error=%s", e)
         raise HTTPException(500, build_error_body(e))
 
 
@@ -452,7 +431,6 @@ async def delete_user_data(request: Request, include_files: bool = False):
 
 class LineageAnalyzeRequest(BaseModel):
     """데이터 리니지 분석 요청"""
-    projectName: str
     sqlContent: str
     fileName: str = ""
     dbms: str = "oracle"
@@ -483,35 +461,22 @@ class LineageGraphResponse(BaseModel):
 
 
 @router.get("/lineage/")
-async def get_lineage_graph(request: Request, projectName: Optional[str] = None):
+async def get_lineage_graph():
     """데이터 리니지 그래프 조회
-    
-    Request Headers:
-        Session-UUID: 세션 UUID (필수)
-    
-    Query Params:
-        projectName: 프로젝트명 (선택, 지정시 해당 프로젝트만)
     
     Response: JSON
         nodes: [{ id, name, type, properties }, ...]
         edges: [{ id, source, target, type, properties }, ...]
         stats: { etlCount, sourceCount, targetCount, flowCount }
     """
-    user_id = extract_user_id(request)
-    logger.info("[API] 리니지 조회 요청 | user=%s | project=%s", user_id, projectName)
+    logger.info("[API] 리니지 조회 요청")
     
     client = Neo4jClient()
     try:
-        # 노드 조회 쿼리
-        where_clause = f"n.user_id = '{escape_for_cypher(user_id)}'"
-        if projectName:
-            where_clause += f" AND n.project_name = '{escape_for_cypher(projectName)}'"
-        
         # DataSource, ETLProcess 노드 조회
-        node_query = f"""
+        node_query = """
             MATCH (n)
-            WHERE ({where_clause})
-              AND (n:DataSource OR n:ETLProcess)
+            WHERE (n:DataSource OR n:ETLProcess)
             RETURN n.name AS name,
                    labels(n)[0] AS nodeType,
                    elementId(n) AS id,
@@ -520,18 +485,11 @@ async def get_lineage_graph(request: Request, projectName: Optional[str] = None)
         """
         
         # 관계 조회 쿼리
-        rel_query = f"""
+        rel_query = """
             MATCH (src)-[r]->(tgt)
-            WHERE src.user_id = '{escape_for_cypher(user_id)}'
-              AND tgt.user_id = '{escape_for_cypher(user_id)}'
-              AND (src:DataSource OR src:ETLProcess)
+            WHERE (src:DataSource OR src:ETLProcess)
               AND (tgt:DataSource OR tgt:ETLProcess)
               AND type(r) IN ['DATA_FLOW_TO', 'TRANSFORMS_TO']
-        """
-        if projectName:
-            rel_query += f" AND src.project_name = '{escape_for_cypher(projectName)}'"
-        
-        rel_query += """
             RETURN elementId(r) AS id,
                    elementId(src) AS source,
                    elementId(tgt) AS target,
@@ -540,14 +498,9 @@ async def get_lineage_graph(request: Request, projectName: Optional[str] = None)
         """
         
         # 통계 쿼리
-        stats_query = f"""
+        stats_query = """
             MATCH (n)
-            WHERE n.user_id = '{escape_for_cypher(user_id)}'
-        """
-        if projectName:
-            stats_query += f" AND n.project_name = '{escape_for_cypher(projectName)}'"
-        
-        stats_query += """
+            WHERE (n:DataSource OR n:ETLProcess)
             WITH 
                 sum(CASE WHEN n:ETLProcess THEN 1 ELSE 0 END) AS etlCount,
                 sum(CASE WHEN n:DataSource AND n.type = 'SOURCE' THEN 1 ELSE 0 END) AS sourceCount,
@@ -607,7 +560,7 @@ async def get_lineage_graph(request: Request, projectName: Optional[str] = None)
         }
     
     except Exception as e:
-        logger.error("[API] 리니지 조회 실패 | user=%s | error=%s", user_id, e)
+        logger.error("[API] 리니지 조회 실패 | error=%s", e)
         raise HTTPException(500, build_error_body(e))
     finally:
         await client.close()
@@ -617,11 +570,7 @@ async def get_lineage_graph(request: Request, projectName: Optional[str] = None)
 async def analyze_lineage(request: Request, body: LineageAnalyzeRequest):
     """ETL 코드에서 데이터 리니지 추출 및 Neo4j 저장
     
-    Request Headers:
-        Session-UUID: 세션 UUID (필수)
-    
     Request Body:
-        projectName: 프로젝트명 (필수)
         sqlContent: SQL 소스 코드 (필수)
         fileName: 파일명 (선택)
         dbms: DBMS 타입 (기본: oracle)
@@ -630,17 +579,11 @@ async def analyze_lineage(request: Request, body: LineageAnalyzeRequest):
         lineages: [{ etl_name, source_tables, target_tables, operation_type }, ...]
         stats: { etl_nodes, data_sources, data_flows }
     """
-    user_id = extract_user_id(request)
-    logger.info(
-        "[API] 리니지 분석 요청 | user=%s | project=%s | file=%s",
-        user_id, body.projectName, body.fileName
-    )
+    logger.info("[API] 리니지 분석 요청 | file=%s", body.fileName)
     
     try:
         lineage_list, stats = await analyze_lineage_from_sql(
             sql_content=body.sqlContent,
-            user_id=user_id,
-            project_name=body.projectName,
             file_name=body.fileName,
             dbms=body.dbms,
         )
@@ -670,7 +613,7 @@ async def analyze_lineage(request: Request, body: LineageAnalyzeRequest):
         }
     
     except Exception as e:
-        logger.error("[API] 리니지 분석 실패 | user=%s | error=%s", user_id, e)
+        logger.error("[API] 리니지 분석 실패 | error=%s", e)
         raise HTTPException(500, build_error_body(e))
 
 
@@ -686,7 +629,6 @@ class SchemaTableInfo(BaseModel):
     description_source: Optional[str] = ""  # 설명 출처: ddl, procedure, user
     analyzed_description: Optional[str] = ""  # 프로시저 분석에서 도출된 설명
     column_count: int
-    project_name: Optional[str] = None
 
 
 class SchemaColumnInfo(BaseModel):
@@ -727,7 +669,6 @@ class AddRelationshipRequest(BaseModel):
 class SemanticSearchRequest(BaseModel):
     """시멘틱 검색 요청"""
     query: str
-    project_name: Optional[str] = None
     limit: int = 10
 
 
@@ -749,25 +690,22 @@ async def semantic_search_tables(
     OpenAI 임베딩을 사용하여 검색 쿼리와 테이블 설명 간의 유사도를 계산합니다.
     
     Request Headers:
-        Session-UUID: 세션 UUID (필수)
         X-API-Key: OpenAI API 키 (선택, 없으면 환경변수 사용)
     
     Request Body:
         query: 검색 쿼리
-        project_name: 프로젝트명 필터 (선택)
         limit: 결과 제한 (기본 10)
     
     Response: JSON
         [{ name, schema, description, similarity }, ...]
     """
-    user_id = extract_user_id(request)
     api_key = request.headers.get("X-API-Key") or getattr(settings, 'openai_api_key', None)
     
     if not api_key:
         logger.warning("[API] 시멘틱 검색: API 키 없음")
         raise HTTPException(400, {"error": "OpenAI API 키가 필요합니다. 설정에서 API 키를 입력해주세요."})
     
-    logger.info("[API] 시멘틱 검색 요청 | user=%s | query=%s", user_id, body.query[:50])
+    logger.info("[API] 시멘틱 검색 요청 | query=%s", body.query[:50])
     
     # numpy와 openai 동적 import (설치되지 않은 경우 에러 처리)
     try:
@@ -787,15 +725,9 @@ async def semantic_search_tables(
     
     try:
         # 1. 테이블 목록 조회 (설명 포함)
-        where_conditions = [f"t.user_id = '{escape_for_cypher(user_id)}'"]
-        if body.project_name:
-            where_conditions.append(f"t.project_name = '{escape_for_cypher(body.project_name)}'")
-        
-        where_clause = " AND ".join(where_conditions)
-        
-        cypher_query = f"""
+        cypher_query = """
             MATCH (t:Table)
-            WHERE {where_clause} AND t.description IS NOT NULL AND t.description <> ''
+            WHERE t.description IS NOT NULL AND t.description <> ''
             RETURN t.name AS name,
                    t.schema AS schema,
                    t.description AS description
@@ -870,7 +802,7 @@ async def semantic_search_tables(
         return filtered_results
     
     except Exception as e:
-        logger.error("[API] 시멘틱 검색 실패 | user=%s | error=%s", user_id, e)
+        logger.error("[API] 시멘틱 검색 실패 | error=%s", e)
         raise HTTPException(500, build_error_body(e))
     finally:
         await client.close()
@@ -881,33 +813,24 @@ async def list_schema_tables(
     request: Request,
     search: Optional[str] = None,
     schema: Optional[str] = None,
-    project_name: Optional[str] = None,
     limit: int = 100
 ):
     """Neo4j에서 테이블 목록 조회 (DDL 분석 결과)
     
-    Request Headers:
-        Session-UUID: 세션 UUID (필수)
-    
     Query Params:
         search: 테이블명/설명 검색
         schema: 스키마 필터
-        project_name: 프로젝트명 필터
         limit: 결과 제한 (기본 100)
     
     Response: JSON
-        [{ name, schema, description, column_count, project_name }, ...]
+        [{ name, schema, description, column_count }, ...]
     """
-    user_id = extract_user_id(request)
-    logger.info("[API] 테이블 목록 조회 | user=%s | project=%s", user_id, project_name)
+    logger.info("[API] 테이블 목록 조회")
     
     client = Neo4jClient()
     try:
         # WHERE 조건 생성
-        where_conditions = [f"t.user_id = '{escape_for_cypher(user_id)}'"]
-        
-        if project_name:
-            where_conditions.append(f"t.project_name = '{escape_for_cypher(project_name)}'")
+        where_conditions = []
         
         if schema:
             where_conditions.append(f"t.schema = '{escape_for_cypher(schema)}'")
@@ -919,7 +842,7 @@ async def list_schema_tables(
                 f"OR toLower(t.description) CONTAINS toLower('{search_escaped}'))"
             )
         
-        where_clause = " AND ".join(where_conditions)
+        where_clause = " AND ".join(where_conditions) if where_conditions else "true"
         
         query = f"""
             MATCH (t:Table)
@@ -931,8 +854,7 @@ async def list_schema_tables(
                    t.description AS description,
                    t.description_source AS description_source,
                    t.analyzed_description AS analyzed_description,
-                   col_count AS column_count,
-                   t.project_name AS project_name
+                   col_count AS column_count
             ORDER BY t.name
             LIMIT {limit}
         """
@@ -947,8 +869,7 @@ async def list_schema_tables(
                 description=r["description"] or "",
                 description_source=r["description_source"] or "",
                 analyzed_description=r["analyzed_description"] or "",
-                column_count=r["column_count"] or 0,
-                project_name=r["project_name"]
+                column_count=r["column_count"] or 0
             )
             for r in records
         ]
@@ -967,8 +888,7 @@ async def list_schema_tables(
 async def list_table_columns(
     request: Request,
     table_name: str,
-    schema: str = "",
-    project_name: Optional[str] = None
+    schema: str = ""
 ):
     """테이블의 컬럼 목록 조회
     
@@ -977,26 +897,20 @@ async def list_table_columns(
     
     Query Params:
         schema: 스키마명
-        project_name: 프로젝트명
     
     Response: JSON
         [{ name, table_name, dtype, nullable, description }, ...]
     """
-    user_id = extract_user_id(request)
     logger.info("[API] 컬럼 목록 조회 | table=%s | schema=%s", table_name, schema)
     
     client = Neo4jClient()
     try:
         where_conditions = [
-            f"t.user_id = '{escape_for_cypher(user_id)}'",
             f"t.name = '{escape_for_cypher(table_name)}'"
         ]
         
         if schema:
             where_conditions.append(f"t.schema = '{escape_for_cypher(schema)}'")
-        
-        if project_name:
-            where_conditions.append(f"t.project_name = '{escape_for_cypher(project_name)}'")
         
         where_clause = " AND ".join(where_conditions)
         
@@ -1041,30 +955,21 @@ async def list_table_columns(
 
 @router.get("/schema/relationships")
 async def list_schema_relationships(
-    request: Request,
-    project_name: Optional[str] = None
+    request: Request
 ):
     """테이블 관계(FK) 목록 조회
     
     Response: JSON
         { relationships: [{ from_table, from_column, to_table, to_column, ... }, ...] }
     """
-    user_id = extract_user_id(request)
-    logger.info("[API] 관계 목록 조회 | user=%s | project=%s", user_id, project_name)
+    logger.info("[API] 관계 목록 조회")
     
     client = Neo4jClient()
     try:
-        where_conditions = [f"t1.user_id = '{escape_for_cypher(user_id)}'"]
-        
-        if project_name:
-            where_conditions.append(f"t1.project_name = '{escape_for_cypher(project_name)}'")
-        
-        where_clause = " AND ".join(where_conditions)
-        
         # FK_TO_TABLE 중 source='user'인 것만 조회 (사용자 추가 관계)
-        query = f"""
+        query = """
             MATCH (t1:Table)-[r:FK_TO_TABLE]->(t2:Table)
-            WHERE {where_clause} AND r.source = 'user'
+            WHERE r.source = 'user'
             RETURN t1.name AS from_table,
                    t1.schema AS from_schema,
                    r.sourceColumn AS from_column,
@@ -1134,14 +1039,12 @@ async def get_table_references(
     Response: JSON
         { references: [{ procedure_name, procedure_type, start_line, access_type, statement_type, statement_line }, ...] }
     """
-    user_id = extract_user_id(request)
     logger.info("[API] 테이블 참조 조회 | table=%s | schema=%s | column=%s", table_name, schema, column_name)
     
     client = Neo4jClient()
     try:
         # 테이블 조건
         table_conditions = [
-            f"t.user_id = '{escape_for_cypher(user_id)}'",
             f"t.name = '{escape_for_cypher(table_name)}'"
         ]
         if schema:
@@ -1156,7 +1059,6 @@ async def get_table_references(
             MATCH (t:Table)
             WHERE {table_where}
             MATCH (s)-[rel:FROM|WRITES]->(t)
-            WHERE s.user_id = '{escape_for_cypher(user_id)}'
             OPTIONAL MATCH (s)<-[:PARENT_OF*]-(proc)
             WHERE proc:PROCEDURE OR proc:FUNCTION
             OPTIONAL MATCH (file:FILE)-[:CONTAINS]->(proc)
@@ -1225,14 +1127,12 @@ async def get_procedure_statements(
     Response: JSON
         { statements: [{ start_line, end_line, statement_type, summary, ai_description }, ...] }
     """
-    user_id = extract_user_id(request)
     logger.info("[API] 프로시저 Statement 조회 | proc=%s | file=%s", procedure_name, file_directory)
     
     client = Neo4jClient()
     try:
         # 프로시저 조건
         proc_conditions = [
-            f"proc.user_id = '{escape_for_cypher(user_id)}'",
             f"proc.name = '{escape_for_cypher(procedure_name)}'"
         ]
         if file_directory:
@@ -1245,7 +1145,6 @@ async def get_procedure_statements(
             MATCH (proc)
             WHERE (proc:PROCEDURE OR proc:FUNCTION) AND {proc_where}
             OPTIONAL MATCH (proc)-[:PARENT_OF*]->(s)
-            WHERE s.user_id = '{escape_for_cypher(user_id)}'
             RETURN DISTINCT
                 s.startLine AS start_line,
                 s.endLine AS end_line,
@@ -1293,18 +1192,17 @@ async def add_schema_relationship(
     Response: JSON
         { success: true, message: ... }
     """
-    user_id = extract_user_id(request)
     logger.info(
-        "[API] 관계 추가 | user=%s | %s.%s -> %s.%s",
-        user_id, body.from_table, body.from_column, body.to_table, body.to_column
+        "[API] 관계 추가 | %s.%s -> %s.%s",
+        body.from_table, body.from_column, body.to_table, body.to_column
     )
     
     client = Neo4jClient()
     try:
         # FK_TO_TABLE 관계 생성 (source: 'user' - 사용자 추가)
         query = f"""
-            MATCH (t1:Table {{user_id: '{escape_for_cypher(user_id)}', name: '{escape_for_cypher(body.from_table)}'}})
-            MATCH (t2:Table {{user_id: '{escape_for_cypher(user_id)}', name: '{escape_for_cypher(body.to_table)}'}})
+            MATCH (t1:Table {{name: '{escape_for_cypher(body.from_table)}'}})
+            MATCH (t2:Table {{name: '{escape_for_cypher(body.to_table)}'}})
             MERGE (t1)-[r:FK_TO_TABLE {{
                 sourceColumn: '{escape_for_cypher(body.from_column)}',
                 targetColumn: '{escape_for_cypher(body.to_column)}'
@@ -1344,17 +1242,16 @@ async def delete_schema_relationship(
     Response: JSON
         { success: true, message: ... }
     """
-    user_id = extract_user_id(request)
     logger.info(
-        "[API] 관계 삭제 | user=%s | %s.%s -> %s.%s",
-        user_id, from_table, from_column, to_table, to_column
+        "[API] 관계 삭제 | %s.%s -> %s.%s",
+        from_table, from_column, to_table, to_column
     )
     
     client = Neo4jClient()
     try:
         # FK_TO_TABLE 중 source='user'인 관계만 삭제 (사용자 추가 관계)
         query = f"""
-            MATCH (t1:Table {{user_id: '{escape_for_cypher(user_id)}', name: '{escape_for_cypher(from_table)}'}})-
+            MATCH (t1:Table {{name: '{escape_for_cypher(from_table)}'}})-
                   [r:FK_TO_TABLE {{sourceColumn: '{escape_for_cypher(from_column)}', targetColumn: '{escape_for_cypher(to_column)}', source: 'user'}}]->
                   (t2:Table {{name: '{escape_for_cypher(to_table)}'}})
             DELETE r
@@ -1386,17 +1283,13 @@ class PipelineControlRequest(BaseModel):
 
 
 @router.get("/pipeline/status")
-async def get_pipeline_status(request: Request):
+async def get_pipeline_status():
     """파이프라인 상태 조회
     
-    Request Headers:
-        Session-UUID: 세션 UUID (필수)
-    
     Response: JSON
-        { sessionId, currentPhase, phaseName, isPaused, isStopped, phaseProgress, phases: [...] }
+        { currentPhase, phaseName, isPaused, isStopped, phaseProgress, phases: [...] }
     """
-    session_id = extract_user_id(request)
-    return pipeline_controller.get_status(session_id)
+    return pipeline_controller.get_status()
 
 
 @router.get("/pipeline/phases")
@@ -1410,11 +1303,8 @@ async def get_pipeline_phases():
 
 
 @router.post("/pipeline/control")
-async def control_pipeline(request: Request, body: PipelineControlRequest):
+async def control_pipeline(body: PipelineControlRequest):
     """파이프라인 제어 (일시정지/재개/중단)
-    
-    Request Headers:
-        Session-UUID: 세션 UUID (필수)
     
     Request Body:
         action: "pause" | "resume" | "stop"
@@ -1422,25 +1312,24 @@ async def control_pipeline(request: Request, body: PipelineControlRequest):
     Response: JSON
         { success, action, status: { ... } }
     """
-    session_id = extract_user_id(request)
     action = body.action.lower()
     
-    logger.info("[API] 파이프라인 제어 | session=%s | action=%s", session_id, action)
+    logger.info("[API] 파이프라인 제어 | action=%s", action)
     
     success = False
     if action == "pause":
-        success = pipeline_controller.pause(session_id)
+        success = pipeline_controller.pause()
     elif action == "resume":
-        success = pipeline_controller.resume(session_id)
+        success = pipeline_controller.resume()
     elif action == "stop":
-        success = pipeline_controller.stop(session_id)
+        success = pipeline_controller.stop()
     else:
         raise HTTPException(400, f"알 수 없는 액션: {action}")
     
     return {
         "success": success,
         "action": action,
-        "status": pipeline_controller.get_status(session_id)
+        "status": pipeline_controller.get_status()
     }
 
 
@@ -1490,16 +1379,15 @@ async def update_table_description(
     from openai import AsyncOpenAI
     from util.embedding_client import EmbeddingClient
     
-    user_id = extract_user_id(request)
     api_key = request.headers.get("X-API-Key") or settings.llm.api_key
     
-    logger.info("[API] 테이블 설명 업데이트 | user=%s | table=%s.%s", user_id, body.schema, table_name)
+    logger.info("[API] 테이블 설명 업데이트 | table=%s.%s", body.schema, table_name)
     
     client = Neo4jClient()
     try:
         # 1. 테이블 정보 조회 (컬럼 목록 포함)
         info_query = f"""
-            MATCH (t:Table {{user_id: '{escape_for_cypher(user_id)}', name: '{escape_for_cypher(table_name)}', schema: '{escape_for_cypher(body.schema)}'}})
+            MATCH (t:Table {{name: '{escape_for_cypher(table_name)}', schema: '{escape_for_cypher(body.schema)}'}})
             OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column)
             RETURN t.name AS name, t.schema AS schema, collect(c.name) AS columns
         """
@@ -1533,13 +1421,13 @@ async def update_table_description(
         escaped_desc = escape_for_cypher(body.description or "")
         if embedding:
             update_query = f"""
-                MATCH (t:Table {{user_id: '{escape_for_cypher(user_id)}', name: '{escape_for_cypher(table_name)}', schema: '{escape_for_cypher(body.schema)}'}})
+                MATCH (t:Table {{name: '{escape_for_cypher(table_name)}', schema: '{escape_for_cypher(body.schema)}'}})
                 SET t.description = '{escaped_desc}', t.description_source = 'user', t.vector = {embedding}, t.updated_at = datetime()
                 RETURN t.name AS name, t.description AS description, t.description_source AS description_source
             """
         else:
             update_query = f"""
-                MATCH (t:Table {{user_id: '{escape_for_cypher(user_id)}', name: '{escape_for_cypher(table_name)}', schema: '{escape_for_cypher(body.schema)}'}})
+                MATCH (t:Table {{name: '{escape_for_cypher(table_name)}', schema: '{escape_for_cypher(body.schema)}'}})
                 SET t.description = '{escaped_desc}', t.description_source = 'user'
                 RETURN t.name AS name, t.description AS description, t.description_source AS description_source
             """
@@ -1583,16 +1471,15 @@ async def update_column_description(
     from openai import AsyncOpenAI
     from util.embedding_client import EmbeddingClient
     
-    user_id = extract_user_id(request)
     api_key = request.headers.get("X-API-Key") or settings.llm.api_key
     
-    logger.info("[API] 컬럼 설명 업데이트 | user=%s | column=%s.%s.%s", user_id, body.table_schema, table_name, column_name)
+    logger.info("[API] 컬럼 설명 업데이트 | column=%s.%s.%s", body.table_schema, table_name, column_name)
     
     client = Neo4jClient()
     try:
         # 1. 컬럼 정보 조회
         info_query = f"""
-            MATCH (t:Table {{user_id: '{escape_for_cypher(user_id)}', name: '{escape_for_cypher(table_name)}', schema: '{escape_for_cypher(body.table_schema)}'}})-[:HAS_COLUMN]->(c:Column {{name: '{escape_for_cypher(column_name)}'}})
+            MATCH (t:Table {{name: '{escape_for_cypher(table_name)}', schema: '{escape_for_cypher(body.table_schema)}'}})-[:HAS_COLUMN]->(c:Column {{name: '{escape_for_cypher(column_name)}'}})
             RETURN c.name AS name, c.dtype AS dtype
         """
         
@@ -1626,13 +1513,13 @@ async def update_column_description(
         escaped_desc = escape_for_cypher(body.description or "")
         if embedding:
             update_query = f"""
-                MATCH (t:Table {{user_id: '{escape_for_cypher(user_id)}', name: '{escape_for_cypher(table_name)}', schema: '{escape_for_cypher(body.table_schema)}'}})-[:HAS_COLUMN]->(c:Column {{name: '{escape_for_cypher(column_name)}'}})
+                MATCH (t:Table {{name: '{escape_for_cypher(table_name)}', schema: '{escape_for_cypher(body.table_schema)}'}})-[:HAS_COLUMN]->(c:Column {{name: '{escape_for_cypher(column_name)}'}})
                 SET c.description = '{escaped_desc}', c.description_source = 'user', c.vector = {embedding}, c.updated_at = datetime()
                 RETURN c.name AS name, c.description AS description, c.description_source AS description_source
             """
         else:
             update_query = f"""
-                MATCH (t:Table {{user_id: '{escape_for_cypher(user_id)}', name: '{escape_for_cypher(table_name)}', schema: '{escape_for_cypher(body.table_schema)}'}})-[:HAS_COLUMN]->(c:Column {{name: '{escape_for_cypher(column_name)}'}})
+                MATCH (t:Table {{name: '{escape_for_cypher(table_name)}', schema: '{escape_for_cypher(body.table_schema)}'}})-[:HAS_COLUMN]->(c:Column {{name: '{escape_for_cypher(column_name)}'}})
                 SET c.description = '{escaped_desc}', c.description_source = 'user'
                 RETURN c.name AS name, c.description AS description, c.description_source AS description_source
             """
@@ -1676,13 +1563,12 @@ async def vectorize_schema(
     from openai import AsyncOpenAI
     from util.embedding_client import EmbeddingClient
     
-    user_id = extract_user_id(request)
     api_key = request.headers.get("X-API-Key") or settings.llm.api_key
     
     if not api_key:
         raise HTTPException(400, "OpenAI API 키가 필요합니다")
     
-    logger.info("[API] 벡터라이징 시작 | user=%s | schema=%s", user_id, body.schema)
+    logger.info("[API] 벡터라이징 시작 | schema=%s", body.schema)
     
     openai_client = AsyncOpenAI(api_key=api_key)
     embedding_client = EmbeddingClient(openai_client)
@@ -1694,14 +1580,14 @@ async def vectorize_schema(
     try:
         # 테이블 벡터라이징
         if body.include_tables:
-            where_parts = [f"t.user_id = '{escape_for_cypher(user_id)}'"]
+            where_parts = []
             if body.schema:
                 where_parts.append(f"toLower(t.schema) = toLower('{escape_for_cypher(body.schema)}')")
             if not body.reembed_existing:
                 where_parts.append("(t.vector IS NULL OR size(t.vector) = 0)")
             where_parts.append("(t.description IS NOT NULL OR t.analyzed_description IS NOT NULL)")
             
-            where_clause = " AND ".join(where_parts)
+            where_clause = " AND ".join(where_parts) if where_parts else "true"
             
             table_query = f"""
                 MATCH (t:Table)
@@ -1736,14 +1622,14 @@ async def vectorize_schema(
         
         # 컬럼 벡터라이징
         if body.include_columns:
-            where_parts = [f"t.user_id = '{escape_for_cypher(user_id)}'"]
+            where_parts = []
             if body.schema:
                 where_parts.append(f"toLower(t.schema) = toLower('{escape_for_cypher(body.schema)}')")
             if not body.reembed_existing:
                 where_parts.append("(c.vector IS NULL OR size(c.vector) = 0)")
             where_parts.append("c.description IS NOT NULL AND c.description <> ''")
             
-            where_clause = " AND ".join(where_parts)
+            where_clause = " AND ".join(where_parts) if where_parts else "true"
             
             column_query = f"""
                 MATCH (t:Table)-[:HAS_COLUMN]->(c:Column)

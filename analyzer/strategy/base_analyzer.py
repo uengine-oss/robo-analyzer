@@ -268,9 +268,6 @@ class BaseStreamingAnalyzer(AnalyzerStrategy):
             await client.ensure_constraints()
             yield emit_message("🔌 Neo4j 데이터베이스 연결 완료")
 
-            # ========== 2-1. Project 노드 생성 (한 번만) ==========
-            await self._ensure_project_node(client, orchestrator)
-
             # ========== 3. 증분/신규 모드 판단 ==========
             async for chunk in self._emit_analysis_mode(client, orchestrator, file_names):
                 yield chunk
@@ -353,7 +350,6 @@ class BaseStreamingAnalyzer(AnalyzerStrategy):
     ) -> AsyncGenerator[bytes, None]:
         """분석 시작 메시지 출력"""
         yield emit_message(f"{self.strategy_emoji} {self.strategy_name} 코드 분석을 시작합니다")
-        yield emit_message(f"📦 프로젝트: {orchestrator.project_name}")
         yield emit_message(f"📊 분석 대상: {total_files}개 {self.file_type_description}")
 
     async def _emit_analysis_mode(
@@ -363,7 +359,7 @@ class BaseStreamingAnalyzer(AnalyzerStrategy):
         file_names: list[tuple[str, str]],
     ) -> AsyncGenerator[bytes, None]:
         """증분/신규 분석 모드 메시지 출력"""
-        if await client.check_nodes_exist(orchestrator.user_id, file_names):
+        if await client.check_nodes_exist(file_names):
             yield emit_message("🔄 이전 분석 결과 발견 → 증분 업데이트 모드")
         else:
             yield emit_message("🆕 새로운 분석 시작")
@@ -400,30 +396,6 @@ class BaseStreamingAnalyzer(AnalyzerStrategy):
             yield emit_message(f"   🤖 AI 분석: {stats.llm_batches_executed}개 배치, 관계 {stats.llm_rels_created}개")
         
         yield emit_message("━" * 50)
-
-    # =========================================================================
-    # Project 노드 관리
-    # =========================================================================
-
-    async def _ensure_project_node(self, client: Neo4jClient, orchestrator: Any) -> None:
-        """Project 노드를 생성합니다 (중복 방지).
-        
-        Args:
-            client: Neo4j 클라이언트
-            orchestrator: 서비스 오케스트레이터
-        """
-        from util.utility_tool import escape_for_cypher
-        
-        project_name = escape_for_cypher(orchestrator.project_name)
-        user_id = escape_for_cypher(orchestrator.user_id)
-        
-        query = (
-            f"MERGE (p:Project {{user_id: '{user_id}', name: '{project_name}'}})\n"
-            f"SET p.name = '{project_name}'\n"
-            f"RETURN p"
-        )
-        await client.execute_queries([query])
-        log_process("ANALYZE", "PROJECT", f"Project 노드 생성/확인: {project_name}")
 
     # =========================================================================
     # 공통 유틸리티 메서드

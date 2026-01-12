@@ -21,7 +21,7 @@ import logging
 from typing import Optional, List
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel, Field
 
 from analyzer.neo4j_client import Neo4jClient
@@ -100,14 +100,6 @@ class TagCreate(BaseModel):
 # 유틸리티 함수
 # =============================================================================
 
-def extract_user_id(request: Request) -> str:
-    """요청 헤더에서 사용자 ID 추출"""
-    user_id = request.headers.get("Session-UUID", "")
-    if not user_id:
-        raise HTTPException(400, "Session-UUID 헤더가 필요합니다.")
-    return user_id
-
-
 def get_current_timestamp() -> str:
     """현재 시간을 ISO 형식으로 반환"""
     return datetime.utcnow().isoformat() + "Z"
@@ -118,13 +110,12 @@ def get_current_timestamp() -> str:
 # =============================================================================
 
 @router.get("/")
-async def list_glossaries(request: Request):
-    """사용자의 모든 용어집 목록 조회"""
-    user_id = extract_user_id(request)
-    logger.info("[API] 용어집 목록 조회 | user=%s", user_id)
+async def list_glossaries():
+    """모든 용어집 목록 조회"""
+    logger.info("[API] 용어집 목록 조회")
     
-    query = f"""
-        MATCH (g:Glossary {{user_id: '{escape_for_cypher(user_id)}'}})
+    query = """
+        MATCH (g:Glossary)
         OPTIONAL MATCH (g)-[:HAS_TERM]->(t:Term)
         WITH g, count(t) as termCount
         RETURN 
@@ -161,15 +152,13 @@ async def list_glossaries(request: Request):
 
 
 @router.post("/")
-async def create_glossary(request: Request, body: GlossaryCreate):
+async def create_glossary(body: GlossaryCreate):
     """새 용어집 생성"""
-    user_id = extract_user_id(request)
     now = get_current_timestamp()
-    logger.info("[API] 용어집 생성 | user=%s | name=%s", user_id, body.name)
+    logger.info("[API] 용어집 생성 | name=%s", body.name)
     
     query = f"""
         CREATE (g:Glossary {{
-            user_id: '{escape_for_cypher(user_id)}',
             name: '{escape_for_cypher(body.name)}',
             description: '{escape_for_cypher(body.description)}',
             type: '{escape_for_cypher(body.type)}',
@@ -197,15 +186,13 @@ async def create_glossary(request: Request, body: GlossaryCreate):
 
 
 @router.get("/{glossary_id}")
-async def get_glossary(request: Request, glossary_id: str):
+async def get_glossary(glossary_id: str):
     """특정 용어집 상세 조회"""
-    user_id = extract_user_id(request)
-    logger.info("[API] 용어집 상세 조회 | user=%s | id=%s", user_id, glossary_id)
+    logger.info("[API] 용어집 상세 조회 | id=%s", glossary_id)
     
     query = f"""
         MATCH (g:Glossary)
         WHERE elementId(g) = '{escape_for_cypher(glossary_id)}'
-          AND g.user_id = '{escape_for_cypher(user_id)}'
         OPTIONAL MATCH (g)-[:HAS_TERM]->(t:Term)
         WITH g, count(t) as termCount
         RETURN 
@@ -244,11 +231,10 @@ async def get_glossary(request: Request, glossary_id: str):
 
 
 @router.put("/{glossary_id}")
-async def update_glossary(request: Request, glossary_id: str, body: GlossaryUpdate):
+async def update_glossary(glossary_id: str, body: GlossaryUpdate):
     """용어집 정보 수정"""
-    user_id = extract_user_id(request)
     now = get_current_timestamp()
-    logger.info("[API] 용어집 수정 | user=%s | id=%s", user_id, glossary_id)
+    logger.info("[API] 용어집 수정 | id=%s", glossary_id)
     
     # SET 절 동적 생성
     set_clauses = [f"g.updated_at = '{now}'"]
@@ -262,7 +248,6 @@ async def update_glossary(request: Request, glossary_id: str, body: GlossaryUpda
     query = f"""
         MATCH (g:Glossary)
         WHERE elementId(g) = '{escape_for_cypher(glossary_id)}'
-          AND g.user_id = '{escape_for_cypher(user_id)}'
         SET {', '.join(set_clauses)}
         RETURN elementId(g) as id, g.name as name
     """
@@ -283,15 +268,13 @@ async def update_glossary(request: Request, glossary_id: str, body: GlossaryUpda
 
 
 @router.delete("/{glossary_id}")
-async def delete_glossary(request: Request, glossary_id: str):
+async def delete_glossary(glossary_id: str):
     """용어집 삭제 (포함된 용어도 함께 삭제)"""
-    user_id = extract_user_id(request)
-    logger.info("[API] 용어집 삭제 | user=%s | id=%s", user_id, glossary_id)
+    logger.info("[API] 용어집 삭제 | id=%s", glossary_id)
     
     query = f"""
         MATCH (g:Glossary)
         WHERE elementId(g) = '{escape_for_cypher(glossary_id)}'
-          AND g.user_id = '{escape_for_cypher(user_id)}'
         OPTIONAL MATCH (g)-[:HAS_TERM]->(t:Term)
         DETACH DELETE g, t
     """
@@ -313,18 +296,15 @@ async def delete_glossary(request: Request, glossary_id: str):
 
 @router.get("/{glossary_id}/terms")
 async def list_terms(
-    request: Request,
     glossary_id: str,
     status: Optional[str] = None,
     search: Optional[str] = None,
 ):
     """용어집의 용어 목록 조회"""
-    user_id = extract_user_id(request)
-    logger.info("[API] 용어 목록 조회 | user=%s | glossary=%s", user_id, glossary_id)
+    logger.info("[API] 용어 목록 조회 | glossary=%s", glossary_id)
     
     where_clauses = [
-        f"elementId(g) = '{escape_for_cypher(glossary_id)}'",
-        f"g.user_id = '{escape_for_cypher(user_id)}'"
+        f"elementId(g) = '{escape_for_cypher(glossary_id)}'"
     ]
     if status:
         where_clauses.append(f"t.status = '{escape_for_cypher(status)}'")
@@ -389,20 +369,16 @@ async def list_terms(
 
 
 @router.post("/{glossary_id}/terms")
-async def create_term(request: Request, glossary_id: str, body: TermCreate):
+async def create_term(glossary_id: str, body: TermCreate):
     """새 용어 생성"""
-    user_id = extract_user_id(request)
     now = get_current_timestamp()
-    logger.info("[API] 용어 생성 | user=%s | glossary=%s | name=%s", user_id, glossary_id, body.name)
+    logger.info("[API] 용어 생성 | glossary=%s | name=%s", glossary_id, body.name)
     
     # 용어 생성 쿼리
-    synonyms_str = str(body.synonyms).replace("'", "\\'")
     create_query = f"""
         MATCH (g:Glossary)
         WHERE elementId(g) = '{escape_for_cypher(glossary_id)}'
-          AND g.user_id = '{escape_for_cypher(user_id)}'
         CREATE (t:Term {{
-            user_id: '{escape_for_cypher(user_id)}',
             name: '{escape_for_cypher(body.name)}',
             description: '{escape_for_cypher(body.description)}',
             status: '{escape_for_cypher(body.status)}',
@@ -427,7 +403,7 @@ async def create_term(request: Request, glossary_id: str, body: TermCreate):
             for domain_name in body.domains:
                 domain_query = f"""
                     MATCH (t:Term) WHERE elementId(t) = '{escape_for_cypher(term_id)}'
-                    MERGE (d:Domain {{user_id: '{escape_for_cypher(user_id)}', name: '{escape_for_cypher(domain_name)}'}})
+                    MERGE (d:Domain {{name: '{escape_for_cypher(domain_name)}'}})
                     MERGE (t)-[:BELONGS_TO_DOMAIN]->(d)
                 """
                 await client.execute_queries([domain_query])
@@ -437,7 +413,7 @@ async def create_term(request: Request, glossary_id: str, body: TermCreate):
             for owner_name in body.owners:
                 owner_query = f"""
                     MATCH (t:Term) WHERE elementId(t) = '{escape_for_cypher(term_id)}'
-                    MERGE (o:Owner {{user_id: '{escape_for_cypher(user_id)}', name: '{escape_for_cypher(owner_name)}'}})
+                    MERGE (o:Owner {{name: '{escape_for_cypher(owner_name)}'}})
                     MERGE (t)-[:OWNED_BY]->(o)
                 """
                 await client.execute_queries([owner_query])
@@ -447,7 +423,7 @@ async def create_term(request: Request, glossary_id: str, body: TermCreate):
             for tag_name in body.tags:
                 tag_query = f"""
                     MATCH (t:Term) WHERE elementId(t) = '{escape_for_cypher(term_id)}'
-                    MERGE (tag:Tag {{user_id: '{escape_for_cypher(user_id)}', name: '{escape_for_cypher(tag_name)}'}})
+                    MERGE (tag:Tag {{name: '{escape_for_cypher(tag_name)}'}})
                     ON CREATE SET tag.color = '#3498db'
                     MERGE (t)-[:HAS_TAG]->(tag)
                 """
@@ -468,15 +444,13 @@ async def create_term(request: Request, glossary_id: str, body: TermCreate):
 
 
 @router.get("/{glossary_id}/terms/{term_id}")
-async def get_term(request: Request, glossary_id: str, term_id: str):
+async def get_term(glossary_id: str, term_id: str):
     """특정 용어 상세 조회"""
-    user_id = extract_user_id(request)
-    logger.info("[API] 용어 상세 조회 | user=%s | term=%s", user_id, term_id)
+    logger.info("[API] 용어 상세 조회 | term=%s", term_id)
     
     query = f"""
         MATCH (g:Glossary)-[:HAS_TERM]->(t:Term)
         WHERE elementId(t) = '{escape_for_cypher(term_id)}'
-          AND g.user_id = '{escape_for_cypher(user_id)}'
         OPTIONAL MATCH (t)-[:OWNED_BY]->(o:Owner)
         OPTIONAL MATCH (t)-[:REVIEWED_BY]->(r:Owner)
         OPTIONAL MATCH (t)-[:BELONGS_TO_DOMAIN]->(d:Domain)
@@ -545,11 +519,10 @@ async def get_term(request: Request, glossary_id: str, term_id: str):
 
 
 @router.put("/{glossary_id}/terms/{term_id}")
-async def update_term(request: Request, glossary_id: str, term_id: str, body: TermUpdate):
+async def update_term(glossary_id: str, term_id: str, body: TermUpdate):
     """용어 정보 수정"""
-    user_id = extract_user_id(request)
     now = get_current_timestamp()
-    logger.info("[API] 용어 수정 | user=%s | term=%s", user_id, term_id)
+    logger.info("[API] 용어 수정 | term=%s", term_id)
     
     # SET 절 동적 생성
     set_clauses = [f"t.updated_at = '{now}'"]
@@ -565,7 +538,6 @@ async def update_term(request: Request, glossary_id: str, term_id: str, body: Te
     update_query = f"""
         MATCH (g:Glossary)-[:HAS_TERM]->(t:Term)
         WHERE elementId(t) = '{escape_for_cypher(term_id)}'
-          AND g.user_id = '{escape_for_cypher(user_id)}'
         SET {', '.join(set_clauses)}
         RETURN elementId(t) as id, t.name as name
     """
@@ -588,7 +560,7 @@ async def update_term(request: Request, glossary_id: str, term_id: str, body: Te
             for domain_name in body.domains:
                 await client.execute_queries([f"""
                     MATCH (t:Term) WHERE elementId(t) = '{escape_for_cypher(term_id)}'
-                    MERGE (d:Domain {{user_id: '{escape_for_cypher(user_id)}', name: '{escape_for_cypher(domain_name)}'}})
+                    MERGE (d:Domain {{name: '{escape_for_cypher(domain_name)}'}})
                     MERGE (t)-[:BELONGS_TO_DOMAIN]->(d)
                 """])
         
@@ -602,7 +574,7 @@ async def update_term(request: Request, glossary_id: str, term_id: str, body: Te
             for owner_name in body.owners:
                 await client.execute_queries([f"""
                     MATCH (t:Term) WHERE elementId(t) = '{escape_for_cypher(term_id)}'
-                    MERGE (o:Owner {{user_id: '{escape_for_cypher(user_id)}', name: '{escape_for_cypher(owner_name)}'}})
+                    MERGE (o:Owner {{name: '{escape_for_cypher(owner_name)}'}})
                     MERGE (t)-[:OWNED_BY]->(o)
                 """])
         
@@ -616,7 +588,7 @@ async def update_term(request: Request, glossary_id: str, term_id: str, body: Te
             for reviewer_name in body.reviewers:
                 await client.execute_queries([f"""
                     MATCH (t:Term) WHERE elementId(t) = '{escape_for_cypher(term_id)}'
-                    MERGE (o:Owner {{user_id: '{escape_for_cypher(user_id)}', name: '{escape_for_cypher(reviewer_name)}'}})
+                    MERGE (o:Owner {{name: '{escape_for_cypher(reviewer_name)}'}})
                     MERGE (t)-[:REVIEWED_BY]->(o)
                 """])
         
@@ -630,7 +602,7 @@ async def update_term(request: Request, glossary_id: str, term_id: str, body: Te
             for tag_name in body.tags:
                 await client.execute_queries([f"""
                     MATCH (t:Term) WHERE elementId(t) = '{escape_for_cypher(term_id)}'
-                    MERGE (tag:Tag {{user_id: '{escape_for_cypher(user_id)}', name: '{escape_for_cypher(tag_name)}'}})
+                    MERGE (tag:Tag {{name: '{escape_for_cypher(tag_name)}'}})
                     ON CREATE SET tag.color = '#3498db'
                     MERGE (t)-[:HAS_TAG]->(tag)
                 """])
@@ -646,15 +618,13 @@ async def update_term(request: Request, glossary_id: str, term_id: str, body: Te
 
 
 @router.delete("/{glossary_id}/terms/{term_id}")
-async def delete_term(request: Request, glossary_id: str, term_id: str):
+async def delete_term(glossary_id: str, term_id: str):
     """용어 삭제"""
-    user_id = extract_user_id(request)
-    logger.info("[API] 용어 삭제 | user=%s | term=%s", user_id, term_id)
+    logger.info("[API] 용어 삭제 | term=%s", term_id)
     
     query = f"""
         MATCH (g:Glossary)-[:HAS_TERM]->(t:Term)
         WHERE elementId(t) = '{escape_for_cypher(term_id)}'
-          AND g.user_id = '{escape_for_cypher(user_id)}'
         DETACH DELETE t
     """
     
@@ -674,12 +644,11 @@ async def delete_term(request: Request, glossary_id: str, term_id: str):
 # =============================================================================
 
 @router.get("/meta/domains")
-async def list_domains(request: Request):
-    """사용자의 모든 도메인 목록 조회"""
-    user_id = extract_user_id(request)
+async def list_domains():
+    """모든 도메인 목록 조회"""
     
-    query = f"""
-        MATCH (d:Domain {{user_id: '{escape_for_cypher(user_id)}'}})
+    query = """
+        MATCH (d:Domain)
         OPTIONAL MATCH (t:Term)-[:BELONGS_TO_DOMAIN]->(d)
         WITH d, count(t) as termCount
         RETURN elementId(d) as id, d.name as name, d.description as description, termCount
@@ -701,12 +670,11 @@ async def list_domains(request: Request):
 
 
 @router.get("/meta/owners")
-async def list_owners(request: Request):
-    """사용자의 모든 소유자/검토자 목록 조회"""
-    user_id = extract_user_id(request)
+async def list_owners():
+    """모든 소유자/검토자 목록 조회"""
     
-    query = f"""
-        MATCH (o:Owner {{user_id: '{escape_for_cypher(user_id)}'}})
+    query = """
+        MATCH (o:Owner)
         RETURN elementId(o) as id, o.name as name, o.email as email
         ORDER BY o.name
     """
@@ -726,12 +694,11 @@ async def list_owners(request: Request):
 
 
 @router.get("/meta/tags")
-async def list_tags(request: Request):
-    """사용자의 모든 태그 목록 조회"""
-    user_id = extract_user_id(request)
+async def list_tags():
+    """모든 태그 목록 조회"""
     
-    query = f"""
-        MATCH (tag:Tag {{user_id: '{escape_for_cypher(user_id)}'}})
+    query = """
+        MATCH (tag:Tag)
         OPTIONAL MATCH (t:Term)-[:HAS_TAG]->(tag)
         WITH tag, count(t) as termCount
         RETURN elementId(tag) as id, tag.name as name, tag.color as color, termCount
@@ -753,12 +720,11 @@ async def list_tags(request: Request):
 
 
 @router.post("/meta/domains")
-async def create_domain(request: Request, body: DomainCreate):
+async def create_domain(body: DomainCreate):
     """새 도메인 생성"""
-    user_id = extract_user_id(request)
     
     query = f"""
-        MERGE (d:Domain {{user_id: '{escape_for_cypher(user_id)}', name: '{escape_for_cypher(body.name)}'}})
+        MERGE (d:Domain {{name: '{escape_for_cypher(body.name)}'}})
         ON CREATE SET d.description = '{escape_for_cypher(body.description)}'
         RETURN elementId(d) as id, d.name as name
     """
@@ -776,12 +742,11 @@ async def create_domain(request: Request, body: DomainCreate):
 
 
 @router.post("/meta/owners")
-async def create_owner(request: Request, body: OwnerCreate):
+async def create_owner(body: OwnerCreate):
     """새 소유자 생성"""
-    user_id = extract_user_id(request)
     
     query = f"""
-        MERGE (o:Owner {{user_id: '{escape_for_cypher(user_id)}', name: '{escape_for_cypher(body.name)}'}})
+        MERGE (o:Owner {{name: '{escape_for_cypher(body.name)}'}})
         ON CREATE SET o.email = '{escape_for_cypher(body.email)}', o.role = '{escape_for_cypher(body.role)}'
         RETURN elementId(o) as id, o.name as name
     """
@@ -799,12 +764,11 @@ async def create_owner(request: Request, body: OwnerCreate):
 
 
 @router.post("/meta/tags")
-async def create_tag(request: Request, body: TagCreate):
+async def create_tag(body: TagCreate):
     """새 태그 생성"""
-    user_id = extract_user_id(request)
     
     query = f"""
-        MERGE (tag:Tag {{user_id: '{escape_for_cypher(user_id)}', name: '{escape_for_cypher(body.name)}'}})
+        MERGE (tag:Tag {{name: '{escape_for_cypher(body.name)}'}})
         ON CREATE SET tag.color = '{escape_for_cypher(body.color)}'
         RETURN elementId(tag) as id, tag.name as name, tag.color as color
     """
@@ -819,6 +783,3 @@ async def create_tag(request: Request, body: TagCreate):
         raise HTTPException(500, f"태그 생성 실패: {e}")
     finally:
         await client.close()
-
-
-

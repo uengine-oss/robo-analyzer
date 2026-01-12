@@ -8,7 +8,7 @@
     logger = get_logger(__name__)
     logger.info("분석 시작", file="test.java", line=100)
     
-    with log_context(user_id="test", project="my-project"):
+    with log_context(file="test.java", phase="LLM"):
         logger.info("작업 수행")
 """
 
@@ -117,8 +117,8 @@ class log_context:
     with 블록 내에서 모든 로그에 컨텍스트 정보 추가.
     
     사용법:
-        with log_context(user_id="test", file="test.java"):
-            logger.info("작업 수행")  # user_id=test, file=test.java 자동 추가
+        with log_context(file="test.java", phase="LLM"):
+            logger.info("작업 수행")  # file=test.java, phase=LLM 자동 추가
     """
     
     def __init__(self, **kwargs):

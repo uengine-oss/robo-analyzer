@@ -1,11 +1,12 @@
 """파이프라인 제어 - 일시정지/재개/중단 기능
 
 분석 파이프라인의 각 단계에서 일시정지, 재개, 중단을 지원합니다.
+단일 세션 모드로 동작합니다.
 """
 
 import asyncio
 from enum import Enum
-from typing import Dict, Optional, Any
+from typing import Optional
 from dataclasses import dataclass, field
 import logging
 
@@ -64,8 +65,7 @@ PIPELINE_PHASES = [
 
 @dataclass
 class PipelineState:
-    """세션별 파이프라인 상태"""
-    session_id: str
+    """파이프라인 상태"""
     current_phase: PipelinePhase = PipelinePhase.IDLE
     is_paused: bool = False
     is_stopped: bool = False
@@ -84,7 +84,6 @@ class PipelineState:
     def to_dict(self) -> dict:
         phase_info = next((p for p in PIPELINE_PHASES if p.phase == self.current_phase), None)
         return {
-            "sessionId": self.session_id,
             "currentPhase": self.current_phase.value,
             "phaseName": phase_info.name if phase_info else self.current_phase.value,
             "phaseOrder": phase_info.order if phase_info else -1,
@@ -101,14 +100,14 @@ class PipelineState:
             return False
         
         if self.is_paused:
-            logger.info(f"[{self.session_id}] 일시정지 대기 중...")
+            logger.info("일시정지 대기 중...")
             # resume_event가 set될 때까지 대기
             await self._resume_event.wait()
             
             if self.is_stopped:
                 return False
                 
-            logger.info(f"[{self.session_id}] 재개됨")
+            logger.info("재개됨")
         
         return True
     
@@ -118,7 +117,7 @@ class PipelineState:
             self.is_paused = True
             self._pause_event.clear()
             self._resume_event.clear()
-            logger.info(f"[{self.session_id}] 일시정지 요청")
+            logger.info("일시정지 요청")
     
     def resume(self):
         """재개"""
@@ -126,7 +125,7 @@ class PipelineState:
             self.is_paused = False
             self._pause_event.set()
             self._resume_event.set()
-            logger.info(f"[{self.session_id}] 재개 요청")
+            logger.info("재개 요청")
     
     def stop(self):
         """중단"""
@@ -134,14 +133,24 @@ class PipelineState:
         self.is_paused = False
         self._pause_event.set()  # 대기 중인 작업 깨우기
         self._resume_event.set()  # 대기 중인 작업 깨우기
-        logger.info(f"[{self.session_id}] 중단 요청")
+        logger.info("중단 요청")
+    
+    def reset(self):
+        """상태 초기화"""
+        self.current_phase = PipelinePhase.IDLE
+        self.is_paused = False
+        self.is_stopped = False
+        self.phase_progress = 0
+        self.phase_message = ""
+        self._pause_event.set()
+        self._resume_event.clear()
     
     def set_phase(self, phase: PipelinePhase, message: str = "", progress: int = 0):
         """현재 단계 설정"""
         self.current_phase = phase
         self.phase_message = message
         self.phase_progress = progress
-        logger.info(f"[{self.session_id}] 단계: {phase.value} - {message}")
+        logger.info(f"단계: {phase.value} - {message}")
     
     def update_progress(self, progress: int, message: str = ""):
         """진행률 업데이트"""
@@ -151,55 +160,54 @@ class PipelineState:
 
 
 class PipelineController:
-    """파이프라인 제어 싱글톤"""
+    """파이프라인 제어 싱글톤 (단일 세션)"""
     
     _instance: Optional['PipelineController'] = None
-    _states: Dict[str, PipelineState] = {}
+    _state: Optional[PipelineState] = None
     
     def __new__(cls):
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            cls._states = {}
+            cls._state = PipelineState()
         return cls._instance
     
-    def get_state(self, session_id: str) -> PipelineState:
-        """세션 상태 조회 (없으면 생성)"""
-        if session_id not in self._states:
-            self._states[session_id] = PipelineState(session_id=session_id)
-        return self._states[session_id]
+    def get_state(self) -> PipelineState:
+        """상태 조회"""
+        if self._state is None:
+            self._state = PipelineState()
+        return self._state
     
-    def remove_state(self, session_id: str):
-        """세션 상태 제거"""
-        if session_id in self._states:
-            del self._states[session_id]
+    def reset(self):
+        """상태 초기화"""
+        self.get_state().reset()
     
-    def pause(self, session_id: str) -> bool:
+    def pause(self) -> bool:
         """일시정지"""
-        state = self.get_state(session_id)
+        state = self.get_state()
         if state.current_phase not in [PipelinePhase.IDLE, PipelinePhase.COMPLETED, PipelinePhase.FAILED, PipelinePhase.CANCELLED]:
             state.pause()
             return True
         return False
     
-    def resume(self, session_id: str) -> bool:
+    def resume(self) -> bool:
         """재개"""
-        state = self.get_state(session_id)
+        state = self.get_state()
         if state.is_paused:
             state.resume()
             return True
         return False
     
-    def stop(self, session_id: str) -> bool:
+    def stop(self) -> bool:
         """중단"""
-        state = self.get_state(session_id)
+        state = self.get_state()
         if state.current_phase not in [PipelinePhase.IDLE, PipelinePhase.COMPLETED, PipelinePhase.FAILED, PipelinePhase.CANCELLED]:
             state.stop()
             return True
         return False
     
-    def get_status(self, session_id: str) -> dict:
+    def get_status(self) -> dict:
         """상태 조회"""
-        return self.get_state(session_id).to_dict()
+        return self.get_state().to_dict()
     
     def get_phases_info(self) -> list:
         """전체 단계 정보"""
@@ -208,4 +216,3 @@ class PipelineController:
 
 # 싱글톤 인스턴스
 pipeline_controller = PipelineController()
-

@@ -43,6 +43,14 @@ prompt: |
      작은따옴표 이스케이프: '' (두 개의 작은따옴표)
      예: IS 'User''s data' → comment = "User's data"
   
+  5. 스키마 추출 규칙
+  - ⚠️ DDL에 스키마가 명시되어 있으면 반드시 추출
+    - 스키마 있는 경우: `CREATE TABLE SCHEMA.TABLE` → schema = "SCHEMA"
+    - 따옴표 포함: `CREATE TABLE "SCHEMA"."TABLE"` → schema = "SCHEMA" (따옴표 제거)
+    - 스키마 없는 경우: `CREATE TABLE TABLE` → schema = "" (빈 문자열)
+  - 스키마는 테이블명 앞의 점(.) 구분자 기준으로 추출
+  - 스키마가 없다고 추정하지 말고, DDL에 명시된 대로만 추출
+  
   [일반 규칙]
   - 추정 금지: DDL에 없는 정보는 추가하지 않음
   - 컬럼명/타입 표기는 DDL 그대로 유지 (대소문자/언더스코어 보존)

@@ -349,10 +349,8 @@ class FrameworkAstProcessor(BaseAstProcessor):
         file_content: str,
         directory: str,
         file_name: str,
-        user_id: str,
         api_key: str,
         locale: str,
-        project_name: str,
         last_line: int,
     ):
         """Framework Analyzer 초기화"""
@@ -361,10 +359,8 @@ class FrameworkAstProcessor(BaseAstProcessor):
             file_content=file_content,
             directory=directory,
             file_name=file_name,
-            user_id=user_id,
             api_key=api_key,
             locale=locale,
-            project_name=project_name,
             last_line=last_line,
         )
         
@@ -444,7 +440,7 @@ class FrameworkAstProcessor(BaseAstProcessor):
         if label in ("CLASS", "INTERFACE", "ENUM") and node.unit_name:
             escaped_class_name = escape_for_cypher(node.unit_name)
             queries.append(
-                f"MERGE (n:{label} {{class_name: '{escaped_class_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})\n"
+                f"MERGE (n:{label} {{class_name: '{escaped_class_name}'}})\n"
                 f"SET n.startLine = {node.start_line}, n.directory = '{escape_for_cypher(self.full_directory)}', n.file_name = '{self.file_name}', {base_set_str}\n"
                 f"RETURN n"
             )
@@ -602,7 +598,6 @@ class FrameworkAstProcessor(BaseAstProcessor):
                     f"MATCH (src:{node.unit_kind} {{startLine: {node.parent.start_line}, {self.node_base_props}}})\n"
                     f"MATCH (dst) WHERE (dst:CLASS OR dst:INTERFACE OR dst:ENUM)\n"
                     f"  AND toLower(dst.class_name) = toLower('{escape_for_cypher(dep_type)}')\n"
-                    f"  AND dst.user_id = '{self.user_id}' AND dst.project_name = '{self.project_name}'\n"
                     f"  AND src <> dst AND NOT (src)-[:ASSOCIATION|COMPOSITION]->(dst)\n"
                     f"MERGE (src)-[r:DEPENDENCY {{usage: 'local', source_member: '{escape_for_cypher(source_member)}'}}]->(dst)\n"
                     f"RETURN r"
@@ -625,7 +620,6 @@ class FrameworkAstProcessor(BaseAstProcessor):
                         f"MATCH (src:{node.unit_kind} {{startLine: {node.parent.start_line}, {self.node_base_props}}})\n"
                         f"MATCH (dst) WHERE (dst:CLASS OR dst:INTERFACE OR dst:ENUM)\n"
                         f"  AND toLower(dst.class_name) = toLower('{escape_for_cypher(target_class)}')\n"
-                        f"  AND dst.user_id = '{self.user_id}' AND dst.project_name = '{self.project_name}'\n"
                         f"MERGE (src)-[r:CALLS {{method: '{escape_for_cypher(method_name)}'}}]->(dst)\n"
                         f"RETURN r"
                     )
@@ -853,8 +847,6 @@ class FrameworkAstProcessor(BaseAstProcessor):
                 f"{src_match}\n"
                 f"MATCH (dst) WHERE (dst:CLASS OR dst:INTERFACE OR dst:ENUM)\n"
                 f"  AND toLower(dst.class_name) = toLower('{to_type}')\n"
-                f"  AND dst.user_id = '{self.user_id}'\n"
-                f"  AND dst.project_name = '{self.project_name}'\n"
                 f"MERGE (src)-[r:{rel_type}]->(dst)\n"
                 f"RETURN src, dst, r"
             )
@@ -903,8 +895,6 @@ class FrameworkAstProcessor(BaseAstProcessor):
                     f"{src_match}\n"
                     f"MATCH (dst) WHERE (dst:CLASS OR dst:INTERFACE OR dst:ENUM)\n"
                     f"  AND toLower(dst.class_name) = toLower('{target_class}')\n"
-                    f"  AND dst.user_id = '{self.user_id}'\n"
-                    f"  AND dst.project_name = '{self.project_name}'\n"
                     f"MERGE (src)-[r:{association_type} {{source_member: '{field_name}', multiplicity: '{multiplicity}'}}]->(dst)\n"
                     f"RETURN src, dst, r"
                 )
@@ -962,8 +952,6 @@ class FrameworkAstProcessor(BaseAstProcessor):
                 f"{src_match}\n"
                 f"MATCH (dst) WHERE (dst:CLASS OR dst:INTERFACE OR dst:ENUM)\n"
                 f"  AND toLower(dst.class_name) = toLower('{target_type}')\n"
-                f"  AND dst.user_id = '{self.user_id}'\n"
-                f"  AND dst.project_name = '{self.project_name}'\n"
                 f"  AND src <> dst\n"
                 f"  AND NOT (src)-[:ASSOCIATION|COMPOSITION]->(dst)\n"
                 f"MERGE (src)-[r:DEPENDENCY {{usage: '{usage}', source_member: '{method_name}'}}]->(dst)\n"

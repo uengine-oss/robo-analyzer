@@ -52,8 +52,6 @@ def _is_truthy_env(value: str | None) -> bool:
 
 # ==================== 테스트 설정 상수 ====================
 # 환경변수에서 읽기
-TEST_USER_ID = _env("TEST_USER_ID", "EN_TestSession")
-TEST_PROJECT_NAME = _env("TEST_PROJECT_NAME", "test")
 TEST_API_KEY = os.getenv("LLM_API_KEY")
 TEST_DB_NAME = _env("TEST_DB_NAME", "test")
 TEST_LOCALE = _env("TEST_LOCALE", "ko")
@@ -62,7 +60,7 @@ TEST_ANALYSIS_STRATEGY = _env("TEST_ANALYSIS_STRATEGY", "dbms").lower()
 
 # 테스트 데이터 디렉토리
 DATA_DIR_ENV_KEY = "TEST_DATA_DIR"
-DEFAULT_DATA_DIR = PROJECT_ROOT.parent / "data" / TEST_USER_ID / TEST_PROJECT_NAME
+DEFAULT_DATA_DIR = PROJECT_ROOT.parent / "data" / "test"
 TEST_DATA_DIR = Path(os.getenv(DATA_DIR_ENV_KEY, str(DEFAULT_DATA_DIR))).expanduser()
 
 # 전략별 설정
@@ -88,23 +86,21 @@ def _ensure_api_key():
 def _create_orchestrator() -> AnalysisOrchestrator:
     """테스트용 AnalysisOrchestrator 생성"""
     return AnalysisOrchestrator(
-        user_id=TEST_USER_ID,
         api_key=TEST_API_KEY,
         locale=TEST_LOCALE,
-        project_name=TEST_PROJECT_NAME,
         strategy=TEST_ANALYSIS_STRATEGY,
         target=TEST_DBMS if TEST_ANALYSIS_STRATEGY == "dbms" else "java",
     )
 
 
-async def _clear_graph(connection: Neo4jClient, user_id: str, project_name: str):
-    """지정 사용자/프로젝트의 Neo4j 데이터 삭제"""
+async def _clear_graph(connection: Neo4jClient):
+    """Neo4j 데이터 삭제"""
     await connection.execute_queries([
-        f"MATCH (n {{user_id: '{user_id}', project_name: '{project_name}'}}) DETACH DELETE n"
+        "MATCH (n) DETACH DELETE n"
     ])
 
 
-async def _reset_graph_if_needed(connection: Neo4jClient, user_id: str, project_name: str):
+async def _reset_graph_if_needed(connection: Neo4jClient):
     """MERGE 모드 여부에 따라 그래프 초기화"""
     global _MERGE_MODE_NOTICE_PRINTED
     if MERGE_MODE_ENABLED:
@@ -112,14 +108,14 @@ async def _reset_graph_if_needed(connection: Neo4jClient, user_id: str, project_
             print("[INFO] TEST_MERGE_MODE=1 → 그래프 초기화를 건너뜁니다(누적 적재)")
             _MERGE_MODE_NOTICE_PRINTED = True
         return
-    await _clear_graph(connection, user_id, project_name)
+    await _clear_graph(connection)
 
 
 @pytest_asyncio.fixture
 async def real_neo4j() -> Neo4jClient:
     """테스트용 Neo4j 연결 생성 및 정리"""
     conn = Neo4jClient(database=TEST_DB_NAME)
-    await _clear_graph(conn, TEST_USER_ID, TEST_PROJECT_NAME)
+    await _clear_graph(conn)
 
     try:
         yield conn
@@ -159,9 +155,8 @@ async def _run_analysis_pipeline(
     if IS_FRAMEWORK:
         # Framework: CLASS/INTERFACE 노드 확인
         result = await connection.execute_queries([
-            f"MATCH (c) WHERE (c:CLASS OR c:INTERFACE) "
-            f"AND c.user_id = '{TEST_USER_ID}' AND c.project_name = '{TEST_PROJECT_NAME}' "
-            f"RETURN count(c) AS c"
+            "MATCH (c) WHERE (c:CLASS OR c:INTERFACE) "
+            "RETURN count(c) AS c"
         ])
         node_count = int(result[0][0]["c"])
         assert node_count > 0, "CLASS/INTERFACE 노드가 생성되지 않았습니다"
@@ -175,9 +170,8 @@ async def _run_analysis_pipeline(
     else:
         # DBMS: PROCEDURE/FUNCTION 노드 확인
         result = await connection.execute_queries([
-            f"MATCH (p) WHERE (p:PROCEDURE OR p:FUNCTION) "
-            f"AND p.user_id = '{TEST_USER_ID}' AND p.project_name = '{TEST_PROJECT_NAME}' "
-            f"RETURN count(p) AS c"
+            "MATCH (p) WHERE (p:PROCEDURE OR p:FUNCTION) "
+            "RETURN count(p) AS c"
         ])
         node_count = int(result[0][0]["c"])
         assert node_count > 0, "PROCEDURE/FUNCTION 노드가 생성되지 않았습니다"
@@ -224,9 +218,8 @@ async def _run_ddl_only_section(
 
     # Table 노드 확인
     result = await connection.execute_queries([
-        f"MATCH (t:Table) "
-        f"WHERE t.user_id = '{TEST_USER_ID}' AND t.project_name = '{TEST_PROJECT_NAME}' "
-        f"RETURN count(t) AS c"
+        "MATCH (t:Table) "
+        "RETURN count(t) AS c"
     ])
     table_count = int(result[0][0]["c"])
     
@@ -274,9 +267,8 @@ async def _run_source_only_section(
         if IS_FRAMEWORK:
             # Framework: CLASS/INTERFACE 노드 확인
             result = await connection.execute_queries([
-                f"MATCH (c) WHERE (c:CLASS OR c:INTERFACE) "
-                f"AND c.user_id = '{TEST_USER_ID}' AND c.project_name = '{TEST_PROJECT_NAME}' "
-                f"RETURN count(c) AS c"
+                "MATCH (c) WHERE (c:CLASS OR c:INTERFACE) "
+                "RETURN count(c) AS c"
             ])
             node_count = int(result[0][0]["c"])
             assert node_count > 0, "CLASS/INTERFACE 노드가 생성되지 않았습니다"
@@ -290,9 +282,8 @@ async def _run_source_only_section(
         else:
             # DBMS: PROCEDURE/FUNCTION 노드 확인
             result = await connection.execute_queries([
-                f"MATCH (p) WHERE (p:PROCEDURE OR p:FUNCTION) "
-                f"AND p.user_id = '{TEST_USER_ID}' AND p.project_name = '{TEST_PROJECT_NAME}' "
-                f"RETURN count(p) AS c"
+                "MATCH (p) WHERE (p:PROCEDURE OR p:FUNCTION) "
+                "RETURN count(p) AS c"
             ])
             node_count = int(result[0][0]["c"])
             assert node_count > 0, "PROCEDURE/FUNCTION 노드가 생성되지 않았습니다"
@@ -341,7 +332,7 @@ async def _execute_test(
 ):
     """테스트 섹션 실행"""
     orchestrator = _create_orchestrator()
-    await _reset_graph_if_needed(real_neo4j, TEST_USER_ID, TEST_PROJECT_NAME)
+    await _reset_graph_if_needed(real_neo4j)
     
     result = await runner(orchestrator, real_neo4j, source_files)
     _log_test_result(section, result)

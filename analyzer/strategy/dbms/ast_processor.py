@@ -352,11 +352,9 @@ class DbmsAstProcessor(BaseAstProcessor):
         file_content: str,
         directory: str,
         file_name: str,
-        user_id: str,
         api_key: str,
         locale: str,
         dbms: str,
-        project_name: str,
         last_line: int,
         default_schema: str = "public",
         ddl_table_metadata: Optional[Dict[Tuple[str, str], Dict[str, Any]]] = None,
@@ -368,10 +366,8 @@ class DbmsAstProcessor(BaseAstProcessor):
             file_content=file_content,
             directory=directory,
             file_name=file_name,
-            user_id=user_id,
             api_key=api_key,
             locale=locale,
-            project_name=project_name,
             last_line=last_line,
         )
         
@@ -380,7 +376,7 @@ class DbmsAstProcessor(BaseAstProcessor):
         self._ddl_table_metadata = ddl_table_metadata or {}
         self.name_case = (name_case or 'original').lower()  # original, uppercase, lowercase
         
-        self.table_base_props = f"user_id: '{user_id}'"
+        self.table_base_props = ""
         
         # 테이블/컬럼 설명 요약용 저장소 (DML 분석에서 수집)
         self._table_summary_store: Dict[Tuple[str, str], Dict[str, Any]] = {}
@@ -479,7 +475,7 @@ class DbmsAstProcessor(BaseAstProcessor):
             escaped_schema = escape_for_cypher(node.schema_name or "")
             schema_match = f"schema_name: '{escaped_schema}', " if node.schema_name else ""
             queries.append(
-                f"MERGE (n:{label} {{{schema_match}procedure_name: '{escaped_proc_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})\n"
+                f"MERGE (n:{label} {{{schema_match}procedure_name: '{escaped_proc_name}'}})\n"
                 f"SET n.startLine = {node.start_line}, n.directory = '{escape_for_cypher(self.full_directory)}', n.file_name = '{self.file_name}', {base_set_str}\n"
                 f"RETURN n"
             )
@@ -618,8 +614,7 @@ class DbmsAstProcessor(BaseAstProcessor):
                         proc_name = escape_for_cypher(proc_raw.strip())
                         queries.append(
                             f"MATCH (c:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
-                            f"MERGE (target:PROCEDURE {{directory: '{package_name}', procedure_name: '{proc_name}', "
-                            f"user_id: '{self.user_id}', project_name: '{self.project_name}'}})\n"
+                            f"MERGE (target:PROCEDURE {{directory: '{package_name}', procedure_name: '{proc_name}'}})\n"
                             f"MERGE (c)-[r:CALL {{scope: 'external'}}]->(target)\n"
                             f"RETURN c, target, r"
                         )
@@ -990,12 +985,12 @@ class DbmsAstProcessor(BaseAstProcessor):
                     if converted_schema_part:
                         escaped_schema_part = escape_for_cypher(converted_schema_part)
                         fqn = escape_for_cypher('.'.join(filter(None, [converted_schema_part, converted_name_part, column_name])).lower())
-                        # Column MERGE: user_id, fqn만 사용 (project_name 제외 - fqn이 고유함)
+                        # Column MERGE: fqn 기준 (고유키)
                         queries.append(
                             f"{table_merge_for_column}\nWITH t\n"
-                            f"MERGE (c:Column {{user_id: '{self.user_id}', fqn: '{fqn}'}})\n"
+                            f"MERGE (c:Column {{fqn: '{fqn}'}})\n"
                             f"SET c.name = '{escaped_col_name}', c.dtype = '{col_type}', "
-                            f"c.description = '{col_desc}', c.nullable = '{nullable}', c.project_name = '{self.project_name}'\n"
+                            f"c.description = '{col_desc}', c.description_source = 'procedure', c.nullable = '{nullable}'\n"
                             f"MERGE (t)-[r:HAS_COLUMN]->(c)\n"
                             f"RETURN t, c, r"
                         )
@@ -1003,12 +998,12 @@ class DbmsAstProcessor(BaseAstProcessor):
                         # schema가 없는 경우 동적 fqn 계산 대신 정적 fqn 사용
                         # (CASE WHEN 구문은 컬럼명 특수문자로 인해 구문 오류 발생 가능)
                         fqn = escape_for_cypher('.'.join(filter(None, [converted_name_part, column_name])).lower())
-                        # Column MERGE: user_id, fqn만 사용 (project_name 제외)
+                        # Column MERGE: fqn 기준
                         queries.append(
                             f"{table_merge_for_column}\nWITH t\n"
-                            f"MERGE (c:Column {{user_id: '{self.user_id}', fqn: '{fqn}'}})\n"
+                            f"MERGE (c:Column {{fqn: '{fqn}'}})\n"
                             f"ON CREATE SET c.name = '{escaped_col_name}', c.dtype = '{col_type}', "
-                            f"c.description = '{col_desc}', c.nullable = '{nullable}', c.project_name = '{self.project_name}'\n"
+                            f"c.description = '{col_desc}', c.description_source = 'procedure', c.nullable = '{nullable}'\n"
                             f"MERGE (t)-[r:HAS_COLUMN]->(c)\n"
                             f"RETURN t, c, r"
                         )
@@ -1028,7 +1023,7 @@ class DbmsAstProcessor(BaseAstProcessor):
                 queries.append(
                     f"{remote_merge}\nSET t.db_link = '{escaped_link_name}'\n"
                     f"WITH t\n"
-                    f"MERGE (l:DBLink {{user_id: '{self.user_id}', name: '{escaped_link_name}', project_name: '{self.project_name}'}})\n"
+                    f"MERGE (l:DBLink {{name: '{escaped_link_name}'}})\n"
                     f"MERGE (l)-[r1:CONTAINS]->(t)\n"
                     f"WITH t, l\n{node_merge}\n"
                     f"MERGE (n)-[r2:DB_LINK {{mode: '{mode}'}}]->(t)\n"
@@ -1058,8 +1053,8 @@ class DbmsAstProcessor(BaseAstProcessor):
                 effective_src_schema = src_schema if src_schema else self._apply_name_case(self.default_schema)
                 effective_tgt_schema = tgt_schema if tgt_schema else self._apply_name_case(self.default_schema)
                 
-                src_props = f"user_id: '{self.user_id}', schema: '{escape_for_cypher(effective_src_schema)}', name: '{escape_for_cypher(src_name)}', db: '{self.dbms}', project_name: '{self.project_name}'"
-                tgt_props = f"user_id: '{self.user_id}', schema: '{escape_for_cypher(effective_tgt_schema)}', name: '{escape_for_cypher(tgt_name)}', db: '{self.dbms}', project_name: '{self.project_name}'"
+                src_props = f"schema: '{escape_for_cypher(effective_src_schema)}', name: '{escape_for_cypher(src_name)}', db: '{self.dbms}'"
+                tgt_props = f"schema: '{escape_for_cypher(effective_tgt_schema)}', name: '{escape_for_cypher(tgt_name)}', db: '{self.dbms}'"
                 
                 # 각 FK 매핑마다 별도의 FK_TO_TABLE 관계 생성
                 # 속성: sourceColumn, targetColumn, type, source
@@ -1086,8 +1081,8 @@ class DbmsAstProcessor(BaseAstProcessor):
                     src_fqn = escape_for_cypher('.'.join(filter(None, [effective_src_schema, src_name, converted_src_col])).lower())
                     tgt_fqn = escape_for_cypher('.'.join(filter(None, [effective_tgt_schema, tgt_name, converted_tgt_col])).lower())
                     queries.append(
-                        f"MATCH (sc:Column {{user_id: '{self.user_id}', fqn: '{src_fqn}', project_name: '{self.project_name}'}})\n"
-                        f"MATCH (dc:Column {{user_id: '{self.user_id}', fqn: '{tgt_fqn}', project_name: '{self.project_name}'}})\n"
+                        f"MATCH (sc:Column {{fqn: '{src_fqn}'}})\n"
+                        f"MATCH (dc:Column {{fqn: '{tgt_fqn}'}})\n"
                         f"MERGE (sc)-[r:FK_TO]->(dc)\n"
                         f"RETURN sc, dc, r"
                     )
@@ -1127,13 +1122,11 @@ class DbmsAstProcessor(BaseAstProcessor):
             with_vars = "s"
         
         # Schema MERGE + Table MERGE + BELONGS_TO 관계
-        # MERGE 키: user_id, db, schema, name만 사용 (project_name 제외 - 같은 스키마/테이블명이면 같은 노드)
-        # project_name은 SET으로 설정하여 마지막 분석 프로젝트로 업데이트
+        # MERGE 키: db, schema, name만 사용 (같은 스키마/테이블명이면 같은 노드)
         return (
             f"MERGE (s:Schema {{db: '{self.dbms}', name: '{schema_value}'}})\n"
             f"WITH {with_vars}\n"
-            f"MERGE (t:Table {{{self.table_base_props}, name: '{escaped_name}', schema: '{schema_value}', db: '{self.dbms}'}})\n"
-            f"ON CREATE SET t.project_name = '{self.project_name}'\n"
+            f"MERGE (t:Table {{name: '{escaped_name}', schema: '{schema_value}', db: '{self.dbms}'}})\n"
             f"MERGE (t)-[:BELONGS_TO]->(s)"
         )
 
@@ -1297,10 +1290,9 @@ class DbmsAstProcessor(BaseAstProcessor):
         llm_table_desc = (result.get('tableDescription') or '').strip()
         escaped_schema = escape_for_cypher(schema_key)
         escaped_name = escape_for_cypher(name_key)
-        # MATCH 조건: user_id, db, schema, name만 사용 (project_name 제외)
-        # 스키마/테이블명이 같으면 같은 노드로 취급
+        # MATCH 조건: db, schema, name만 사용 (스키마/테이블명이 같으면 같은 노드로 취급)
         table_props = (
-            f"user_id: '{self.user_id}', schema: '{escaped_schema}', name: '{escaped_name}', db: '{self.dbms}'"
+            f"schema: '{escaped_schema}', name: '{escaped_name}', db: '{self.dbms}'"
         )
         
         if llm_table_desc:
@@ -1327,10 +1319,8 @@ class DbmsAstProcessor(BaseAstProcessor):
             escaped_column_name = escape_for_cypher(column_name)
             fqn = '.'.join(filter(None, [schema_key, name_key, column_name])).lower()
             escaped_fqn = escape_for_cypher(fqn)
-            # MATCH 조건: user_id, fqn만 사용 (project_name 제외)
-            column_props = (
-                f"user_id: '{self.user_id}', fqn: '{escaped_fqn}'"
-            )
+            # MATCH 조건: fqn 기준
+            column_props = f"fqn: '{escaped_fqn}'"
             escaped_llm_column_desc = escape_for_cypher(llm_column_desc)
             # 프로시저 분석 결과는 analyzed_description에 항상 저장
             # 기존 description이 비어있을 때만 description에도 저장 + description_source='procedure' 설정

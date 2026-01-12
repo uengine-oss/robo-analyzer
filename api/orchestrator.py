@@ -38,35 +38,20 @@ DEFAULT_EXTENSIONS = {".java", ".sql"}
 # 요청 파싱 헬퍼
 # =============================================================================
 
-def extract_user_id(request: Request) -> str:
-    """Session-UUID 헤더에서 사용자 ID 추출"""
-    user_id = request.headers.get("Session-UUID")
-    if not user_id:
-        raise HTTPException(400, "요청 헤더 누락: Session-UUID")
-    return user_id
-
-
-def extract_api_key(request: Request, user_id: str, missing_status: int = 401) -> str:
+def extract_api_key(request: Request, missing_status: int = 401) -> str:
     """API 키 추출 (헤더 → 환경 변수 순서로 폴백)"""
-    # 1. 테스트 세션이면 환경 변수 사용
-    if user_id in settings.test.test_sessions:
-        api_key = settings.llm.api_key
-        if not api_key:
-            raise HTTPException(missing_status, "환경 변수에 API 키가 설정되어 있지 않습니다.")
-        return api_key
-
-    # 2. 헤더에서 API 키 추출
+    # 1. 헤더에서 API 키 추출
     api_key = (
         request.headers.get("OpenAI-Api-Key") or
         request.headers.get("Anthropic-Api-Key")
     )
     
-    # 3. 헤더에 없으면 환경 변수에서 폴백
+    # 2. 헤더에 없으면 환경 변수에서 폴백
     if not api_key:
         api_key = settings.llm.api_key
     
     if not api_key:
-        raise HTTPException(401, "요청 헤더 누락: OpenAI-Api-Key 또는 Anthropic-Api-Key (환경변수 LLM_API_KEY도 설정되지 않음)")
+        raise HTTPException(missing_status, "요청 헤더 누락: OpenAI-Api-Key 또는 Anthropic-Api-Key (환경변수 LLM_API_KEY도 설정되지 않음)")
     return api_key
 
 
@@ -81,18 +66,11 @@ async def create_orchestrator(
     api_key_missing_status: int = 401,
 ) -> "AnalysisOrchestrator":
     """요청에서 AnalysisOrchestrator 생성 및 API 키 검증"""
-    user_id = extract_user_id(request)
-    api_key = extract_api_key(request, user_id, api_key_missing_status)
-    
-    project_name = body.get("projectName")
-    if not project_name:
-        raise HTTPException(400, "projectName이 없습니다.")
+    api_key = extract_api_key(request, api_key_missing_status)
     
     orchestrator = AnalysisOrchestrator(
-        user_id=user_id,
         api_key=api_key,
         locale=extract_locale(request),
-        project_name=project_name,
         strategy=(body.get("strategy") or "framework").strip().lower(),
         target=(body.get("target") or "java").strip().lower(),
         name_case=(body.get("nameCase") or "original").strip().lower(),
@@ -109,53 +87,37 @@ class AnalysisOrchestrator:
     """소스 코드 분석 프로세스를 관리하는 오케스트레이터
     
     Attributes:
-        user_id: 사용자 세션 ID
         api_key: LLM API 키
         locale: 출력 언어 (ko, en)
-        project_name: 프로젝트명
         strategy: 분석 전략 (framework, dbms)
         target: 타겟 언어 (java, oracle 등)
         name_case: 메타데이터 대소문자 변환 옵션 (original, uppercase, lowercase)
     """
 
     __slots__ = (
-        "user_id", "api_key", "locale", "project_name", 
-        "strategy", "target", "name_case", "project_name_cap", "_user_base", "dirs"
+        "api_key", "locale", "strategy", "target", "name_case", "dirs"
     )
 
     def __init__(
         self,
-        user_id: str,
         api_key: str,
         locale: str,
-        project_name: str,
         strategy: str = "framework",
         target: str = "java",
         name_case: str = "original",
     ):
-        self.user_id = user_id
         self.api_key = api_key
         self.locale = locale
-        self.project_name = project_name
         self.strategy = (strategy or "framework").lower()
         self.target = (target or "java").lower()
         self.name_case = (name_case or "original").lower()  # original, uppercase, lowercase
-        self.project_name_cap = project_name.capitalize() if project_name else ""
         
         # 디렉토리 경로 초기화
-        self._user_base = ""
-        self.dirs = {}
-        if project_name:
-            self._user_base = os.path.join(
-                settings.path.data_dir,
-                user_id,
-                project_name,
-            )
-            self.dirs = {
-                "ddl": os.path.join(self._user_base, "ddl"),
-                "src": os.path.join(self._user_base, "source"),
-                "analysis": os.path.join(self._user_base, "analysis"),
-            }
+        self.dirs = {
+            "ddl": os.path.join(settings.path.data_dir, "ddl"),
+            "src": os.path.join(settings.path.data_dir, "source"),
+            "analysis": os.path.join(settings.path.data_dir, "analysis"),
+        }
 
     # -------------------------------------------------------------------------
     # 디렉토리 경로
@@ -237,10 +199,7 @@ class AnalysisOrchestrator:
     # -------------------------------------------------------------------------
 
     async def validate_api_key(self) -> None:
-        """API 키 유효성 검증 (테스트 세션은 스킵)"""
-        if self.user_id in settings.test.test_sessions:
-            return
-        
+        """API 키 유효성 검증"""
         try:
             llm = get_llm(api_key=self.api_key)
             if not llm.invoke("ping"):
@@ -273,14 +232,14 @@ class AnalysisOrchestrator:
     # -------------------------------------------------------------------------
 
     async def cleanup_neo4j_data(self) -> None:
-        """Neo4j 그래프 데이터만 삭제 (파일 시스템 유지)"""
+        """Neo4j 그래프 데이터 삭제 (파일 시스템 유지)"""
         client = Neo4jClient()
         
         try:
             await client.execute_queries([
-                f"MATCH (n {{user_id: '{self.user_id}'}}) DETACH DELETE n"
+                "MATCH (n) DETACH DELETE n"
             ])
-            logging.info("Neo4j 데이터 삭제 완료 (파일 유지): %s", self.user_id)
+            logging.info("Neo4j 데이터 삭제 완료")
         
         except Exception as e:
             logging.error("Neo4j 데이터 삭제 오류: %s", e)
@@ -289,7 +248,7 @@ class AnalysisOrchestrator:
             await client.close()
 
     async def cleanup_all_data(self, include_files: bool = True) -> None:
-        """사용자 데이터 전체 삭제
+        """데이터 전체 삭제
         
         Args:
             include_files: True면 파일 시스템도 함께 삭제, False면 Neo4j만 삭제
@@ -299,7 +258,7 @@ class AnalysisOrchestrator:
         try:
             # 파일 시스템 정리 (옵션)
             if include_files:
-                dir_path = os.path.join(settings.path.data_dir, self.user_id)
+                dir_path = settings.path.data_dir
                 if os.path.exists(dir_path):
                     shutil.rmtree(dir_path)
                     os.makedirs(dir_path)
@@ -307,9 +266,9 @@ class AnalysisOrchestrator:
             
             # Neo4j 데이터 삭제
             await client.execute_queries([
-                f"MATCH (n {{user_id: '{self.user_id}'}}) DETACH DELETE n"
+                "MATCH (n) DETACH DELETE n"
             ])
-            logging.info("Neo4j 데이터 삭제 완료: %s", self.user_id)
+            logging.info("Neo4j 데이터 삭제 완료")
         
         except Exception as e:
             logging.error("데이터 삭제 오류: %s", e)

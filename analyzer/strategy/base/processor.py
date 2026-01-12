@@ -60,10 +60,8 @@ class BaseAstProcessor(ABC):
         file_content: str,
         directory: str,
         file_name: str,
-        user_id: str,
         api_key: str,
         locale: str,
-        project_name: str,
         last_line: int,
     ):
         """공통 초기화"""
@@ -75,17 +73,14 @@ class BaseAstProcessor(ABC):
         normalized_dir = directory.replace('\\', '/') if directory else ''
         self.directory = normalized_dir
         self.file_name = file_name
-        self.user_id = user_id
         self.api_key = api_key
         self.locale = locale
-        self.project_name = project_name or ''
         
         # full_directory: 디렉토리 + 파일명 (Neo4j directory 속성으로 사용)
         self.full_directory = f"{normalized_dir}/{file_name}" if normalized_dir else file_name
 
         self.node_base_props = (
-            f"directory: '{escape_for_cypher(self.full_directory)}', file_name: '{file_name}', "
-            f"user_id: '{user_id}', project_name: '{self.project_name}'"
+            f"directory: '{escape_for_cypher(self.full_directory)}', file_name: '{file_name}'"
         )
         
         self.max_workers = MAX_CONCURRENCY
@@ -119,20 +114,6 @@ class BaseAstProcessor(ABC):
     def _build_relationship_queries(self) -> List[str]:
         """정적 관계 쿼리를 생성합니다."""
         raise NotImplementedError
-
-    def _build_project_file_relationship(self) -> List[str]:
-        """Project → File (CONTAINS) 관계 쿼리를 생성합니다.
-        
-        공통 구현: 모든 전략에서 동일한 쿼리 사용.
-        """
-        escaped_file_name = escape_for_cypher(self.file_name)
-        escaped_dir = escape_for_cypher(self.full_directory)
-        return [
-            f"MATCH (p:Project {{user_id: '{self.user_id}', name: '{escape_for_cypher(self.project_name)}'}})\n"
-            f"MATCH (f:FILE {{startLine: 1, directory: '{escaped_dir}', file_name: '{escaped_file_name}', user_id: '{self.user_id}', project_name: '{self.project_name}'}})\n"
-            f"MERGE (p)-[r:CONTAINS]->(f)\n"
-            f"RETURN r"
-        ]
 
     @abstractmethod
     async def _run_preprocessing(self) -> List[str]:
@@ -247,15 +228,8 @@ class BaseAstProcessor(ABC):
         
         # 정적 노드 쿼리 생성
         queries: List[str] = []
-        file_node = None
         for node in self._nodes:
             queries.extend(self._build_static_node_queries(node))
-            if node.node_type == "FILE":
-                file_node = node
-        
-        # Project → File (CONTAINS) 관계 생성
-        if file_node:
-            queries.extend(self._build_project_file_relationship())
         
         # 관계 쿼리 생성
         queries.extend(self._build_relationship_queries())

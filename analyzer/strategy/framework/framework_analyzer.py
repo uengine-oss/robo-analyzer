@@ -166,28 +166,26 @@ class FrameworkAnalyzer(BaseStreamingAnalyzer):
         orchestrator: Any,
     ) -> Optional[str]:
         """분석된 클래스에서 User Story 문서 생성"""
-        query = f"""
+        query = """
             MATCH (n)
             WHERE (n:CLASS OR n:INTERFACE)
-              AND n.user_id = '{escape_for_cypher(orchestrator.user_id)}'
-              AND n.project_name = '{escape_for_cypher(orchestrator.project_name)}'
               AND n.summary IS NOT NULL
             OPTIONAL MATCH (n)-[:HAS_USER_STORY]->(us:UserStory)
             OPTIONAL MATCH (us)-[:HAS_AC]->(ac:AcceptanceCriteria)
-            WITH n, us, collect(DISTINCT {{
+            WITH n, us, collect(DISTINCT {
                 id: ac.id,
                 title: ac.title,
                 given: ac.given,
                 when: ac.when,
                 then: ac.then
-            }}) AS acceptance_criteria
-            WITH n, collect(DISTINCT {{
+            }) AS acceptance_criteria
+            WITH n, collect(DISTINCT {
                 id: us.id,
                 role: us.role,
                 goal: us.goal,
                 benefit: us.benefit,
                 acceptance_criteria: acceptance_criteria
-            }}) AS user_stories
+            }) AS user_stories
             RETURN n.class_name AS name, 
                    n.summary AS summary,
                    user_stories AS user_stories, 
@@ -217,7 +215,7 @@ class FrameworkAnalyzer(BaseStreamingAnalyzer):
         log_process("ANALYZE", "USER_STORY", f"User Story 생성 | 대상={len(filtered)}개 클래스")
         return generate_user_story_document(
             results=filtered,
-            source_name=orchestrator.project_name,
+            source_name="ROBO",
             source_type="Java 클래스/인터페이스",
         )
 
@@ -283,10 +281,8 @@ class FrameworkAnalyzer(BaseStreamingAnalyzer):
                         file_content="".join(ctx.source_lines),
                         directory=ctx.directory,
                         file_name=ctx.file_name,
-                        user_id=orchestrator.user_id,
                         api_key=orchestrator.api_key,
                         locale=orchestrator.locale,
-                        project_name=orchestrator.project_name,
                         last_line=len(ctx.source_lines),
                     )
                     ctx.processor = processor

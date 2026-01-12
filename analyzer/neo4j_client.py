@@ -45,9 +45,9 @@ class Neo4jClient:
     # 유니크 제약조건 쿼리
     _CONSTRAINT_QUERIES = [
         "CREATE CONSTRAINT table_unique IF NOT EXISTS FOR (t:Table) "
-        "REQUIRE (t.user_id, t.project_name, t.schema, t.name) IS UNIQUE",
+        "REQUIRE (t.db, t.schema, t.name) IS UNIQUE",
         "CREATE CONSTRAINT column_unique IF NOT EXISTS FOR (c:Column) "
-        "REQUIRE (c.user_id, c.project_name, c.fqn) IS UNIQUE",
+        "REQUIRE (c.fqn) IS UNIQUE",
     ]
 
     def __init__(self, database: Optional[str] = None):
@@ -193,13 +193,11 @@ class Neo4jClient:
 
     async def check_nodes_exist(
         self,
-        user_id: str,
         file_names: list[tuple[str, str]],
     ) -> bool:
         """지정된 파일에 해당하는 노드 존재 여부 확인
         
         Args:
-            user_id: 사용자 ID
             file_names: [(directory, file_name), ...] 튜플 리스트
             
         Returns:
@@ -211,15 +209,14 @@ class Neo4jClient:
         query = """
             UNWIND $pairs as target
             MATCH (n)
-            WHERE n.user_id = $user_id
-              AND n.directory = target.directory
+            WHERE n.directory = target.directory
               AND n.file_name = target.file_name
             RETURN COUNT(n) > 0 AS exists
         """
         
         try:
             pairs = [{"directory": d, "file_name": f} for d, f in file_names]
-            params = {"pairs": pairs, "user_id": user_id}
+            params = {"pairs": pairs}
 
             async with self._driver.session(database=self._database) as session:
                 result = await session.run(query, params)

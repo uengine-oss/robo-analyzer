@@ -98,7 +98,7 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
         self._file_semaphore = asyncio.Semaphore(settings.concurrency.file_concurrency)
         
         # 파이프라인 상태 초기화
-        pipeline_state = pipeline_controller.get_state(orchestrator.user_id)
+        pipeline_state = pipeline_controller.get_state()
 
         # LLM 캐시 상태 표시
         if settings.llm.cache_enabled:
@@ -254,28 +254,26 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
         orchestrator: Any,
     ) -> Optional[str]:
         """분석된 프로시저에서 User Story 문서 생성"""
-        query = f"""
+        query = """
             MATCH (n)
             WHERE (n:PROCEDURE OR n:FUNCTION OR n:TRIGGER)
-              AND n.user_id = '{escape_for_cypher(orchestrator.user_id)}'
-              AND n.project_name = '{escape_for_cypher(orchestrator.project_name)}'
               AND n.summary IS NOT NULL
             OPTIONAL MATCH (n)-[:HAS_USER_STORY]->(us:UserStory)
             OPTIONAL MATCH (us)-[:HAS_AC]->(ac:AcceptanceCriteria)
-            WITH n, us, collect(DISTINCT {{
+            WITH n, us, collect(DISTINCT {
                 id: ac.id,
                 title: ac.title,
                 given: ac.given,
                 when: ac.when,
                 then: ac.then
-            }}) AS acceptance_criteria
-            WITH n, collect(DISTINCT {{
+            }) AS acceptance_criteria
+            WITH n, collect(DISTINCT {
                 id: us.id,
                 role: us.role,
                 goal: us.goal,
                 benefit: us.benefit,
                 acceptance_criteria: acceptance_criteria
-            }}) AS user_stories
+            }) AS user_stories
             RETURN n.procedure_name AS name, 
                    n.summary AS summary,
                    user_stories AS user_stories, 
@@ -302,7 +300,7 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
         log_process("ANALYZE", "USER_STORY", f"User Story 생성 | 대상={len(filtered)}개 프로시저")
         return generate_user_story_document(
             results=filtered,
-            source_name=orchestrator.project_name,
+            source_name="ROBO",
             source_type="DBMS 프로시저/함수",
         )
 
@@ -469,9 +467,7 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
         queries = []
         # db 속성은 DML 처리(ast_processor)와 일관성을 위해 소문자로 변환
         common = {
-            "user_id": orchestrator.user_id,
             "db": (orchestrator.target or 'postgres').lower(),
-            "project_name": orchestrator.project_name,
         }
         
         # 대소문자 변환 옵션
@@ -505,10 +501,9 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
             if schema and schema.lower() != 'public':
                 self._ddl_schemas.add(schema.lower())
 
-            # Table 노드 생성 (MERGE 키: user_id, db, schema, name만 사용 - project_name 제외)
+            # Table 노드 생성 (MERGE 키: db, schema, name 사용)
             # 같은 스키마/테이블명이면 같은 노드로 취급해야 함
             merge_key = {
-                "user_id": orchestrator.user_id,
                 "db": common["db"],
                 "schema": schema,
                 "name": parsed_name
@@ -581,7 +576,7 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
                 fqn = ".".join(filter(None, [schema, parsed_name, col_name])).lower()
                 escaped_fqn = escape_for_cypher(fqn)
 
-                col_merge = {"user_id": orchestrator.user_id, "fqn": escaped_fqn, "project_name": orchestrator.project_name}
+                col_merge = {"fqn": escaped_fqn}
                 col_merge_str = ", ".join(f"`{k}`: '{v}'" for k, v in col_merge.items())
                 col_set = {
                     "name": escape_for_cypher(col_name),
@@ -589,7 +584,6 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
                     "description": escape_for_cypher(col_comment),
                     "description_source": "ddl" if col_comment else "",  # DDL에서 추출된 설명
                     "nullable": "true" if col_nullable else "false",
-                    "project_name": orchestrator.project_name,
                     "fqn": escaped_fqn,
                 }
                 if col_name_raw.upper() in primary_keys:  # PK 체크는 원본 대문자로
@@ -622,9 +616,8 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
                 src_col = self._apply_name_case(src_col_raw, name_case)
                 ref_col = self._apply_name_case(ref_col_raw, name_case)
 
-                # 참조 테이블 MERGE (project_name 제외 - 스키마/이름으로만 매칭)
+                # 참조 테이블 MERGE (스키마/이름으로만 매칭)
                 ref_table_merge = {
-                    "user_id": orchestrator.user_id,
                     "db": common["db"],
                     "schema": ref_schema_final or "",
                     "name": ref_table or ""
@@ -735,11 +728,9 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
                         file_content="".join(ctx.source_lines),
                         directory=ctx.directory,
                         file_name=ctx.file_name,
-                        user_id=orchestrator.user_id,
                         api_key=orchestrator.api_key,
                         locale=orchestrator.locale,
                         dbms=orchestrator.target,
-                        project_name=orchestrator.project_name,
                         last_line=len(ctx.source_lines),
                         default_schema=default_schema,
                         ddl_table_metadata=self._ddl_table_metadata,
@@ -962,15 +953,12 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
         openai_client = AsyncOpenAI(api_key=api_key)
         embedding_client = EmbeddingClient(openai_client)
         
-        user_id = escape_for_cypher(orchestrator.user_id)
-        
         # 테이블 벡터라이징
         yield emit_message("   📊 테이블 벡터라이징 중...")
         
-        table_query = f"""
+        table_query = """
         MATCH (t:Table)
-        WHERE t.user_id = '{user_id}'
-          AND (t.vector IS NULL OR size(t.vector) = 0)
+        WHERE (t.vector IS NULL OR size(t.vector) = 0)
           AND (t.description IS NOT NULL OR t.analyzed_description IS NOT NULL)
         RETURN elementId(t) AS tid, 
                t.name AS name,
@@ -1014,10 +1002,9 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
         # 컬럼 벡터라이징
         yield emit_message("   📊 컬럼 벡터라이징 중...")
         
-        column_query = f"""
+        column_query = """
         MATCH (t:Table)-[:HAS_COLUMN]->(c:Column)
-        WHERE t.user_id = '{user_id}'
-          AND (c.vector IS NULL OR size(c.vector) = 0)
+        WHERE (c.vector IS NULL OR size(c.vector) = 0)
           AND c.description IS NOT NULL AND c.description <> ''
         RETURN elementId(c) AS cid,
                c.name AS column_name,

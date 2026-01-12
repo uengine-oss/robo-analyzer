@@ -44,7 +44,6 @@ class ProcedureInfo:
     name: str
     file_name: str
     directory: str
-    project_name: str
     start_line: int
     end_line: int
     summary: str
@@ -114,7 +113,6 @@ class ProcedureAnalyzer:
             name=props.get('procedure_name', 'UNKNOWN'),
             file_name=props.get('file_name', ''),
             directory=props.get('directory', ''),
-            project_name=props.get('project_name', ''),
             start_line=props.get('startLine', 0),
             end_line=props.get('endLine', 0),
             summary=props.get('summary', ''),
@@ -609,7 +607,6 @@ class ProcedureAnalyzer:
                     <div class="procedure-meta">
                         📁 파일: {html_escape(proc.file_name)} | 
                         📂 디렉토리: {html_escape(proc.directory)} | 
-                        📦 프로젝트: {html_escape(proc.project_name)} | 
                         📏 라인: {proc.start_line}-{proc.end_line} ({proc.end_line - proc.start_line + 1} lines)
                     </div>
                 </div>

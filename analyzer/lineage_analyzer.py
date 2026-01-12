@@ -80,12 +80,8 @@ class LineageAnalyzer:
     
     def __init__(
         self,
-        user_id: str,
-        project_name: str,
         dbms: str = "oracle",
     ):
-        self.user_id = user_id
-        self.project_name = project_name
         self.dbms = dbms.lower()
     
     def analyze_sql_content(self, sql_content: str, file_name: str = "") -> list[LineageInfo]:
@@ -233,17 +229,12 @@ class LineageAnalyzer:
         queries = []
         stats = {"etl_nodes": 0, "data_sources": 0, "data_flows": 0}
         
-        user_id = escape_for_cypher(self.user_id)
-        project_name = escape_for_cypher(self.project_name)
-        
         for lineage in lineage_list:
             etl_name = escape_for_cypher(lineage.etl_name)
             
             # ETL 프로세스 노드 생성
             queries.append(f"""
                 MERGE (etl:ETLProcess {{
-                    user_id: '{user_id}',
-                    project_name: '{project_name}',
                     name: '{etl_name}'
                 }})
                 SET etl.operation_type = '{lineage.operation_type}',
@@ -259,8 +250,6 @@ class LineageAnalyzer:
                 source_name = escape_for_cypher(source)
                 queries.append(f"""
                     MERGE (ds:DataSource {{
-                        user_id: '{user_id}',
-                        project_name: '{project_name}',
                         name: '{source_name}'
                     }})
                     SET ds.type = 'SOURCE'
@@ -271,13 +260,9 @@ class LineageAnalyzer:
                 # 소스 → ETL 관계
                 queries.append(f"""
                     MATCH (ds:DataSource {{
-                        user_id: '{user_id}',
-                        project_name: '{project_name}',
                         name: '{source_name}'
                     }})
                     MATCH (etl:ETLProcess {{
-                        user_id: '{user_id}',
-                        project_name: '{project_name}',
                         name: '{etl_name}'
                     }})
                     MERGE (ds)-[r:DATA_FLOW_TO]->(etl)
@@ -291,8 +276,6 @@ class LineageAnalyzer:
                 target_name = escape_for_cypher(target)
                 queries.append(f"""
                     MERGE (ds:DataSource {{
-                        user_id: '{user_id}',
-                        project_name: '{project_name}',
                         name: '{target_name}'
                     }})
                     SET ds.type = 'TARGET'
@@ -303,13 +286,9 @@ class LineageAnalyzer:
                 # ETL → 타겟 관계
                 queries.append(f"""
                     MATCH (etl:ETLProcess {{
-                        user_id: '{user_id}',
-                        project_name: '{project_name}',
                         name: '{etl_name}'
                     }})
                     MATCH (ds:DataSource {{
-                        user_id: '{user_id}',
-                        project_name: '{project_name}',
                         name: '{target_name}'
                     }})
                     MERGE (etl)-[r:DATA_FLOW_TO]->(ds)
@@ -325,13 +304,9 @@ class LineageAnalyzer:
                     target_name = escape_for_cypher(target)
                     queries.append(f"""
                         MATCH (src:DataSource {{
-                            user_id: '{user_id}',
-                            project_name: '{project_name}',
                             name: '{source_name}'
                         }})
                         MATCH (tgt:DataSource {{
-                            user_id: '{user_id}',
-                            project_name: '{project_name}',
                             name: '{target_name}'
                         }})
                         MERGE (src)-[r:TRANSFORMS_TO]->(tgt)
@@ -353,8 +328,6 @@ class LineageAnalyzer:
 
 async def analyze_lineage_from_sql(
     sql_content: str,
-    user_id: str,
-    project_name: str,
     file_name: str = "",
     dbms: str = "oracle",
 ) -> tuple[list[LineageInfo], dict]:
@@ -362,8 +335,6 @@ async def analyze_lineage_from_sql(
     
     Args:
         sql_content: SQL 소스 코드
-        user_id: 사용자 ID
-        project_name: 프로젝트명
         file_name: 파일명
         dbms: DBMS 타입
         
@@ -371,8 +342,6 @@ async def analyze_lineage_from_sql(
         (LineageInfo 리스트, 저장 통계)
     """
     analyzer = LineageAnalyzer(
-        user_id=user_id,
-        project_name=project_name,
         dbms=dbms,
     )
     

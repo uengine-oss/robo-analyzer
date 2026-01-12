@@ -639,14 +639,12 @@ uvicorn main:app --host 0.0.0.0 --port 5502 --reload
 소스 코드를 분석하여 Neo4j 그래프 데이터 생성
 
 **Request Headers:**
-- `Session-UUID`: 사용자 세션 ID (필수)
 - `OpenAI-Api-Key`: LLM API 키 (필수)
 - `Accept-Language`: 출력 언어 (기본: `ko`)
 
 **Request Body:**
 ```json
 {
-  "projectName": "my-project",
   "strategy": "framework",  // "framework" 또는 "dbms"
   "target": "java"          // "java", "oracle" 등
 }
@@ -661,7 +659,6 @@ uvicorn main:app --host 0.0.0.0 --port 5502 --reload
 1. **message** (진행 상황 메시지)
 ```json
 {"type": "message", "content": "🚀 프레임워크 코드 분석을 시작합니다"}
-{"type": "message", "content": "📦 프로젝트: my-project"}
 {"type": "message", "content": "🏗️ [Phase 1] AST 구조 그래프 생성 (10개 파일 병렬)"}
 ```
 
@@ -676,10 +673,10 @@ uvicorn main:app --host 0.0.0.0 --port 5502 --reload
         "Labels": ["CLASS"],
         "Properties": {
           "class_name": "OrderService",
-          "user_id": "user-123",
-          "project_name": "my-project",
           "startLine": 10,
-          "endLine": 150
+          "endLine": 150,
+          "directory": "com/example",
+          "file_name": "OrderService.java"
         }
       }
     ],
@@ -718,10 +715,8 @@ uvicorn main:app --host 0.0.0.0 --port 5502 --reload
 ```bash
 curl -X POST http://localhost:5502/robo/analyze/ \
   -H "Content-Type: application/json" \
-  -H "Session-UUID: your-session-id" \
   -H "OpenAI-Api-Key: your-api-key" \
   -d '{
-    "projectName": "my-project",
     "strategy": "framework",
     "target": "java"
   }'
@@ -732,7 +727,7 @@ curl -X POST http://localhost:5502/robo/analyze/ \
 사용자 데이터 전체 삭제 (임시 파일 + Neo4j 그래프)
 
 **Request Headers:**
-- `Session-UUID`: 세션 UUID (필수)
+- `OpenAI-Api-Key`: LLM API 키 (필수, 데이터 삭제 시)
 
 **Response:**
 ```json
@@ -796,9 +791,7 @@ Framework 분석은 3단계로 진행됩니다:
 **Cypher 쿼리 예시:**
 ```cypher
 MERGE (n:CLASS {
-  class_name: 'OrderService',
-  user_id: 'user-123',
-  project_name: 'my-project'
+  class_name: 'OrderService'
 })
 SET n.startLine = 10,
     n.endLine = 150,
@@ -828,9 +821,7 @@ RETURN n
 MATCH (src:CLASS {
   startLine: 10,
   directory: 'com/example',
-  file_name: 'OrderService.java',
-  user_id: 'user-123',
-  project_name: 'my-project'
+  file_name: 'OrderService.java'
 })
 SET src.summary = '주문 서비스를 제공하는 클래스입니다...'
 RETURN src
@@ -840,8 +831,6 @@ RETURN src
 MATCH (src:CLASS {...})
 MATCH (dst:CLASS)
 WHERE toLower(dst.class_name) = toLower('OrderRepository')
-  AND dst.user_id = 'user-123'
-  AND dst.project_name = 'my-project'
 MERGE (src)-[r:CALLS {method: 'save'}]->(dst)
 RETURN r
 ```
@@ -944,8 +933,6 @@ DDL 파일에서 테이블/컬럼 스키마를 추출합니다.
   "Labels": ["CLASS"],
   "Properties": {
     "class_name": "OrderService",
-    "user_id": "user-123",
-    "project_name": "my-project",
     "directory": "com/example",
     "file_name": "OrderService.java",
     "startLine": 10,
@@ -962,8 +949,6 @@ DDL 파일에서 테이블/컬럼 스키마를 추출합니다.
   "Labels": ["METHOD"],
   "Properties": {
     "name": "save",
-    "user_id": "user-123",
-    "project_name": "my-project",
     "directory": "com/example",
     "file_name": "OrderService.java",
     "startLine": 20,
@@ -1022,14 +1007,12 @@ DDL 파일에서 테이블/컬럼 스키마를 추출합니다.
   "Labels": ["PROCEDURE"],
   "Properties": {
     "procedure_name": "CREATE_ORDER",
-    "user_id": "user-123",
-    "project_name": "my-project",
     "directory": "procedures",
     "file_name": "order_proc.sql",
     "startLine": 10,
     "endLine": 50,
     "summary": "주문을 생성하는 프로시저입니다...",
-    "schema": "ORDER_SCHEMA"
+    "schema_name": "ORDER_SCHEMA"
   }
 }
 ```
@@ -1041,8 +1024,7 @@ DDL 파일에서 테이블/컬럼 스키마를 추출합니다.
   "Properties": {
     "name": "ORDERS",
     "schema": "ORDER_SCHEMA",
-    "user_id": "user-123",
-    "project_name": "my-project",
+    "db": "postgres",
     "description": "주문 테이블",
     "table_type": "BASE TABLE"
   }

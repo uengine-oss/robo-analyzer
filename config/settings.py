@@ -110,14 +110,6 @@ class PathConfig:
 
 
 @dataclass(frozen=True)
-class TestConfig:
-    """테스트 설정"""
-    test_sessions: frozenset = field(default_factory=lambda: frozenset({"EN_TestSession", "KO_TestSession"}))
-    test_user_id: str = field(default_factory=lambda: os.getenv("TEST_USER_ID", "EN_TestSession"))
-    test_project_name: str = field(default_factory=lambda: os.getenv("TEST_PROJECT_NAME", "test"))
-
-
-@dataclass(frozen=True)
 class AnalyzerConfig:
     """ROBO Analyzer 통합 설정"""
     neo4j: Neo4jConfig = field(default_factory=Neo4jConfig)
@@ -125,7 +117,6 @@ class AnalyzerConfig:
     concurrency: ConcurrencyConfig = field(default_factory=ConcurrencyConfig)
     batch: BatchConfig = field(default_factory=BatchConfig)
     path: PathConfig = field(default_factory=PathConfig)
-    test: TestConfig = field(default_factory=TestConfig)
     
     # API 설정
     api_prefix: str = "/robo"
