@@ -71,7 +71,8 @@ def parse_table_identifier(qualified_table_name: str) -> tuple[str, str, str | N
     """'SCHEMA.TABLE@DBLINK'에서 (schema, table, dblink) 추출
     
     따옴표(", ', `, [])를 자동으로 제거합니다.
-    예: "RWIS"."TABLE" → (rwis, table, None)
+    원본 대소문자를 유지합니다 (name_case 옵션에서 변환 처리).
+    예: "RWIS"."TABLE" → (RWIS, TABLE, None)
     """
     if not qualified_table_name:
         return '', '', None
@@ -96,9 +97,10 @@ def parse_table_identifier(qualified_table_name: str) -> tuple[str, str, str | N
     table_raw = strip_quotes(t.strip()) if t else strip_quotes(left.strip())
     link_raw = strip_quotes(link.strip()) if link.strip() else None
 
-    schema = (schema_raw or '').lower()
-    table = (table_raw or '').lower()
-    db_link = link_raw.lower() if link_raw else None
+    # 원본 대소문자 유지 (name_case 옵션에서 변환 처리)
+    schema = schema_raw or ''
+    table = table_raw or ''
+    db_link = link_raw if link_raw else None
 
     return schema, table, db_link
 

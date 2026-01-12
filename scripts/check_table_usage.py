@@ -12,20 +12,11 @@ from pathlib import Path
 
 # ==================== 설정 (하드코딩) ====================
 # 검색할 경로
-SEARCH_PATH = r"C:\uEngine\Legacy-modernizer\data\TestSession\waterrwis\ddl"
+SEARCH_PATH = r"D:\다운로드\output\real-scheme\sp\RWIS"
 
 # 검색할 문자열 (대소문자 구분 없이 검색)
 SEARCH_STRINGS = [
-    "rdzgacode_tb",
-    "rdievent_tb",
-    "rdisaup_tb",
-    "rditagunit_tb",
-    "rdr01mi_tb_old",
-    "rdzgahighlist_tb",
-    "rdzgalist_tb",
-    "rditag_tb",
-    "watersisul_log_tb",
-    "tmp_ins_tran2fa_rditag_tb"
+    "tmp_up_tran2fa_rditag_tb"
     # 추가 문자열을 여기에 추가할 수 있습니다
 ]
 

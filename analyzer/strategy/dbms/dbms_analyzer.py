@@ -493,7 +493,7 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
             qualified = f"{schema_raw}.{table_name_raw}" if schema_raw else table_name_raw
             parsed_schema, parsed_name, _ = parse_table_identifier(qualified)
             
-            # parse_table_identifier가 소문자로 변환하므로, 여기서 다시 대소문자 변환 적용
+            # name_case 옵션에 따라 대소문자 변환 적용
             schema = self._apply_name_case(parsed_schema if parsed_schema else "public", name_case)
             parsed_name = self._apply_name_case(parsed_name, name_case)
             
