@@ -893,9 +893,25 @@ class DbmsAstProcessor(BaseAstProcessor):
                     continue
                 
                 schema_part_raw, name_part_raw, db_link_value = parse_table_identifier(table_name)
-                # 대소문자 변환 적용 (_build_table_merge 내부에서도 적용되지만 bucket_key 등에도 필요)
-                schema_part = self._apply_name_case(schema_part_raw)
-                name_part = self._apply_name_case(name_part_raw)
+                
+                # DDL 캐시에서 원본 대소문자 조회
+                # LLM이 반환한 테이블명이 DDL에 존재하면 DDL의 대소문자를 사용
+                # 이렇게 하면 DDL 테이블과 동일한 노드에 업데이트됨
+                effective_schema = schema_part_raw if schema_part_raw else self.default_schema
+                ddl_lookup_key = (effective_schema.lower() if effective_schema else 'public', name_part_raw.lower())
+                ddl_meta = self._ddl_table_metadata.get(ddl_lookup_key, {})
+                
+                # DDL 캐시에서 조회 성공 여부
+                skip_case_conversion = False
+                if ddl_meta and ddl_meta.get('original_name'):
+                    # DDL에 존재하는 테이블: DDL의 원본 대소문자 사용
+                    schema_part = ddl_meta.get('original_schema', self._apply_name_case(effective_schema or 'public'))
+                    name_part = ddl_meta.get('original_name')
+                    skip_case_conversion = True  # 이미 DDL에서 변환된 값이므로 다시 변환하지 않음
+                else:
+                    # DDL에 없는 테이블: name_case 변환 적용
+                    schema_part = self._apply_name_case(schema_part_raw)
+                    name_part = self._apply_name_case(name_part_raw)
                 
                 access_mode = (entry.get('accessMode') or entry.get('mode') or 'r').lower()
                 rel_types = []
@@ -904,10 +920,10 @@ class DbmsAstProcessor(BaseAstProcessor):
                 if 'w' in access_mode:
                     rel_types.append(TABLE_RELATIONSHIP_MAP.get('w', 'WRITES'))
                 
-                table_merge = self._build_table_merge(name_part, schema_part, preserve_vars=['n'])
+                table_merge = self._build_table_merge(name_part, schema_part, preserve_vars=['n'], skip_case_conversion=skip_case_conversion)
                 
                 table_desc_raw = entry.get('tableDescription') or entry.get('description') or ''
-                bucket_key = self._record_table_summary(schema_part, name_part, table_desc_raw)
+                bucket_key = self._record_table_summary(schema_part, name_part, table_desc_raw, skip_case_conversion=skip_case_conversion)
                 
                 table_query = f"{node_merge}\nWITH n\n{table_merge}\nSET t.db = coalesce(t.db, '{self.dbms}')"
                 
@@ -921,15 +937,30 @@ class DbmsAstProcessor(BaseAstProcessor):
                 queries.append(table_query)
                 
                 # 컬럼 처리 (컬럼용은 preserve_vars=None으로 별도 생성)
-                table_merge_for_column = self._build_table_merge(name_part, schema_part, preserve_vars=None)
+                table_merge_for_column = self._build_table_merge(name_part, schema_part, preserve_vars=None, skip_case_conversion=skip_case_conversion)
+                
+                # DDL 컬럼 메타데이터 조회 (원본 대소문자 사용을 위해)
+                ddl_columns = ddl_meta.get('columns', {}) if ddl_meta else {}
                 
                 for column in entry.get('columns', []) or []:
                     column_name_raw = (column.get('name') or '').strip()
                     if not column_name_raw:
                         continue
                     
-                    # 대소문자 변환 적용
-                    column_name = self._apply_name_case(column_name_raw)
+                    # DDL 캐시에서 컬럼의 원본 대소문자 조회
+                    # DDL 컬럼은 이미 name_case가 적용된 이름으로 저장됨
+                    ddl_col_meta = ddl_columns.get(column_name_raw.upper() if self.name_case == 'uppercase' else column_name_raw)
+                    if ddl_col_meta is None:
+                        # 대소문자 무관하게 검색
+                        for ddl_col_name in ddl_columns.keys():
+                            if ddl_col_name.lower() == column_name_raw.lower():
+                                column_name = ddl_col_name  # DDL의 원본 대소문자 사용
+                                break
+                        else:
+                            column_name = self._apply_name_case(column_name_raw)
+                    else:
+                        # DDL에서 찾은 컬럼명 사용 (이미 변환됨)
+                        column_name = column_name_raw.upper() if self.name_case == 'uppercase' else column_name_raw
                     
                     raw_dtype = column.get('dtype') or ''
                     raw_column_desc = (column.get('description') or column.get('comment') or '').strip()
@@ -1063,7 +1094,7 @@ class DbmsAstProcessor(BaseAstProcessor):
         
         return queries
     
-    def _build_table_merge(self, table_name: str, schema: Optional[str], preserve_vars: Optional[List[str]] = None) -> str:
+    def _build_table_merge(self, table_name: str, schema: Optional[str], preserve_vars: Optional[List[str]] = None, skip_case_conversion: bool = False) -> str:
         """테이블 MERGE 쿼리 (Schema 노드 및 BELONGS_TO 관계 포함)
         
         DDL 처리와 일관성을 위해 schema가 없으면 default_schema 사용.
@@ -1074,12 +1105,18 @@ class DbmsAstProcessor(BaseAstProcessor):
             table_name: 테이블 이름
             schema: 스키마 이름 (없으면 default_schema 사용)
             preserve_vars: WITH 절에서 유지할 변수 목록 (예: ['n'] -> WITH n, s)
+            skip_case_conversion: True면 대소문자 변환을 건너뜀 (이미 변환된 값인 경우)
         """
         # schema가 없으면 default_schema 사용, default_schema도 없으면 'public'
         effective_schema = schema if schema else (self.default_schema if self.default_schema else 'public')
-        # 대소문자 변환 적용
-        effective_schema = self._apply_name_case(effective_schema)
-        converted_table_name = self._apply_name_case(table_name)
+        
+        # 대소문자 변환 적용 (skip_case_conversion이 False인 경우에만)
+        if not skip_case_conversion:
+            effective_schema = self._apply_name_case(effective_schema)
+            converted_table_name = self._apply_name_case(table_name)
+        else:
+            converted_table_name = table_name
+        
         schema_value = escape_for_cypher(effective_schema)
         escaped_name = escape_for_cypher(converted_table_name)
         
@@ -1100,16 +1137,31 @@ class DbmsAstProcessor(BaseAstProcessor):
             f"MERGE (t)-[:BELONGS_TO]->(s)"
         )
 
-    def _record_table_summary(self, schema: Optional[str], name: str, description: Optional[str]) -> Tuple[str, str]:
+    def _record_table_summary(self, schema: Optional[str], name: str, description: Optional[str], skip_case_conversion: bool = False) -> Tuple[str, str]:
         """테이블 설명 누적
         
         테이블 생성 시 _build_table_merge에서 default_schema를 사용하므로,
         여기서도 동일하게 처리하여 MATCH 쿼리가 정확히 매칭되도록 함.
+        
+        중요: _apply_name_case를 적용하여 Neo4j에 저장된 테이블명과 일치시켜야 함.
+        
+        Args:
+            schema: 스키마 이름
+            name: 테이블 이름  
+            description: 테이블 설명
+            skip_case_conversion: True면 대소문자 변환을 건너뜀 (DDL 캐시에서 이미 변환된 값인 경우)
         """
         # 테이블 생성 시 schema 처리와 일관성 유지 (default_schema 사용)
         effective_schema = schema if schema else (self.default_schema if self.default_schema else 'public')
-        schema_key = effective_schema
-        name_key = name
+        
+        # 대소문자 변환 적용 (skip_case_conversion이 False인 경우에만)
+        if skip_case_conversion:
+            schema_key = effective_schema
+            name_key = name
+        else:
+            schema_key = self._apply_name_case(effective_schema)
+            name_key = self._apply_name_case(name)
+        
         bucket = self._table_summary_store.get((schema_key, name_key))
         if bucket is None:
             bucket = {"summaries": set(), "columns": {}}
@@ -1128,14 +1180,18 @@ class DbmsAstProcessor(BaseAstProcessor):
         nullable: Optional[bool] = None,
         examples: Optional[List[str]] = None,
     ):
-        """컬럼 설명 누적"""
+        """컬럼 설명 누적
+        
+        중요: 컬럼명에 _apply_name_case를 적용하여 Neo4j에 저장된 컬럼명과 일치시켜야 함.
+        """
         text = (description or '').strip()
         bucket = self._table_summary_store.setdefault(table_key, {"summaries": set(), "columns": {}})
         columns = bucket["columns"]
-        canonical = column_name
+        # 대소문자 변환 적용 (DDL 처리와 동일하게)
+        canonical = self._apply_name_case(column_name)
         entry = columns.get(canonical)
         if entry is None:
-            entry = {"name": column_name, "summaries": set(), "dtype": (dtype or ''), "nullable": True if nullable is None else bool(nullable), "examples": set()}
+            entry = {"name": canonical, "summaries": set(), "dtype": (dtype or ''), "nullable": True if nullable is None else bool(nullable), "examples": set()}
             columns[canonical] = entry
         if dtype is not None and not entry.get("dtype"):
             entry["dtype"] = dtype

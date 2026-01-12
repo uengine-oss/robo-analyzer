@@ -36,6 +36,8 @@ from util.utility_tool import (
     log_process,
     parse_table_identifier,
     generate_user_story_document,
+    split_ddl_into_chunks,
+    calculate_code_token,
 )
 from util.embedding_client import EmbeddingClient
 
@@ -416,18 +418,53 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
         file_name: str,
         orchestrator: Any,
     ) -> tuple[dict, dict]:
-        """DDL 파일 처리 및 테이블/컬럼 노드 생성"""
+        """DDL 파일 처리 및 테이블/컬럼 노드 생성
+        
+        대용량 DDL 파일의 경우 CREATE TABLE 단위로 청크 분할하여 처리합니다.
+        각 청크에는 CREATE TABLE, COMMENT ON, ALTER TABLE 구문이 함께 포함됩니다.
+        """
         ddl_stats = {"tables": 0, "columns": 0, "fks": 0}
         
         async with aiofiles.open(ddl_path, "r", encoding="utf-8") as f:
             ddl_content = await f.read()
         
+        # 대용량 DDL 청크 분할
+        ddl_chunks = split_ddl_into_chunks(ddl_content)
+        total_tokens = calculate_code_token(ddl_content)
+        chunk_count = len(ddl_chunks)
+        
+        if chunk_count > 1:
+            log_process("DDL", "CHUNK", f"📦 대용량 DDL 분할: {total_tokens:,} 토큰 → {chunk_count}개 청크")
+        
         loader = RuleLoader(target_lang="dbms")
-        parsed = loader.execute(
-            "ddl",
-            {"ddl_content": ddl_content, "locale": orchestrator.locale},
-            orchestrator.api_key,
-        )
+        
+        # 청크별 LLM 호출 및 결과 병합
+        all_parsed_results: List[Dict] = []
+        for chunk_idx, chunk in enumerate(ddl_chunks, 1):
+            chunk_tokens = calculate_code_token(chunk)
+            if chunk_count > 1:
+                log_process("DDL", "CHUNK", f"  청크 {chunk_idx}/{chunk_count} 처리 중 ({chunk_tokens:,} 토큰)")
+            
+            try:
+                # LLM 호출을 비동기로 처리 (I/O 블로킹 방지)
+                import asyncio
+                chunk_parsed = await asyncio.to_thread(
+                    loader.execute,
+                    "ddl",
+                    {"ddl_content": chunk, "locale": orchestrator.locale},
+                    orchestrator.api_key,
+                )
+                tables_in_chunk = len(chunk_parsed.get("analysis", []))
+                all_parsed_results.extend(chunk_parsed.get("analysis", []))
+                
+                if chunk_count > 1:
+                    log_process("DDL", "CHUNK", f"  ✅ 청크 {chunk_idx} 완료: {tables_in_chunk}개 테이블 파싱")
+            except Exception as e:
+                log_process("DDL", "ERROR", f"  ❌ 청크 {chunk_idx} 실패: {str(e)[:100]}")
+                raise AnalysisError(f"DDL 청크 {chunk_idx} 파싱 실패: {e}")
+        
+        # 병합된 결과를 parsed로 사용
+        parsed = {"analysis": all_parsed_results}
         
         queries = []
         # db 속성은 DML 처리(ast_processor)와 일관성을 위해 소문자로 변환
@@ -519,10 +556,14 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
             ddl_stats["tables"] += 1
             
             # DDL 메타데이터 캐시 저장 (메모리)
+            # 키는 소문자로 저장하여 대소문자 무관하게 조회 가능
+            # 원본 대소문자도 함께 저장하여 SP 분석에서 DDL과 동일한 대소문자 사용
             table_key = (schema.lower(), parsed_name.lower())
             self._ddl_table_metadata[table_key] = {
                 "description": comment,
                 "columns": column_metadata,
+                "original_schema": schema,  # DDL에서 사용한 원본 스키마명
+                "original_name": parsed_name,  # DDL에서 사용한 원본 테이블명
             }
 
             # Column 노드 생성

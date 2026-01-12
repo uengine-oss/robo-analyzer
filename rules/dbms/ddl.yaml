@@ -1,6 +1,6 @@
 name: "understand_ddl"
 description: "DDL 테이블/컬럼/키 분석"
-version: "1.0"
+version: "1.1"
 
 input_schema:
   required: []
@@ -14,17 +14,44 @@ prompt: |
   DDL:
   {{ ddl_content }}
   
-  [규칙]
+  [COMMENT ON 구문 파싱 - 매우 중요]
+  DDL에서 테이블/컬럼 설명은 반드시 COMMENT ON 구문에서 추출해야 합니다:
+  
+  1. 테이블 설명 추출:
+     형식: COMMENT ON TABLE [스키마.]"테이블명" IS '설명';
+     예시:
+       - COMMENT ON TABLE RWIS."RDITAG_TB" IS '태그 마스터 테이블';
+       - COMMENT ON TABLE "PUBLIC"."USERS" IS '사용자 테이블';
+       - COMMENT ON TABLE orders IS 'Order table';
+     → table.comment = 작은따옴표 안의 설명 텍스트
+  
+  2. 컬럼 설명 추출:
+     형식: COMMENT ON COLUMN [스키마.]"테이블명"."컬럼명" IS '설명';
+     예시:
+       - COMMENT ON COLUMN RWIS."RDITAG_TB"."TAGSN" IS '태그번호';
+       - COMMENT ON COLUMN "PUBLIC"."USERS"."EMAIL" IS '이메일 주소';
+     → 해당 컬럼의 comment = 작은따옴표 안의 설명 텍스트
+  
+  3. COMMENT ON 구문과 CREATE TABLE 매핑:
+     - COMMENT ON 구문은 CREATE TABLE 뒤에 별도로 정의됨
+     - 스키마와 테이블명을 기준으로 CREATE TABLE과 COMMENT ON을 정확히 매핑
+     - 큰따옴표(")로 감싼 이름은 따옴표를 제거하고 매칭
+     - 스키마가 다르면 다른 테이블로 처리
+  
+  4. 다중 줄 설명 처리:
+     설명에 줄바꿈이나 특수문자가 포함될 수 있음
+     작은따옴표 이스케이프: '' (두 개의 작은따옴표)
+     예: IS 'User''s data' → comment = "User's data"
+  
+  [일반 규칙]
   - 추정 금지: DDL에 없는 정보는 추가하지 않음
   - 컬럼명/타입 표기는 DDL 그대로 유지 (대소문자/언더스코어 보존)
-  - nullable은 불리언(boolean) true/false
-  - 테이블 설명은 DDL 내 주석/COMMENT 구문으로 파악해 간단 명료하게 1문장
-  - table_type: CREATE 구문으로부터 BASE TABLE/VIEW 등으로 식별
-  - 외래키는 소스 컬럼과 대상 "SCHEMA.TABLE.COLUMN" 형태로만 표현
-   - 외래키는 DDL 내 제약조건(FOREIGN KEY ... REFERENCES ...)에 명시된 경우에만 추출하며, 그 외 추정/암시는 금지
-   - 외래키 표기 시 스키마가 없는 경우 빈 문자열로 처리하며 문자열 'NULL'/'None' 같은 텍스트 표기는 절대 사용하지 않음
-  - 테이블 의미 파악이 불가하거나, 테이블/컬럼명이 모호해 추정이 필요한 경우 table.comment는 빈 문자열("")로 둠(추정 금지)
-  - 존재하지 않는 정보는 빈 값으로 표현
+  - nullable: NOT NULL 제약이 없으면 true, 있으면 false
+  - table_type: CREATE TABLE → "BASE TABLE", CREATE VIEW → "VIEW"
+  - 외래키는 DDL 내 FOREIGN KEY ... REFERENCES ... 제약조건에서만 추출
+  - 외래키 표기 시 스키마가 없으면 빈 문자열로 처리 ('NULL', 'None' 텍스트 금지)
+  - COMMENT ON 구문이 없는 테이블/컬럼의 comment는 빈 문자열("")
+  - 테이블/컬럼명에서 추정하지 않음 - 반드시 COMMENT ON 구문에서만 추출
   
   [JSON 출력]
   - 주석 없이, 형식을 엄격히 준수하여 출력
@@ -33,15 +60,20 @@ prompt: |
     "analysis": [
       {
         "table": {
-          "schema": "스키마 또는 null",
+          "schema": "스키마명 (없으면 빈 문자열)",
           "name": "테이블명",
           "table_type": "BASE TABLE 또는 VIEW",
-          "comment": "테이블 한줄 설명"
+          "comment": "COMMENT ON TABLE에서 추출한 설명 (없으면 빈 문자열)"
         },
         "columns": [
-          {"name": "컬럼명", "dtype": "데이터타입", "nullable": true, "comment": "컬럼 설명 또는 빈 문자열"}
+          {
+            "name": "컬럼명",
+            "dtype": "데이터타입",
+            "nullable": true,
+            "comment": "COMMENT ON COLUMN에서 추출한 설명 (없으면 빈 문자열)"
+          }
         ],
-        "primaryKeys": ["PK_COL1", "PK_COL2"],
+        "primaryKeys": ["PK컬럼1", "PK컬럼2"],
         "foreignKeys": [
           {"column": "소스FK컬럼명", "ref": "SCHEMA.TABLE.COLUMN"}
         ]
