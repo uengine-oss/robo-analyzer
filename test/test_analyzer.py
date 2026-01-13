@@ -96,7 +96,7 @@ def _create_orchestrator() -> AnalysisOrchestrator:
 async def _clear_graph(connection: Neo4jClient):
     """Neo4j 데이터 삭제"""
     await connection.execute_queries([
-        "MATCH (n) DETACH DELETE n"
+        "MATCH (__cy_n__) DETACH DELETE __cy_n__"
     ])
 
 
@@ -155,8 +155,8 @@ async def _run_analysis_pipeline(
     if IS_FRAMEWORK:
         # Framework: CLASS/INTERFACE 노드 확인
         result = await connection.execute_queries([
-            "MATCH (c) WHERE (c:CLASS OR c:INTERFACE) "
-            "RETURN count(c) AS c"
+            "MATCH (__cy_c__) WHERE (__cy_c__:CLASS OR __cy_c__:INTERFACE) "
+            "RETURN count(__cy_c__) AS c"
         ])
         node_count = int(result[0][0]["c"])
         assert node_count > 0, "CLASS/INTERFACE 노드가 생성되지 않았습니다"
@@ -170,8 +170,8 @@ async def _run_analysis_pipeline(
     else:
         # DBMS: PROCEDURE/FUNCTION 노드 확인
         result = await connection.execute_queries([
-            "MATCH (p) WHERE (p:PROCEDURE OR p:FUNCTION) "
-            "RETURN count(p) AS c"
+            "MATCH (__cy_p__) WHERE (__cy_p__:PROCEDURE OR __cy_p__:FUNCTION) "
+            "RETURN count(__cy_p__) AS c"
         ])
         node_count = int(result[0][0]["c"])
         assert node_count > 0, "PROCEDURE/FUNCTION 노드가 생성되지 않았습니다"
@@ -218,8 +218,8 @@ async def _run_ddl_only_section(
 
     # Table 노드 확인
     result = await connection.execute_queries([
-        "MATCH (t:Table) "
-        "RETURN count(t) AS c"
+        "MATCH (__cy_t__:Table) "
+        "RETURN count(__cy_t__) AS c"
     ])
     table_count = int(result[0][0]["c"])
     
@@ -267,8 +267,8 @@ async def _run_source_only_section(
         if IS_FRAMEWORK:
             # Framework: CLASS/INTERFACE 노드 확인
             result = await connection.execute_queries([
-                "MATCH (c) WHERE (c:CLASS OR c:INTERFACE) "
-                "RETURN count(c) AS c"
+                "MATCH (__cy_c__) WHERE (__cy_c__:CLASS OR __cy_c__:INTERFACE) "
+                "RETURN count(__cy_c__) AS c"
             ])
             node_count = int(result[0][0]["c"])
             assert node_count > 0, "CLASS/INTERFACE 노드가 생성되지 않았습니다"
@@ -282,8 +282,8 @@ async def _run_source_only_section(
         else:
             # DBMS: PROCEDURE/FUNCTION 노드 확인
             result = await connection.execute_queries([
-                "MATCH (p) WHERE (p:PROCEDURE OR p:FUNCTION) "
-                "RETURN count(p) AS c"
+                "MATCH (__cy_p__) WHERE (__cy_p__:PROCEDURE OR __cy_p__:FUNCTION) "
+                "RETURN count(__cy_p__) AS c"
             ])
             node_count = int(result[0][0]["c"])
             assert node_count > 0, "PROCEDURE/FUNCTION 노드가 생성되지 않았습니다"

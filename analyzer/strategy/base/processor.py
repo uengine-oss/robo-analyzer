@@ -575,18 +575,18 @@ class BaseAstProcessor(ABC):
     def _build_contains_query(self, parent: "StatementNode", child: "StatementNode") -> str:
         """CONTAINS 관계 쿼리 (공통)"""
         return (
-            f"MATCH (p:{parent.node_type} {{startLine: {parent.start_line}, {self.node_base_props}}})\n"
-            f"MATCH (c:{child.node_type} {{startLine: {child.start_line}, {self.node_base_props}}})\n"
-            f"MERGE (p)-[r:CONTAINS]->(c)\n"
-            f"RETURN r"
+            f"MATCH (__cy_p__:{parent.node_type} {{startLine: {parent.start_line}, {self.node_base_props}}})\n"
+            f"MATCH (__cy_c__:{child.node_type} {{startLine: {child.start_line}, {self.node_base_props}}})\n"
+            f"MERGE (__cy_p__)-[__cy_r__:CONTAINS]->(__cy_c__)\n"
+            f"RETURN __cy_r__"
         )
 
     def _build_parent_of_query(self, parent: "StatementNode", child: "StatementNode") -> str:
         """PARENT_OF 관계 쿼리 (공통)"""
         return (
-            f"MATCH (p:{parent.node_type} {{startLine: {parent.start_line}, {self.node_base_props}}})\n"
-            f"MATCH (c:{child.node_type} {{startLine: {child.start_line}, {self.node_base_props}}})\n"
-            f"MERGE (p)-[r:PARENT_OF]->(c)\n"
-            f"RETURN r"
+            f"MATCH (__cy_p__:{parent.node_type} {{startLine: {parent.start_line}, {self.node_base_props}}})\n"
+            f"MATCH (__cy_c__:{child.node_type} {{startLine: {child.start_line}, {self.node_base_props}}})\n"
+            f"MERGE (__cy_p__)-[__cy_r__:PARENT_OF]->(__cy_c__)\n"
+            f"RETURN __cy_r__"
         )
 

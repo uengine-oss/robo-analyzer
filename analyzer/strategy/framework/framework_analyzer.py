@@ -167,30 +167,30 @@ class FrameworkAnalyzer(BaseStreamingAnalyzer):
     ) -> Optional[str]:
         """분석된 클래스에서 User Story 문서 생성"""
         query = """
-            MATCH (n)
-            WHERE (n:CLASS OR n:INTERFACE)
-              AND n.summary IS NOT NULL
-            OPTIONAL MATCH (n)-[:HAS_USER_STORY]->(us:UserStory)
-            OPTIONAL MATCH (us)-[:HAS_AC]->(ac:AcceptanceCriteria)
-            WITH n, us, collect(DISTINCT {
-                id: ac.id,
-                title: ac.title,
-                given: ac.given,
-                when: ac.when,
-                then: ac.then
+            MATCH (__cy_n__)
+            WHERE (__cy_n__:CLASS OR __cy_n__:INTERFACE)
+              AND __cy_n__.summary IS NOT NULL
+            OPTIONAL MATCH (__cy_n__)-[:HAS_USER_STORY]->(__cy_us__:UserStory)
+            OPTIONAL MATCH (__cy_us__)-[:HAS_AC]->(__cy_ac__:AcceptanceCriteria)
+            WITH __cy_n__, __cy_us__, collect(DISTINCT {
+                id: __cy_ac__.id,
+                title: __cy_ac__.title,
+                given: __cy_ac__.given,
+                when: __cy_ac__.when,
+                then: __cy_ac__.then
             }) AS acceptance_criteria
-            WITH n, collect(DISTINCT {
-                id: us.id,
-                role: us.role,
-                goal: us.goal,
-                benefit: us.benefit,
+            WITH __cy_n__, collect(DISTINCT {
+                id: __cy_us__.id,
+                role: __cy_us__.role,
+                goal: __cy_us__.goal,
+                benefit: __cy_us__.benefit,
                 acceptance_criteria: acceptance_criteria
             }) AS user_stories
-            RETURN n.class_name AS name, 
-                   n.summary AS summary,
+            RETURN __cy_n__.class_name AS name, 
+                   __cy_n__.summary AS summary,
                    user_stories AS user_stories, 
-                   labels(n)[0] AS type
-            ORDER BY n.file_name, n.startLine
+                   labels(__cy_n__)[0] AS type
+            ORDER BY __cy_n__.file_name, __cy_n__.startLine
         """
         
         async with self._cypher_lock:

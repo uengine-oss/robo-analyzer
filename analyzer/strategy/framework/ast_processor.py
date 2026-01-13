@@ -414,25 +414,25 @@ class FrameworkAstProcessor(BaseAstProcessor):
         escaped_code = escape_for_cypher(node.code)
 
         base_set = [
-            f"n.endLine = {node.end_line}",
-            f"n.name = '{escaped_name}'",
-            f"n.node_code = '{escaped_code}'",
-            f"n.token = {node.token}",
-            f"n.has_children = {has_children}",
+            f"__cy_n__.endLine = {node.end_line}",
+            f"__cy_n__.name = '{escaped_name}'",
+            f"__cy_n__.node_code = '{escaped_code}'",
+            f"__cy_n__.token = {node.token}",
+            f"__cy_n__.has_children = {has_children}",
         ]
 
         # CLASS/INTERFACE 등: class_name과 type 속성 추가
         if label in CLASS_TYPES and node.unit_name:
-            base_set.append(f"n.class_name = '{escape_for_cypher(node.unit_name)}'")
-            base_set.append(f"n.type = '{label}'")
+            base_set.append(f"__cy_n__.class_name = '{escape_for_cypher(node.unit_name)}'")
+            base_set.append(f"__cy_n__.type = '{label}'")
         elif node.unit_name:
-            base_set.append(f"n.class_name = '{escape_for_cypher(node.unit_name)}'")
+            base_set.append(f"__cy_n__.class_name = '{escape_for_cypher(node.unit_name)}'")
 
         if node.has_children:
             # Framework용 preserve_types 설정
             preserve_types = INHERITANCE_TYPES | METHOD_TYPES | METHOD_SIGNATURE_TYPES
             escaped_placeholder = escape_for_cypher(node.get_placeholder_code(preserve_types))
-            base_set.append(f"n.summarized_code = '{escaped_placeholder}'")
+            base_set.append(f"__cy_n__.summarized_code = '{escaped_placeholder}'")
 
         base_set_str = ", ".join(base_set)
         
@@ -440,15 +440,15 @@ class FrameworkAstProcessor(BaseAstProcessor):
         if label in ("CLASS", "INTERFACE", "ENUM") and node.unit_name:
             escaped_class_name = escape_for_cypher(node.unit_name)
             queries.append(
-                f"MERGE (n:{label} {{class_name: '{escaped_class_name}'}})\n"
-                f"SET n.startLine = {node.start_line}, n.directory = '{escape_for_cypher(self.full_directory)}', n.file_name = '{self.file_name}', {base_set_str}\n"
-                f"RETURN n"
+                f"MERGE (__cy_n__:{label} {{class_name: '{escaped_class_name}'}})\n"
+                f"SET __cy_n__.startLine = {node.start_line}, __cy_n__.directory = '{escape_for_cypher(self.full_directory)}', __cy_n__.file_name = '{self.file_name}', {base_set_str}\n"
+                f"RETURN __cy_n__"
             )
         else:
             queries.append(
-                f"MERGE (n:{label} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
+                f"MERGE (__cy_n__:{label} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
                 f"SET {base_set_str}\n"
-                f"RETURN n"
+                f"RETURN __cy_n__"
             )
         return queries
 
@@ -480,19 +480,19 @@ class FrameworkAstProcessor(BaseAstProcessor):
     def _build_has_method_query(self, parent: StatementNode, child: StatementNode) -> str:
         """HAS_METHOD 관계 쿼리"""
         return (
-            f"MATCH (p:{parent.node_type} {{startLine: {parent.start_line}, {self.node_base_props}}})\n"
-            f"MATCH (c:{child.node_type} {{startLine: {child.start_line}, {self.node_base_props}}})\n"
-            f"MERGE (p)-[r:HAS_METHOD]->(c)\n"
-            f"RETURN r"
+            f"MATCH (__cy_p__:{parent.node_type} {{startLine: {parent.start_line}, {self.node_base_props}}})\n"
+            f"MATCH (__cy_c__:{child.node_type} {{startLine: {child.start_line}, {self.node_base_props}}})\n"
+            f"MERGE (__cy_p__)-[__cy_r__:HAS_METHOD]->(__cy_c__)\n"
+            f"RETURN __cy_r__"
         )
     
     def _build_has_field_query(self, parent: StatementNode, child: StatementNode) -> str:
         """HAS_FIELD 관계 쿼리"""
         return (
-            f"MATCH (p:{parent.node_type} {{startLine: {parent.start_line}, {self.node_base_props}}})\n"
-            f"MATCH (c:{child.node_type} {{startLine: {child.start_line}, {self.node_base_props}}})\n"
-            f"MERGE (p)-[r:HAS_FIELD]->(c)\n"
-            f"RETURN r"
+            f"MATCH (__cy_p__:{parent.node_type} {{startLine: {parent.start_line}, {self.node_base_props}}})\n"
+            f"MATCH (__cy_c__:{child.node_type} {{startLine: {child.start_line}, {self.node_base_props}}})\n"
+            f"MERGE (__cy_p__)-[__cy_r__:HAS_FIELD]->(__cy_c__)\n"
+            f"RETURN __cy_r__"
         )
     
     async def _run_preprocessing(self) -> List[str]:
@@ -571,9 +571,9 @@ class FrameworkAstProcessor(BaseAstProcessor):
             if summary:
                 escaped_summary = escape_for_cypher(str(summary))
                 queries.append(
-                    f"MATCH (n:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
-                    f"SET n.summary = '{escaped_summary}'\n"
-                    f"RETURN n"
+                    f"MATCH (__cy_n__:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
+                    f"SET __cy_n__.summary = '{escaped_summary}'\n"
+                    f"RETURN __cy_n__"
                 )
                 
                 # 클래스별 summary 저장
@@ -595,12 +595,12 @@ class FrameworkAstProcessor(BaseAstProcessor):
                     continue
                 
                 queries.append(
-                    f"MATCH (src:{node.unit_kind} {{startLine: {node.parent.start_line}, {self.node_base_props}}})\n"
-                    f"MATCH (dst) WHERE (dst:CLASS OR dst:INTERFACE OR dst:ENUM)\n"
-                    f"  AND toLower(dst.class_name) = toLower('{escape_for_cypher(dep_type)}')\n"
-                    f"  AND src <> dst AND NOT (src)-[:ASSOCIATION|COMPOSITION]->(dst)\n"
-                    f"MERGE (src)-[r:DEPENDENCY {{usage: 'local', source_member: '{escape_for_cypher(source_member)}'}}]->(dst)\n"
-                    f"RETURN r"
+                    f"MATCH (__cy_src__:{node.unit_kind} {{startLine: {node.parent.start_line}, {self.node_base_props}}})\n"
+                    f"MATCH (__cy_dst__) WHERE (__cy_dst__:CLASS OR __cy_dst__:INTERFACE OR __cy_dst__:ENUM)\n"
+                    f"  AND toLower(__cy_dst__.class_name) = toLower('{escape_for_cypher(dep_type)}')\n"
+                    f"  AND __cy_src__ <> __cy_dst__ AND NOT (__cy_src__)-[:ASSOCIATION|COMPOSITION]->(__cy_dst__)\n"
+                    f"MERGE (__cy_src__)-[__cy_r__:DEPENDENCY {{usage: 'local', source_member: '{escape_for_cypher(source_member)}'}}]->(__cy_dst__)\n"
+                    f"RETURN __cy_r__"
                 )
             
             # CALLS 관계
@@ -617,11 +617,11 @@ class FrameworkAstProcessor(BaseAstProcessor):
                 
                 if node.unit_kind and node.parent:
                     queries.append(
-                        f"MATCH (src:{node.unit_kind} {{startLine: {node.parent.start_line}, {self.node_base_props}}})\n"
-                        f"MATCH (dst) WHERE (dst:CLASS OR dst:INTERFACE OR dst:ENUM)\n"
-                        f"  AND toLower(dst.class_name) = toLower('{escape_for_cypher(target_class)}')\n"
-                        f"MERGE (src)-[r:CALLS {{method: '{escape_for_cypher(method_name)}'}}]->(dst)\n"
-                        f"RETURN r"
+                        f"MATCH (__cy_src__:{node.unit_kind} {{startLine: {node.parent.start_line}, {self.node_base_props}}})\n"
+                        f"MATCH (__cy_dst__) WHERE (__cy_dst__:CLASS OR __cy_dst__:INTERFACE OR __cy_dst__:ENUM)\n"
+                        f"  AND toLower(__cy_dst__.class_name) = toLower('{escape_for_cypher(target_class)}')\n"
+                        f"MERGE (__cy_src__)-[__cy_r__:CALLS {{method: '{escape_for_cypher(method_name)}'}}]->(__cy_dst__)\n"
+                        f"RETURN __cy_r__"
                     )
         
         return queries
@@ -717,9 +717,9 @@ class FrameworkAstProcessor(BaseAstProcessor):
             escaped_summary = escape_for_cypher(str(final_summary))
             
             queries.append(
-                f"MATCH (n:{info.kind} {{startLine: {info.node_start}, {self.node_base_props}}})\n"
-                f"SET n.summary = '{escaped_summary}'\n"
-                f"RETURN n"
+                f"MATCH (__cy_n__:{info.kind} {{startLine: {info.node_start}, {self.node_base_props}}})\n"
+                f"SET __cy_n__.summary = '{escaped_summary}'\n"
+                f"RETURN __cy_n__"
             )
             
             # User Story 노드 생성
@@ -732,11 +732,11 @@ class FrameworkAstProcessor(BaseAstProcessor):
                     benefit = escape_for_cypher(us.get('benefit', ''))
                     
                     queries.append(
-                        f"MATCH (c:{info.kind} {{startLine: {info.node_start}, {self.node_base_props}}})\n"
-                        f"MERGE (us:UserStory {{id: '{escape_for_cypher(us_id)}', class_name: '{class_name_escaped}', {self.node_base_props}}})\n"
-                        f"SET us.role = '{role}', us.goal = '{goal}', us.benefit = '{benefit}'\n"
-                        f"MERGE (c)-[:HAS_USER_STORY]->(us)\n"
-                        f"RETURN us"
+                        f"MATCH (__cy_c__:{info.kind} {{startLine: {info.node_start}, {self.node_base_props}}})\n"
+                        f"MERGE (__cy_us__:UserStory {{id: '{escape_for_cypher(us_id)}', class_name: '{class_name_escaped}', {self.node_base_props}}})\n"
+                        f"SET __cy_us__.role = '{role}', __cy_us__.goal = '{goal}', __cy_us__.benefit = '{benefit}'\n"
+                        f"MERGE (__cy_c__)-[:HAS_USER_STORY]->(__cy_us__)\n"
+                        f"RETURN __cy_us__"
                     )
                     
                     for ac_idx, ac in enumerate(us.get('acceptance_criteria', []) or [], 1):
@@ -747,11 +747,11 @@ class FrameworkAstProcessor(BaseAstProcessor):
                         ac_then = escape_for_cypher(ac.get('then', ''))
                         
                         queries.append(
-                            f"MATCH (us:UserStory {{id: '{escape_for_cypher(us_id)}', class_name: '{class_name_escaped}', {self.node_base_props}}})\n"
-                            f"MERGE (ac:AcceptanceCriteria {{id: '{escape_for_cypher(ac_id)}', user_story_id: '{escape_for_cypher(us_id)}', {self.node_base_props}}})\n"
-                            f"SET ac.title = '{ac_title}', ac.given = '{ac_given}', ac.when = '{ac_when}', ac.then = '{ac_then}'\n"
-                            f"MERGE (us)-[:HAS_AC]->(ac)\n"
-                            f"RETURN ac"
+                            f"MATCH (__cy_us__:UserStory {{id: '{escape_for_cypher(us_id)}', class_name: '{class_name_escaped}', {self.node_base_props}}})\n"
+                            f"MERGE (__cy_ac__:AcceptanceCriteria {{id: '{escape_for_cypher(ac_id)}', user_story_id: '{escape_for_cypher(us_id)}', {self.node_base_props}}})\n"
+                            f"SET __cy_ac__.title = '{ac_title}', __cy_ac__.given = '{ac_given}', __cy_ac__.when = '{ac_when}', __cy_ac__.then = '{ac_then}'\n"
+                            f"MERGE (__cy_us__)-[:HAS_AC]->(__cy_ac__)\n"
+                            f"RETURN __cy_ac__"
                         )
         
         return queries
@@ -841,14 +841,14 @@ class FrameworkAstProcessor(BaseAstProcessor):
             if not to_type:
                 continue
 
-            src_match = f"MATCH (src:{node.unit_kind or 'CLASS'} {{startLine: {node.parent.start_line if node.parent else node.start_line}, {self.node_base_props}}})"
+            src_match = f"MATCH (__cy_src__:{node.unit_kind or 'CLASS'} {{startLine: {node.parent.start_line if node.parent else node.start_line}, {self.node_base_props}}})"
 
             queries.append(
                 f"{src_match}\n"
-                f"MATCH (dst) WHERE (dst:CLASS OR dst:INTERFACE OR dst:ENUM)\n"
-                f"  AND toLower(dst.class_name) = toLower('{to_type}')\n"
-                f"MERGE (src)-[r:{rel_type}]->(dst)\n"
-                f"RETURN src, dst, r"
+                f"MATCH (__cy_dst__) WHERE (__cy_dst__:CLASS OR __cy_dst__:INTERFACE OR __cy_dst__:ENUM)\n"
+                f"  AND toLower(__cy_dst__.class_name) = toLower('{to_type}')\n"
+                f"MERGE (__cy_src__)-[__cy_r__:{rel_type}]->(__cy_dst__)\n"
+                f"RETURN __cy_src__, __cy_dst__, __cy_r__"
             )
 
         return queries
@@ -881,22 +881,22 @@ class FrameworkAstProcessor(BaseAstProcessor):
                 original_field_name = field_info.get("field_name") or ""
                 self._field_type_cache[node.unit_key][original_field_name] = field_type_raw
 
-            target_class_set = f", f.target_class = '{target_class}'" if target_class else ""
+            target_class_set = f", __cy_f__.target_class = '{target_class}'" if target_class else ""
             queries.append(
-                f"MATCH (f:FIELD {{startLine: {node.start_line}, {self.node_base_props}}})\n"
-                f"SET f.name = '{field_name}', f.field_type = '{field_type}', "
-                f"f.visibility = '{visibility}', f.is_static = {is_static}, f.is_final = {is_final}{target_class_set}\n"
-                f"RETURN f"
+                f"MATCH (__cy_f__:FIELD {{startLine: {node.start_line}, {self.node_base_props}}})\n"
+                f"SET __cy_f__.name = '{field_name}', __cy_f__.field_type = '{field_type}', "
+                f"__cy_f__.visibility = '{visibility}', __cy_f__.is_static = {is_static}, __cy_f__.is_final = {is_final}{target_class_set}\n"
+                f"RETURN __cy_f__"
             )
 
             if target_class:
-                src_match = f"MATCH (src:{node.unit_kind or 'CLASS'} {{startLine: {node.parent.start_line if node.parent else node.start_line}, {self.node_base_props}}})"
+                src_match = f"MATCH (__cy_src__:{node.unit_kind or 'CLASS'} {{startLine: {node.parent.start_line if node.parent else node.start_line}, {self.node_base_props}}})"
                 queries.append(
                     f"{src_match}\n"
-                    f"MATCH (dst) WHERE (dst:CLASS OR dst:INTERFACE OR dst:ENUM)\n"
-                    f"  AND toLower(dst.class_name) = toLower('{target_class}')\n"
-                    f"MERGE (src)-[r:{association_type} {{source_member: '{field_name}', multiplicity: '{multiplicity}'}}]->(dst)\n"
-                    f"RETURN src, dst, r"
+                    f"MATCH (__cy_dst__) WHERE (__cy_dst__:CLASS OR __cy_dst__:INTERFACE OR __cy_dst__:ENUM)\n"
+                    f"  AND toLower(__cy_dst__.class_name) = toLower('{target_class}')\n"
+                    f"MERGE (__cy_src__)-[__cy_r__:{association_type} {{source_member: '{field_name}', multiplicity: '{multiplicity}'}}]->(__cy_dst__)\n"
+                    f"RETURN __cy_src__, __cy_dst__, __cy_r__"
                 )
 
         return queries
@@ -917,11 +917,11 @@ class FrameworkAstProcessor(BaseAstProcessor):
         dependencies = analysis.get("dependencies") or []
 
         queries.append(
-            f"MATCH (m:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
-            f"SET m.name = '{method_name}', m.return_type = '{return_type}', "
-            f"m.visibility = '{visibility}', m.is_static = {is_static}, "
-            f"m.method_type = '{method_kind}'\n"
-            f"RETURN m"
+            f"MATCH (__cy_m__:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
+            f"SET __cy_m__.name = '{method_name}', __cy_m__.return_type = '{return_type}', "
+            f"__cy_m__.visibility = '{visibility}', __cy_m__.is_static = {is_static}, "
+            f"__cy_m__.method_type = '{method_kind}'\n"
+            f"RETURN __cy_m__"
         )
 
         # 파라미터 노드
@@ -931,11 +931,11 @@ class FrameworkAstProcessor(BaseAstProcessor):
             if not param_name:
                 continue
             queries.append(
-                f"MATCH (m:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
-                f"MERGE (p:Parameter {{name: '{param_name}', method_start_line: {node.start_line}, {self.node_base_props}}})\n"
-                f"SET p.type = '{param_type}', p.index = {idx}\n"
-                f"MERGE (m)-[r:HAS_PARAMETER]->(p)\n"
-                f"RETURN m, p, r"
+                f"MATCH (__cy_m__:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
+                f"MERGE (__cy_p__:Parameter {{name: '{param_name}', method_start_line: {node.start_line}, {self.node_base_props}}})\n"
+                f"SET __cy_p__.type = '{param_type}', __cy_p__.index = {idx}\n"
+                f"MERGE (__cy_m__)-[__cy_r__:HAS_PARAMETER]->(__cy_p__)\n"
+                f"RETURN __cy_m__, __cy_p__, __cy_r__"
             )
 
         # DEPENDENCY 관계
@@ -947,16 +947,16 @@ class FrameworkAstProcessor(BaseAstProcessor):
             if not target_type:
                 continue
 
-            src_match = f"MATCH (src:{node.unit_kind or 'CLASS'} {{startLine: {node.parent.start_line if node.parent else node.start_line}, {self.node_base_props}}})"
+            src_match = f"MATCH (__cy_src__:{node.unit_kind or 'CLASS'} {{startLine: {node.parent.start_line if node.parent else node.start_line}, {self.node_base_props}}})"
             queries.append(
                 f"{src_match}\n"
-                f"MATCH (dst) WHERE (dst:CLASS OR dst:INTERFACE OR dst:ENUM)\n"
-                f"  AND toLower(dst.class_name) = toLower('{target_type}')\n"
-                f"  AND src <> dst\n"
-                f"  AND NOT (src)-[:ASSOCIATION|COMPOSITION]->(dst)\n"
-                f"MERGE (src)-[r:DEPENDENCY {{usage: '{usage}', source_member: '{method_name}'}}]->(dst)\n"
-                f"SET r.is_value_object = {is_value_object_cypher}\n"
-                f"RETURN src, dst, r"
+                f"MATCH (__cy_dst__) WHERE (__cy_dst__:CLASS OR __cy_dst__:INTERFACE OR __cy_dst__:ENUM)\n"
+                f"  AND toLower(__cy_dst__.class_name) = toLower('{target_type}')\n"
+                f"  AND __cy_src__ <> __cy_dst__\n"
+                f"  AND NOT (__cy_src__)-[:ASSOCIATION|COMPOSITION]->(__cy_dst__)\n"
+                f"MERGE (__cy_src__)-[__cy_r__:DEPENDENCY {{usage: '{usage}', source_member: '{method_name}'}}]->(__cy_dst__)\n"
+                f"SET __cy_r__.is_value_object = {is_value_object_cypher}\n"
+                f"RETURN __cy_src__, __cy_dst__, __cy_r__"
             )
 
         # 필드 할당 패턴
@@ -971,14 +971,14 @@ class FrameworkAstProcessor(BaseAstProcessor):
 
             if value_source == "new":
                 queries.append(
-                    f"MATCH (field:FIELD {{name: '{field_name}', {self.node_base_props}}})\n"
-                    f"WHERE field.target_class IS NOT NULL\n"
-                    f"MATCH (src:{node.unit_kind or 'CLASS'} {{startLine: {src_start_line}, {self.node_base_props}}})"
-                    f"-[r:ASSOCIATION {{source_member: '{field_name}'}}]->(dst)\n"
-                    f"WITH src, dst, COALESCE(r.multiplicity, '1') AS mult, r\n"
-                    f"DELETE r\n"
-                    f"MERGE (src)-[r2:COMPOSITION {{source_member: '{field_name}', multiplicity: mult}}]->(dst)\n"
-                    f"RETURN src, dst, r2"
+                    f"MATCH (__cy_field__:FIELD {{name: '{field_name}', {self.node_base_props}}})\n"
+                    f"WHERE __cy_field__.target_class IS NOT NULL\n"
+                    f"MATCH (__cy_src__:{node.unit_kind or 'CLASS'} {{startLine: {src_start_line}, {self.node_base_props}}})"
+                    f"-[__cy_r__:ASSOCIATION {{source_member: '{field_name}'}}]->(__cy_dst__)\n"
+                    f"WITH __cy_src__, __cy_dst__, COALESCE(__cy_r__.multiplicity, '1') AS mult, __cy_r__\n"
+                    f"DELETE __cy_r__\n"
+                    f"MERGE (__cy_src__)-[__cy_r2__:COMPOSITION {{source_member: '{field_name}', multiplicity: mult}}]->(__cy_dst__)\n"
+                    f"RETURN __cy_src__, __cy_dst__, __cy_r2__"
                 )
 
         return queries

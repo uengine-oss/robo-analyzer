@@ -145,7 +145,7 @@ async def check_existing_data(request: Request):
     client = Neo4jClient()
     try:
         result = await client.execute_queries([
-            "MATCH (n) RETURN count(n) as count"
+            "MATCH (__cy_n__) RETURN count(__cy_n__) as count"
         ])
         node_count = result[0][0]["count"] if result and result[0] else 0
         
@@ -174,18 +174,18 @@ async def get_graph_data(request: Request):
     try:
         # 노드 조회 (전체 노드)
         node_query = """
-            MATCH (n)
-            RETURN elementId(n) AS nodeId, labels(n) AS labels, properties(n) AS props
+            MATCH (__cy_n__)
+            RETURN elementId(__cy_n__) AS nodeId, labels(__cy_n__) AS labels, properties(__cy_n__) AS props
         """
         
         # 관계 조회 (전체 관계)
         rel_query = """
-            MATCH (a)-[r]->(b)
-            RETURN elementId(r) AS relId, 
-                   elementId(a) AS startId, 
-                   elementId(b) AS endId, 
-                   type(r) AS relType, 
-                   properties(r) AS props
+            MATCH (__cy_a__)-[__cy_r__]->(__cy_b__)
+            RETURN elementId(__cy_r__) AS relId, 
+                   elementId(__cy_a__) AS startId, 
+                   elementId(__cy_b__) AS endId, 
+                   type(__cy_r__) AS relType, 
+                   properties(__cy_r__) AS props
         """
         
         results = await client.execute_queries([node_query, rel_query])
@@ -247,38 +247,38 @@ async def get_related_tables(table_name: str, request: Request):
         # 1. FK_TO_TABLE 관계 조회 (sourceColumn, targetColumn, source 포함)
         # 새 구조: 각 FK_TO_TABLE 관계마다 sourceColumn, targetColumn 속성 (단일 값)
         fk_query = f"""
-            MATCH (t1:Table)-[r:FK_TO_TABLE]->(t2:Table)
-            WHERE t1.name = '{safe_table_name}' OR t2.name = '{safe_table_name}'
-               OR t1.fqn ENDS WITH '{safe_table_name}' OR t2.fqn ENDS WITH '{safe_table_name}'
-            RETURN t1.name AS from_table, 
-                   t1.schema_name AS from_schema,
-                   t1.description AS from_desc,
-                   t2.name AS to_table, 
-                   t2.schema_name AS to_schema,
-                   t2.description AS to_desc,
-                   r.sourceColumn AS source_column,
-                   r.targetColumn AS target_column,
-                   COALESCE(r.source, 'ddl') AS source,
-                   type(r) AS rel_type
+            MATCH (__cy_t1__:Table)-[__cy_r__:FK_TO_TABLE]->(__cy_t2__:Table)
+            WHERE __cy_t1__.name = '{safe_table_name}' OR __cy_t2__.name = '{safe_table_name}'
+               OR __cy_t1__.fqn ENDS WITH '{safe_table_name}' OR __cy_t2__.fqn ENDS WITH '{safe_table_name}'
+            RETURN __cy_t1__.name AS from_table, 
+                   __cy_t1__.schema_name AS from_schema,
+                   __cy_t1__.description AS from_desc,
+                   __cy_t2__.name AS to_table, 
+                   __cy_t2__.schema_name AS to_schema,
+                   __cy_t2__.description AS to_desc,
+                   __cy_r__.sourceColumn AS source_column,
+                   __cy_r__.targetColumn AS target_column,
+                   COALESCE(__cy_r__.source, 'ddl') AS source,
+                   type(__cy_r__) AS rel_type
         """
         
         # 2. 같은 프로시저에서 참조되는 테이블 (CO_REFERENCED)
         proc_query = f"""
-            MATCH (t:Table)
-            WHERE t.name = '{safe_table_name}' OR t.fqn ENDS WITH '{safe_table_name}'
+            MATCH (__cy_t__:Table)
+            WHERE __cy_t__.name = '{safe_table_name}' OR __cy_t__.fqn ENDS WITH '{safe_table_name}'
             
-            OPTIONAL MATCH (t)<-[:FROM|WRITES]-(s1)<-[:PARENT_OF*]-(proc)
-            OPTIONAL MATCH (proc)-[:PARENT_OF*]->(s2)-[:FROM|WRITES]->(t2:Table)
-            WHERE t2 <> t
+            OPTIONAL MATCH (__cy_t__)<-[:FROM|WRITES]-(__cy_s1__)<-[:PARENT_OF*]-(__cy_proc__)
+            OPTIONAL MATCH (__cy_proc__)-[:PARENT_OF*]->(__cy_s2__)-[:FROM|WRITES]->(__cy_t2__:Table)
+            WHERE __cy_t2__ <> __cy_t__
             
-            WITH t, COLLECT(DISTINCT {{
-                name: t2.name, 
-                schema: t2.schema_name, 
-                description: t2.description
+            WITH __cy_t__, COLLECT(DISTINCT {{
+                name: __cy_t2__.name, 
+                schema: __cy_t2__.schema_name, 
+                description: __cy_t2__.description
             }}) AS proc_related
             
-            RETURN t.name AS base_table, 
-                   t.schema_name AS base_schema,
+            RETURN __cy_t__.name AS base_table, 
+                   __cy_t__.schema_name AS base_schema,
                    proc_related
         """
         
@@ -475,36 +475,36 @@ async def get_lineage_graph():
     try:
         # DataSource, ETLProcess 노드 조회
         node_query = """
-            MATCH (n)
-            WHERE (n:DataSource OR n:ETLProcess)
-            RETURN n.name AS name,
-                   labels(n)[0] AS nodeType,
-                   elementId(n) AS id,
-                   properties(n) AS properties
+            MATCH (__cy_n__)
+            WHERE (__cy_n__:DataSource OR __cy_n__:ETLProcess)
+            RETURN __cy_n__.name AS name,
+                   labels(__cy_n__)[0] AS nodeType,
+                   elementId(__cy_n__) AS id,
+                   properties(__cy_n__) AS properties
             ORDER BY nodeType, name
         """
         
         # 관계 조회 쿼리
         rel_query = """
-            MATCH (src)-[r]->(tgt)
-            WHERE (src:DataSource OR src:ETLProcess)
-              AND (tgt:DataSource OR tgt:ETLProcess)
-              AND type(r) IN ['DATA_FLOW_TO', 'TRANSFORMS_TO']
-            RETURN elementId(r) AS id,
-                   elementId(src) AS source,
-                   elementId(tgt) AS target,
-                   type(r) AS relType,
-                   properties(r) AS properties
+            MATCH (__cy_src__)-[__cy_r__]->(__cy_tgt__)
+            WHERE (__cy_src__:DataSource OR __cy_src__:ETLProcess)
+              AND (__cy_tgt__:DataSource OR __cy_tgt__:ETLProcess)
+              AND type(__cy_r__) IN ['DATA_FLOW_TO', 'TRANSFORMS_TO']
+            RETURN elementId(__cy_r__) AS id,
+                   elementId(__cy_src__) AS source,
+                   elementId(__cy_tgt__) AS target,
+                   type(__cy_r__) AS relType,
+                   properties(__cy_r__) AS properties
         """
         
         # 통계 쿼리
         stats_query = """
-            MATCH (n)
-            WHERE (n:DataSource OR n:ETLProcess)
+            MATCH (__cy_n__)
+            WHERE (__cy_n__:DataSource OR __cy_n__:ETLProcess)
             WITH 
-                sum(CASE WHEN n:ETLProcess THEN 1 ELSE 0 END) AS etlCount,
-                sum(CASE WHEN n:DataSource AND n.type = 'SOURCE' THEN 1 ELSE 0 END) AS sourceCount,
-                sum(CASE WHEN n:DataSource AND n.type = 'TARGET' THEN 1 ELSE 0 END) AS targetCount
+                sum(CASE WHEN __cy_n__:ETLProcess THEN 1 ELSE 0 END) AS etlCount,
+                sum(CASE WHEN __cy_n__:DataSource AND __cy_n__.type = 'SOURCE' THEN 1 ELSE 0 END) AS sourceCount,
+                sum(CASE WHEN __cy_n__:DataSource AND __cy_n__.type = 'TARGET' THEN 1 ELSE 0 END) AS targetCount
             RETURN etlCount, sourceCount, targetCount
         """
         
@@ -726,12 +726,12 @@ async def semantic_search_tables(
     try:
         # 1. 테이블 목록 조회 (설명 포함)
         cypher_query = """
-            MATCH (t:Table)
-            WHERE t.description IS NOT NULL AND t.description <> ''
-            RETURN t.name AS name,
-                   t.schema AS schema,
-                   t.description AS description
-            ORDER BY t.name
+            MATCH (__cy_t__:Table)
+            WHERE __cy_t__.description IS NOT NULL AND __cy_t__.description <> ''
+            RETURN __cy_t__.name AS name,
+                   __cy_t__.schema AS schema,
+                   __cy_t__.description AS description
+            ORDER BY __cy_t__.name
             LIMIT 200
         """
         
@@ -833,29 +833,29 @@ async def list_schema_tables(
         where_conditions = []
         
         if schema:
-            where_conditions.append(f"t.schema = '{escape_for_cypher(schema)}'")
+            where_conditions.append(f"__cy_t__.schema = '{escape_for_cypher(schema)}'")
         
         if search:
             search_escaped = escape_for_cypher(search)
             where_conditions.append(
-                f"(toLower(t.name) CONTAINS toLower('{search_escaped}') "
-                f"OR toLower(t.description) CONTAINS toLower('{search_escaped}'))"
+                f"(toLower(__cy_t__.name) CONTAINS toLower('{search_escaped}') "
+                f"OR toLower(__cy_t__.description) CONTAINS toLower('{search_escaped}'))"
             )
         
         where_clause = " AND ".join(where_conditions) if where_conditions else "true"
         
         query = f"""
-            MATCH (t:Table)
+            MATCH (__cy_t__:Table)
             WHERE {where_clause}
-            OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column)
-            WITH t, count(c) AS col_count
-            RETURN t.name AS name,
-                   t.schema AS schema,
-                   t.description AS description,
-                   t.description_source AS description_source,
-                   t.analyzed_description AS analyzed_description,
+            OPTIONAL MATCH (__cy_t__)-[:HAS_COLUMN]->(__cy_c__:Column)
+            WITH __cy_t__, count(__cy_c__) AS col_count
+            RETURN __cy_t__.name AS name,
+                   __cy_t__.schema AS schema,
+                   __cy_t__.description AS description,
+                   __cy_t__.description_source AS description_source,
+                   __cy_t__.analyzed_description AS analyzed_description,
                    col_count AS column_count
-            ORDER BY t.name
+            ORDER BY __cy_t__.name
             LIMIT {limit}
         """
         
@@ -906,25 +906,25 @@ async def list_table_columns(
     client = Neo4jClient()
     try:
         where_conditions = [
-            f"t.name = '{escape_for_cypher(table_name)}'"
+            f"__cy_t__.name = '{escape_for_cypher(table_name)}'"
         ]
         
         if schema:
-            where_conditions.append(f"t.schema = '{escape_for_cypher(schema)}'")
+            where_conditions.append(f"__cy_t__.schema = '{escape_for_cypher(schema)}'")
         
         where_clause = " AND ".join(where_conditions)
         
         query = f"""
-            MATCH (t:Table)-[:HAS_COLUMN]->(c:Column)
+            MATCH (__cy_t__:Table)-[:HAS_COLUMN]->(__cy_c__:Column)
             WHERE {where_clause}
-            RETURN c.name AS name,
-                   t.name AS table_name,
-                   c.dtype AS dtype,
-                   c.nullable AS nullable,
-                   c.description AS description,
-                   c.description_source AS description_source,
-                   c.analyzed_description AS analyzed_description
-            ORDER BY c.name
+            RETURN __cy_c__.name AS name,
+                   __cy_t__.name AS table_name,
+                   __cy_c__.dtype AS dtype,
+                   __cy_c__.nullable AS nullable,
+                   __cy_c__.description AS description,
+                   __cy_c__.description_source AS description_source,
+                   __cy_c__.analyzed_description AS analyzed_description
+            ORDER BY __cy_c__.name
         """
         
         results = await client.execute_queries([query])
@@ -968,16 +968,16 @@ async def list_schema_relationships(
     try:
         # FK_TO_TABLE 중 source='user'인 것만 조회 (사용자 추가 관계)
         query = """
-            MATCH (t1:Table)-[r:FK_TO_TABLE]->(t2:Table)
-            WHERE r.source = 'user'
-            RETURN t1.name AS from_table,
-                   t1.schema AS from_schema,
-                   r.sourceColumn AS from_column,
-                   t2.name AS to_table,
-                   t2.schema AS to_schema,
-                   r.targetColumn AS to_column,
-                   r.type AS relationship_type,
-                   r.description AS description
+            MATCH (__cy_t1__:Table)-[__cy_r__:FK_TO_TABLE]->(__cy_t2__:Table)
+            WHERE __cy_r__.source = 'user'
+            RETURN __cy_t1__.name AS from_table,
+                   __cy_t1__.schema AS from_schema,
+                   __cy_r__.sourceColumn AS from_column,
+                   __cy_t2__.name AS to_table,
+                   __cy_t2__.schema AS to_schema,
+                   __cy_r__.targetColumn AS to_column,
+                   __cy_r__.type AS relationship_type,
+                   __cy_r__.description AS description
             ORDER BY from_table, to_table
         """
         
@@ -1045,10 +1045,10 @@ async def get_table_references(
     try:
         # 테이블 조건
         table_conditions = [
-            f"t.name = '{escape_for_cypher(table_name)}'"
+            f"__cy_t__.name = '{escape_for_cypher(table_name)}'"
         ]
         if schema:
-            table_conditions.append(f"t.schema = '{escape_for_cypher(schema)}'")
+            table_conditions.append(f"__cy_t__.schema = '{escape_for_cypher(schema)}'")
         
         table_where = " AND ".join(table_conditions)
         
@@ -1056,21 +1056,21 @@ async def get_table_references(
         # Statement는 PROCEDURE 또는 FUNCTION의 하위 노드 (PARENT_OF 관계)
         # FILE -> PROCEDURE 관계 (CONTAINS)를 통해 파일 정보도 함께 조회
         query = f"""
-            MATCH (t:Table)
+            MATCH (__cy_t__:Table)
             WHERE {table_where}
-            MATCH (s)-[rel:FROM|WRITES]->(t)
-            OPTIONAL MATCH (s)<-[:PARENT_OF*]-(proc)
-            WHERE proc:PROCEDURE OR proc:FUNCTION
-            OPTIONAL MATCH (file:FILE)-[:CONTAINS]->(proc)
+            MATCH (__cy_s__)-[__cy_rel__:FROM|WRITES]->(__cy_t__)
+            OPTIONAL MATCH (__cy_s__)<-[:PARENT_OF*]-(__cy_proc__)
+            WHERE __cy_proc__:PROCEDURE OR __cy_proc__:FUNCTION
+            OPTIONAL MATCH (__cy_file__:FILE)-[:CONTAINS]->(__cy_proc__)
             RETURN DISTINCT 
-                COALESCE(proc.name, s.name) AS procedure_name,
-                COALESCE(labels(proc)[0], labels(s)[0]) AS procedure_type,
-                COALESCE(proc.startLine, s.startLine) AS start_line,
-                type(rel) AS access_type,
-                labels(s)[0] AS statement_type,
-                s.startLine AS statement_line,
-                file.file_name AS file_name,
-                file.directory AS file_directory
+                COALESCE(__cy_proc__.name, __cy_s__.name) AS procedure_name,
+                COALESCE(labels(__cy_proc__)[0], labels(__cy_s__)[0]) AS procedure_type,
+                COALESCE(__cy_proc__.startLine, __cy_s__.startLine) AS start_line,
+                type(__cy_rel__) AS access_type,
+                labels(__cy_s__)[0] AS statement_type,
+                __cy_s__.startLine AS statement_line,
+                __cy_file__.file_name AS file_name,
+                __cy_file__.directory AS file_directory
             ORDER BY procedure_name, statement_line
         """
         
@@ -1133,25 +1133,25 @@ async def get_procedure_statements(
     try:
         # 프로시저 조건
         proc_conditions = [
-            f"proc.name = '{escape_for_cypher(procedure_name)}'"
+            f"__cy_proc__.name = '{escape_for_cypher(procedure_name)}'"
         ]
         if file_directory:
-            proc_conditions.append(f"proc.directory = '{escape_for_cypher(file_directory)}'")
+            proc_conditions.append(f"__cy_proc__.directory = '{escape_for_cypher(file_directory)}'")
         
         proc_where = " AND ".join(proc_conditions)
         
         # 프로시저의 모든 하위 노드(Statement)와 그 summary 조회
         query = f"""
-            MATCH (proc)
-            WHERE (proc:PROCEDURE OR proc:FUNCTION) AND {proc_where}
-            OPTIONAL MATCH (proc)-[:PARENT_OF*]->(s)
+            MATCH (__cy_proc__)
+            WHERE (__cy_proc__:PROCEDURE OR __cy_proc__:FUNCTION) AND {proc_where}
+            OPTIONAL MATCH (__cy_proc__)-[:PARENT_OF*]->(__cy_s__)
             RETURN DISTINCT
-                s.startLine AS start_line,
-                s.endLine AS end_line,
-                labels(s)[0] AS statement_type,
-                s.summary AS summary,
-                s.ai_description AS ai_description
-            ORDER BY s.startLine
+                __cy_s__.startLine AS start_line,
+                __cy_s__.endLine AS end_line,
+                labels(__cy_s__)[0] AS statement_type,
+                __cy_s__.summary AS summary,
+                __cy_s__.ai_description AS ai_description
+            ORDER BY __cy_s__.startLine
         """
         
         results = await client.execute_queries([query])
@@ -1201,17 +1201,17 @@ async def add_schema_relationship(
     try:
         # FK_TO_TABLE 관계 생성 (source: 'user' - 사용자 추가)
         query = f"""
-            MATCH (t1:Table {{name: '{escape_for_cypher(body.from_table)}'}})
-            MATCH (t2:Table {{name: '{escape_for_cypher(body.to_table)}'}})
-            MERGE (t1)-[r:FK_TO_TABLE {{
+            MATCH (__cy_t1__:Table {{name: '{escape_for_cypher(body.from_table)}'}})
+            MATCH (__cy_t2__:Table {{name: '{escape_for_cypher(body.to_table)}'}})
+            MERGE (__cy_t1__)-[__cy_r__:FK_TO_TABLE {{
                 sourceColumn: '{escape_for_cypher(body.from_column)}',
                 targetColumn: '{escape_for_cypher(body.to_column)}'
-            }}]->(t2)
-            SET r.type = '{escape_for_cypher(body.relationship_type)}',
-                r.source = 'user',
-                r.description = '{escape_for_cypher(body.description)}',
-                r.created_at = datetime()
-            RETURN count(r) AS count
+            }}]->(__cy_t2__)
+            SET __cy_r__.type = '{escape_for_cypher(body.relationship_type)}',
+                __cy_r__.source = 'user',
+                __cy_r__.description = '{escape_for_cypher(body.description)}',
+                __cy_r__.created_at = datetime()
+            RETURN count(__cy_r__) AS count
         """
         
         await client.execute_queries([query])
@@ -1251,11 +1251,11 @@ async def delete_schema_relationship(
     try:
         # FK_TO_TABLE 중 source='user'인 관계만 삭제 (사용자 추가 관계)
         query = f"""
-            MATCH (t1:Table {{name: '{escape_for_cypher(from_table)}'}})-
-                  [r:FK_TO_TABLE {{sourceColumn: '{escape_for_cypher(from_column)}', targetColumn: '{escape_for_cypher(to_column)}', source: 'user'}}]->
-                  (t2:Table {{name: '{escape_for_cypher(to_table)}'}})
-            DELETE r
-            RETURN count(r) AS count
+            MATCH (__cy_t1__:Table {{name: '{escape_for_cypher(from_table)}'}})-
+                  [__cy_r__:FK_TO_TABLE {{sourceColumn: '{escape_for_cypher(from_column)}', targetColumn: '{escape_for_cypher(to_column)}', source: 'user'}}]->
+                  (__cy_t2__:Table {{name: '{escape_for_cypher(to_table)}'}})
+            DELETE __cy_r__
+            RETURN count(__cy_r__) AS count
         """
         
         await client.execute_queries([query])
@@ -1387,9 +1387,9 @@ async def update_table_description(
     try:
         # 1. 테이블 정보 조회 (컬럼 목록 포함)
         info_query = f"""
-            MATCH (t:Table {{name: '{escape_for_cypher(table_name)}', schema: '{escape_for_cypher(body.schema)}'}})
-            OPTIONAL MATCH (t)-[:HAS_COLUMN]->(c:Column)
-            RETURN t.name AS name, t.schema AS schema, collect(c.name) AS columns
+            MATCH (__cy_t__:Table {{name: '{escape_for_cypher(table_name)}', schema: '{escape_for_cypher(body.schema)}'}})
+            OPTIONAL MATCH (__cy_t__)-[:HAS_COLUMN]->(__cy_c__:Column)
+            RETURN __cy_t__.name AS name, __cy_t__.schema AS schema, collect(__cy_c__.name) AS columns
         """
         
         results = await client.execute_queries([info_query])
@@ -1421,15 +1421,15 @@ async def update_table_description(
         escaped_desc = escape_for_cypher(body.description or "")
         if embedding:
             update_query = f"""
-                MATCH (t:Table {{name: '{escape_for_cypher(table_name)}', schema: '{escape_for_cypher(body.schema)}'}})
-                SET t.description = '{escaped_desc}', t.description_source = 'user', t.vector = {embedding}, t.updated_at = datetime()
-                RETURN t.name AS name, t.description AS description, t.description_source AS description_source
+                MATCH (__cy_t__:Table {{name: '{escape_for_cypher(table_name)}', schema: '{escape_for_cypher(body.schema)}'}})
+                SET __cy_t__.description = '{escaped_desc}', __cy_t__.description_source = 'user', __cy_t__.vector = {embedding}, __cy_t__.updated_at = datetime()
+                RETURN __cy_t__.name AS name, __cy_t__.description AS description, __cy_t__.description_source AS description_source
             """
         else:
             update_query = f"""
-                MATCH (t:Table {{name: '{escape_for_cypher(table_name)}', schema: '{escape_for_cypher(body.schema)}'}})
-                SET t.description = '{escaped_desc}', t.description_source = 'user'
-                RETURN t.name AS name, t.description AS description, t.description_source AS description_source
+                MATCH (__cy_t__:Table {{name: '{escape_for_cypher(table_name)}', schema: '{escape_for_cypher(body.schema)}'}})
+                SET __cy_t__.description = '{escaped_desc}', __cy_t__.description_source = 'user'
+                RETURN __cy_t__.name AS name, __cy_t__.description AS description, __cy_t__.description_source AS description_source
             """
         
         results = await client.execute_queries([update_query])
@@ -1479,8 +1479,8 @@ async def update_column_description(
     try:
         # 1. 컬럼 정보 조회
         info_query = f"""
-            MATCH (t:Table {{name: '{escape_for_cypher(table_name)}', schema: '{escape_for_cypher(body.table_schema)}'}})-[:HAS_COLUMN]->(c:Column {{name: '{escape_for_cypher(column_name)}'}})
-            RETURN c.name AS name, c.dtype AS dtype
+            MATCH (__cy_t__:Table {{name: '{escape_for_cypher(table_name)}', schema: '{escape_for_cypher(body.table_schema)}'}})-[:HAS_COLUMN]->(__cy_c__:Column {{name: '{escape_for_cypher(column_name)}'}})
+            RETURN __cy_c__.name AS name, __cy_c__.dtype AS dtype
         """
         
         results = await client.execute_queries([info_query])
@@ -1513,15 +1513,15 @@ async def update_column_description(
         escaped_desc = escape_for_cypher(body.description or "")
         if embedding:
             update_query = f"""
-                MATCH (t:Table {{name: '{escape_for_cypher(table_name)}', schema: '{escape_for_cypher(body.table_schema)}'}})-[:HAS_COLUMN]->(c:Column {{name: '{escape_for_cypher(column_name)}'}})
-                SET c.description = '{escaped_desc}', c.description_source = 'user', c.vector = {embedding}, c.updated_at = datetime()
-                RETURN c.name AS name, c.description AS description, c.description_source AS description_source
+                MATCH (__cy_t__:Table {{name: '{escape_for_cypher(table_name)}', schema: '{escape_for_cypher(body.table_schema)}'}})-[:HAS_COLUMN]->(__cy_c__:Column {{name: '{escape_for_cypher(column_name)}'}})
+                SET __cy_c__.description = '{escaped_desc}', __cy_c__.description_source = 'user', __cy_c__.vector = {embedding}, __cy_c__.updated_at = datetime()
+                RETURN __cy_c__.name AS name, __cy_c__.description AS description, __cy_c__.description_source AS description_source
             """
         else:
             update_query = f"""
-                MATCH (t:Table {{name: '{escape_for_cypher(table_name)}', schema: '{escape_for_cypher(body.table_schema)}'}})-[:HAS_COLUMN]->(c:Column {{name: '{escape_for_cypher(column_name)}'}})
-                SET c.description = '{escaped_desc}', c.description_source = 'user'
-                RETURN c.name AS name, c.description AS description, c.description_source AS description_source
+                MATCH (__cy_t__:Table {{name: '{escape_for_cypher(table_name)}', schema: '{escape_for_cypher(body.table_schema)}'}})-[:HAS_COLUMN]->(__cy_c__:Column {{name: '{escape_for_cypher(column_name)}'}})
+                SET __cy_c__.description = '{escaped_desc}', __cy_c__.description_source = 'user'
+                RETURN __cy_c__.name AS name, __cy_c__.description AS description, __cy_c__.description_source AS description_source
             """
         
         results = await client.execute_queries([update_query])
@@ -1582,19 +1582,19 @@ async def vectorize_schema(
         if body.include_tables:
             where_parts = []
             if body.schema:
-                where_parts.append(f"toLower(t.schema) = toLower('{escape_for_cypher(body.schema)}')")
+                where_parts.append(f"toLower(__cy_t__.schema) = toLower('{escape_for_cypher(body.schema)}')")
             if not body.reembed_existing:
-                where_parts.append("(t.vector IS NULL OR size(t.vector) = 0)")
-            where_parts.append("(t.description IS NOT NULL OR t.analyzed_description IS NOT NULL)")
+                where_parts.append("(__cy_t__.vector IS NULL OR size(__cy_t__.vector) = 0)")
+            where_parts.append("(__cy_t__.description IS NOT NULL OR __cy_t__.analyzed_description IS NOT NULL)")
             
             where_clause = " AND ".join(where_parts) if where_parts else "true"
             
             table_query = f"""
-                MATCH (t:Table)
+                MATCH (__cy_t__:Table)
                 WHERE {where_clause}
-                RETURN elementId(t) AS tid, t.name AS name, t.schema AS schema,
-                       coalesce(t.description, t.analyzed_description, '') AS description
-                ORDER BY t.schema, t.name
+                RETURN elementId(__cy_t__) AS tid, __cy_t__.name AS name, __cy_t__.schema AS schema,
+                       coalesce(__cy_t__.description, __cy_t__.analyzed_description, '') AS description
+                ORDER BY __cy_t__.schema, __cy_t__.name
             """
             
             results = await client.execute_queries([table_query])
@@ -1613,9 +1613,9 @@ async def vectorize_schema(
                 
                 if vector:
                     set_query = f"""
-                        MATCH (t)
-                        WHERE elementId(t) = '{item['tid']}'
-                        SET t.vector = {vector}, t.updated_at = datetime()
+                        MATCH (__cy_t__)
+                        WHERE elementId(__cy_t__) = '{item['tid']}'
+                        SET __cy_t__.vector = {vector}, __cy_t__.updated_at = datetime()
                     """
                     await client.execute_queries([set_query])
                     total_tables += 1
@@ -1624,19 +1624,19 @@ async def vectorize_schema(
         if body.include_columns:
             where_parts = []
             if body.schema:
-                where_parts.append(f"toLower(t.schema) = toLower('{escape_for_cypher(body.schema)}')")
+                where_parts.append(f"toLower(__cy_t__.schema) = toLower('{escape_for_cypher(body.schema)}')")
             if not body.reembed_existing:
-                where_parts.append("(c.embedding IS NULL OR size(c.embedding) = 0)")
-            where_parts.append("c.description IS NOT NULL AND c.description <> ''")
+                where_parts.append("(__cy_c__.embedding IS NULL OR size(__cy_c__.embedding) = 0)")
+            where_parts.append("__cy_c__.description IS NOT NULL AND __cy_c__.description <> ''")
             
             where_clause = " AND ".join(where_parts) if where_parts else "true"
             
             column_query = f"""
-                MATCH (t:Table)-[:HAS_COLUMN]->(c:Column)
+                MATCH (__cy_t__:Table)-[:HAS_COLUMN]->(__cy_c__:Column)
                 WHERE {where_clause}
-                RETURN elementId(c) AS cid, c.name AS column_name, t.name AS table_name,
-                       coalesce(c.dtype, '') AS dtype, c.description AS description
-                ORDER BY t.schema, t.name, c.name
+                RETURN elementId(__cy_c__) AS cid, __cy_c__.name AS column_name, __cy_t__.name AS table_name,
+                       coalesce(__cy_c__.dtype, '') AS dtype, __cy_c__.description AS description
+                ORDER BY __cy_t__.schema, __cy_t__.name, __cy_c__.name
             """
             
             results = await client.execute_queries([column_query])
@@ -1661,9 +1661,9 @@ async def vectorize_schema(
                 for item, vector in zip(batch, vectors):
                     if vector:
                         set_query = f"""
-                            MATCH (c)
-                            WHERE elementId(c) = '{item['cid']}'
-                            SET c.vector = {vector}, c.updated_at = datetime()
+                            MATCH (__cy_c__)
+                            WHERE elementId(__cy_c__) = '{item['cid']}'
+                            SET __cy_c__.vector = {vector}, __cy_c__.updated_at = datetime()
                         """
                         await client.execute_queries([set_query])
                         total_columns += 1
@@ -1760,11 +1760,11 @@ async def register_dw_star_schema(
         
         # 1. Schema 노드 생성/업데이트
         queries.append(f"""
-            MERGE (s:Schema {{db: '{escape_for_cypher(body.db_name)}', name: '{escape_for_cypher(body.dw_schema)}'}})
-            SET s.description = 'Data Warehouse schema for OLAP cubes',
-                s.type = 'DW',
-                s.updated_at = datetime()
-            RETURN s
+            MERGE (__cy_s__:Schema {{db: '{escape_for_cypher(body.db_name)}', name: '{escape_for_cypher(body.dw_schema)}'}})
+            SET __cy_s__.description = 'Data Warehouse schema for OLAP cubes',
+                __cy_s__.type = 'DW',
+                __cy_s__.updated_at = datetime()
+            RETURN __cy_s__
         """)
         
         # 2. 디멘전 테이블 생성
@@ -1774,24 +1774,24 @@ async def register_dw_star_schema(
             
             # 테이블 노드 생성
             queries.append(f"""
-                MERGE (t:Table {{
+                MERGE (__cy_t__:Table {{
                     db: '{escape_for_cypher(body.db_name)}',
                     schema: '{escape_for_cypher(body.dw_schema)}',
                     name: '{escape_for_cypher(dim_table)}'
                 }})
-                SET t.table_type = 'DIMENSION',
-                    t.cube_name = '{escape_for_cypher(body.cube_name)}',
-                    t.description = '{escape_for_cypher(dim_desc)}',
-                    t.updated_at = datetime()
-                RETURN t.name AS name
+                SET __cy_t__.table_type = 'DIMENSION',
+                    __cy_t__.cube_name = '{escape_for_cypher(body.cube_name)}',
+                    __cy_t__.description = '{escape_for_cypher(dim_desc)}',
+                    __cy_t__.updated_at = datetime()
+                RETURN __cy_t__.name AS name
             """)
             tables_created += 1
             
             # Schema -> Table 관계
             queries.append(f"""
-                MATCH (s:Schema {{db: '{escape_for_cypher(body.db_name)}', name: '{escape_for_cypher(body.dw_schema)}'}})
-                MATCH (t:Table {{db: '{escape_for_cypher(body.db_name)}', schema: '{escape_for_cypher(body.dw_schema)}', name: '{escape_for_cypher(dim_table)}'}})
-                MERGE (s)-[:HAS_TABLE]->(t)
+                MATCH (__cy_s__:Schema {{db: '{escape_for_cypher(body.db_name)}', name: '{escape_for_cypher(body.dw_schema)}'}})
+                MATCH (__cy_t__:Table {{db: '{escape_for_cypher(body.db_name)}', schema: '{escape_for_cypher(body.dw_schema)}', name: '{escape_for_cypher(dim_table)}'}})
+                MERGE (__cy_s__)-[:HAS_TABLE]->(__cy_t__)
             """)
             
             # 컬럼 노드 생성
@@ -1800,16 +1800,16 @@ async def register_dw_star_schema(
                 col_desc = col.description or f"Column {col.name} in {dim_table}"
                 
                 queries.append(f"""
-                    MATCH (t:Table {{db: '{escape_for_cypher(body.db_name)}', schema: '{escape_for_cypher(body.dw_schema)}', name: '{escape_for_cypher(dim_table)}'}})
-                    MERGE (c:Column {{fqn: '{escape_for_cypher(col_fqn)}'}})
-                    SET c.name = '{escape_for_cypher(col.name)}',
-                        c.dtype = '{escape_for_cypher(col.dtype)}',
-                        c.description = '{escape_for_cypher(col_desc)}',
-                        c.is_pk = {str(col.is_pk).lower()},
-                        c.is_fk = {str(col.is_fk).lower()},
-                        c.updated_at = datetime()
-                    MERGE (t)-[:HAS_COLUMN]->(c)
-                    RETURN c.name AS name
+                    MATCH (__cy_t__:Table {{db: '{escape_for_cypher(body.db_name)}', schema: '{escape_for_cypher(body.dw_schema)}', name: '{escape_for_cypher(dim_table)}'}})
+                    MERGE (__cy_c__:Column {{fqn: '{escape_for_cypher(col_fqn)}'}})
+                    SET __cy_c__.name = '{escape_for_cypher(col.name)}',
+                        __cy_c__.dtype = '{escape_for_cypher(col.dtype)}',
+                        __cy_c__.description = '{escape_for_cypher(col_desc)}',
+                        __cy_c__.is_pk = {str(col.is_pk).lower()},
+                        __cy_c__.is_fk = {str(col.is_fk).lower()},
+                        __cy_c__.updated_at = datetime()
+                    MERGE (__cy_t__)-[:HAS_COLUMN]->(__cy_c__)
+                    RETURN __cy_c__.name AS name
                 """)
                 columns_created += 1
             
@@ -1820,10 +1820,10 @@ async def register_dw_star_schema(
                 src_table = src_parts[-1]
                 
                 queries.append(f"""
-                    MATCH (dw:Table {{db: '{escape_for_cypher(body.db_name)}', schema: '{escape_for_cypher(body.dw_schema)}', name: '{escape_for_cypher(dim_table)}'}})
-                    MATCH (src:Table {{name: '{escape_for_cypher(src_table)}'}})
-                    WHERE toLower(src.schema) = toLower('{escape_for_cypher(src_schema)}')
-                    MERGE (dw)-[:DERIVED_FROM {{cube: '{escape_for_cypher(body.cube_name)}'}}]->(src)
+                    MATCH (__cy_dw__:Table {{db: '{escape_for_cypher(body.db_name)}', schema: '{escape_for_cypher(body.dw_schema)}', name: '{escape_for_cypher(dim_table)}'}})
+                    MATCH (__cy_src__:Table {{name: '{escape_for_cypher(src_table)}'}})
+                    WHERE toLower(__cy_src__.schema) = toLower('{escape_for_cypher(src_schema)}')
+                    MERGE (__cy_dw__)-[:DERIVED_FROM {{cube: '{escape_for_cypher(body.cube_name)}'}}]->(__cy_src__)
                 """)
         
         # 3. 팩트 테이블 생성
@@ -1831,24 +1831,24 @@ async def register_dw_star_schema(
         fact_desc = f"Fact table for {body.cube_name} cube"
         
         queries.append(f"""
-            MERGE (t:Table {{
+            MERGE (__cy_t__:Table {{
                 db: '{escape_for_cypher(body.db_name)}',
                 schema: '{escape_for_cypher(body.dw_schema)}',
                 name: '{escape_for_cypher(fact_table)}'
             }})
-            SET t.table_type = 'FACT',
-                t.cube_name = '{escape_for_cypher(body.cube_name)}',
-                t.description = '{escape_for_cypher(fact_desc)}',
-                t.updated_at = datetime()
-            RETURN t.name AS name
+            SET __cy_t__.table_type = 'FACT',
+                __cy_t__.cube_name = '{escape_for_cypher(body.cube_name)}',
+                __cy_t__.description = '{escape_for_cypher(fact_desc)}',
+                __cy_t__.updated_at = datetime()
+            RETURN __cy_t__.name AS name
         """)
         tables_created += 1
         
         # Schema -> Table 관계
         queries.append(f"""
-            MATCH (s:Schema {{db: '{escape_for_cypher(body.db_name)}', name: '{escape_for_cypher(body.dw_schema)}'}})
-            MATCH (t:Table {{db: '{escape_for_cypher(body.db_name)}', schema: '{escape_for_cypher(body.dw_schema)}', name: '{escape_for_cypher(fact_table)}'}})
-            MERGE (s)-[:HAS_TABLE]->(t)
+            MATCH (__cy_s__:Schema {{db: '{escape_for_cypher(body.db_name)}', name: '{escape_for_cypher(body.dw_schema)}'}})
+            MATCH (__cy_t__:Table {{db: '{escape_for_cypher(body.db_name)}', schema: '{escape_for_cypher(body.dw_schema)}', name: '{escape_for_cypher(fact_table)}'}})
+            MERGE (__cy_s__)-[:HAS_TABLE]->(__cy_t__)
         """)
         
         # 팩트 테이블 컬럼 생성
@@ -1857,16 +1857,16 @@ async def register_dw_star_schema(
             col_desc = col.description or f"Column {col.name} in {fact_table}"
             
             queries.append(f"""
-                MATCH (t:Table {{db: '{escape_for_cypher(body.db_name)}', schema: '{escape_for_cypher(body.dw_schema)}', name: '{escape_for_cypher(fact_table)}'}})
-                MERGE (c:Column {{fqn: '{escape_for_cypher(col_fqn)}'}})
-                SET c.name = '{escape_for_cypher(col.name)}',
-                    c.dtype = '{escape_for_cypher(col.dtype)}',
-                    c.description = '{escape_for_cypher(col_desc)}',
-                    c.is_pk = {str(col.is_pk).lower()},
-                    c.is_fk = {str(col.is_fk).lower()},
-                    c.updated_at = datetime()
-                MERGE (t)-[:HAS_COLUMN]->(c)
-                RETURN c.name AS name
+                MATCH (__cy_t__:Table {{db: '{escape_for_cypher(body.db_name)}', schema: '{escape_for_cypher(body.dw_schema)}', name: '{escape_for_cypher(fact_table)}'}})
+                MERGE (__cy_c__:Column {{fqn: '{escape_for_cypher(col_fqn)}'}})
+                SET __cy_c__.name = '{escape_for_cypher(col.name)}',
+                    __cy_c__.dtype = '{escape_for_cypher(col.dtype)}',
+                    __cy_c__.description = '{escape_for_cypher(col_desc)}',
+                    __cy_c__.is_pk = {str(col.is_pk).lower()},
+                    __cy_c__.is_fk = {str(col.is_fk).lower()},
+                    __cy_c__.updated_at = datetime()
+                MERGE (__cy_t__)-[:HAS_COLUMN]->(__cy_c__)
+                RETURN __cy_c__.name AS name
             """)
             columns_created += 1
             
@@ -1877,9 +1877,9 @@ async def register_dw_star_schema(
                 fk_table = fk_parts[-1]
                 
                 queries.append(f"""
-                    MATCH (fact:Table {{db: '{escape_for_cypher(body.db_name)}', schema: '{escape_for_cypher(body.dw_schema)}', name: '{escape_for_cypher(fact_table)}'}})
-                    MATCH (dim:Table {{db: '{escape_for_cypher(body.db_name)}', schema: '{escape_for_cypher(fk_schema)}', name: '{escape_for_cypher(fk_table)}'}})
-                    MERGE (fact)-[:FK_TO_TABLE {{column: '{escape_for_cypher(col.name)}'}}]->(dim)
+                    MATCH (__cy_fact__:Table {{db: '{escape_for_cypher(body.db_name)}', schema: '{escape_for_cypher(body.dw_schema)}', name: '{escape_for_cypher(fact_table)}'}})
+                    MATCH (__cy_dim__:Table {{db: '{escape_for_cypher(body.db_name)}', schema: '{escape_for_cypher(fk_schema)}', name: '{escape_for_cypher(fk_table)}'}})
+                    MERGE (__cy_fact__)-[:FK_TO_TABLE {{column: '{escape_for_cypher(col.name)}'}}]->(__cy_dim__)
                 """)
         
         # 소스 테이블과의 DERIVED_FROM 관계
@@ -1889,10 +1889,10 @@ async def register_dw_star_schema(
             src_table = src_parts[-1]
             
             queries.append(f"""
-                MATCH (dw:Table {{db: '{escape_for_cypher(body.db_name)}', schema: '{escape_for_cypher(body.dw_schema)}', name: '{escape_for_cypher(fact_table)}'}})
-                MATCH (src:Table {{name: '{escape_for_cypher(src_table)}'}})
-                WHERE toLower(src.schema) = toLower('{escape_for_cypher(src_schema)}')
-                MERGE (dw)-[:DERIVED_FROM {{cube: '{escape_for_cypher(body.cube_name)}'}}]->(src)
+                MATCH (__cy_dw__:Table {{db: '{escape_for_cypher(body.db_name)}', schema: '{escape_for_cypher(body.dw_schema)}', name: '{escape_for_cypher(fact_table)}'}})
+                MATCH (__cy_src__:Table {{name: '{escape_for_cypher(src_table)}'}})
+                WHERE toLower(__cy_src__.schema) = toLower('{escape_for_cypher(src_schema)}')
+                MERGE (__cy_dw__)-[:DERIVED_FROM {{cube: '{escape_for_cypher(body.cube_name)}'}}]->(__cy_src__)
             """)
         
         # 쿼리 실행
@@ -1906,11 +1906,11 @@ async def register_dw_star_schema(
             
             # 테이블 임베딩
             table_query = f"""
-                MATCH (t:Table)
-                WHERE t.schema = '{escape_for_cypher(body.dw_schema)}'
-                  AND t.cube_name = '{escape_for_cypher(body.cube_name)}'
-                  AND t.description IS NOT NULL
-                RETURN elementId(t) AS tid, t.name AS name, t.description AS description
+                MATCH (__cy_t__:Table)
+                WHERE __cy_t__.schema = '{escape_for_cypher(body.dw_schema)}'
+                  AND __cy_t__.cube_name = '{escape_for_cypher(body.cube_name)}'
+                  AND __cy_t__.description IS NOT NULL
+                RETURN elementId(__cy_t__) AS tid, __cy_t__.name AS name, __cy_t__.description AS description
             """
             results = await client.execute_queries([table_query])
             tables = results[0] if results else []
@@ -1924,21 +1924,21 @@ async def register_dw_star_schema(
                 
                 if vector:
                     set_query = f"""
-                        MATCH (t)
-                        WHERE elementId(t) = '{item['tid']}'
-                        SET t.vector = {vector}, t.embedding_updated = datetime()
+                        MATCH (__cy_t__)
+                        WHERE elementId(__cy_t__) = '{item['tid']}'
+                        SET __cy_t__.vector = {vector}, __cy_t__.embedding_updated = datetime()
                     """
                     await client.execute_queries([set_query])
                     embeddings_created += 1
             
             # 컬럼 임베딩
             column_query = f"""
-                MATCH (t:Table)-[:HAS_COLUMN]->(c:Column)
-                WHERE t.schema = '{escape_for_cypher(body.dw_schema)}'
-                  AND t.cube_name = '{escape_for_cypher(body.cube_name)}'
-                  AND c.description IS NOT NULL
-                RETURN elementId(c) AS cid, c.name AS column_name, t.name AS table_name,
-                       coalesce(c.dtype, '') AS dtype, c.description AS description
+                MATCH (__cy_t__:Table)-[:HAS_COLUMN]->(__cy_c__:Column)
+                WHERE __cy_t__.schema = '{escape_for_cypher(body.dw_schema)}'
+                  AND __cy_t__.cube_name = '{escape_for_cypher(body.cube_name)}'
+                  AND __cy_c__.description IS NOT NULL
+                RETURN elementId(__cy_c__) AS cid, __cy_c__.name AS column_name, __cy_t__.name AS table_name,
+                       coalesce(__cy_c__.dtype, '') AS dtype, __cy_c__.description AS description
             """
             results = await client.execute_queries([column_query])
             columns = results[0] if results else []
@@ -1958,9 +1958,9 @@ async def register_dw_star_schema(
                 for item, vector in zip(columns, vectors):
                     if vector:
                         set_query = f"""
-                            MATCH (c)
-                            WHERE elementId(c) = '{item['cid']}'
-                            SET c.vector = {vector}, c.embedding_updated = datetime()
+                            MATCH (__cy_c__)
+                            WHERE elementId(__cy_c__) = '{item['cid']}'
+                            SET __cy_c__.vector = {vector}, __cy_c__.embedding_updated = datetime()
                         """
                         await client.execute_queries([set_query])
                         embeddings_created += 1
@@ -2010,13 +2010,13 @@ async def delete_dw_star_schema(
         delete_queries = [
             # 컬럼 삭제
             f"""
-                MATCH (t:Table {{cube_name: '{escape_for_cypher(cube_name)}', schema: '{escape_for_cypher(dw_schema)}'}})-[:HAS_COLUMN]->(c:Column)
-                DETACH DELETE c
+                MATCH (__cy_t__:Table {{cube_name: '{escape_for_cypher(cube_name)}', schema: '{escape_for_cypher(dw_schema)}'}})-[:HAS_COLUMN]->(__cy_c__:Column)
+                DETACH DELETE __cy_c__
             """,
             # 테이블 삭제
             f"""
-                MATCH (t:Table {{cube_name: '{escape_for_cypher(cube_name)}', schema: '{escape_for_cypher(dw_schema)}'}})
-                DETACH DELETE t
+                MATCH (__cy_t__:Table {{cube_name: '{escape_for_cypher(cube_name)}', schema: '{escape_for_cypher(dw_schema)}'}})
+                DETACH DELETE __cy_t__
             """
         ]
         

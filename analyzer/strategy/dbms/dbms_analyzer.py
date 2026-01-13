@@ -282,30 +282,30 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
     ) -> Optional[str]:
         """분석된 프로시저에서 User Story 문서 생성"""
         query = """
-            MATCH (n)
-            WHERE (n:PROCEDURE OR n:FUNCTION OR n:TRIGGER)
-              AND n.summary IS NOT NULL
-            OPTIONAL MATCH (n)-[:HAS_USER_STORY]->(us:UserStory)
-            OPTIONAL MATCH (us)-[:HAS_AC]->(ac:AcceptanceCriteria)
-            WITH n, us, collect(DISTINCT {
-                id: ac.id,
-                title: ac.title,
-                given: ac.given,
-                when: ac.when,
-                then: ac.then
+            MATCH (__cy_n__)
+            WHERE (__cy_n__:PROCEDURE OR __cy_n__:FUNCTION OR __cy_n__:TRIGGER)
+              AND __cy_n__.summary IS NOT NULL
+            OPTIONAL MATCH (__cy_n__)-[:HAS_USER_STORY]->(__cy_us__:UserStory)
+            OPTIONAL MATCH (__cy_us__)-[:HAS_AC]->(__cy_ac__:AcceptanceCriteria)
+            WITH __cy_n__, __cy_us__, collect(DISTINCT {
+                id: __cy_ac__.id,
+                title: __cy_ac__.title,
+                given: __cy_ac__.given,
+                when: __cy_ac__.when,
+                then: __cy_ac__.then
             }) AS acceptance_criteria
-            WITH n, collect(DISTINCT {
-                id: us.id,
-                role: us.role,
-                goal: us.goal,
-                benefit: us.benefit,
+            WITH __cy_n__, collect(DISTINCT {
+                id: __cy_us__.id,
+                role: __cy_us__.role,
+                goal: __cy_us__.goal,
+                benefit: __cy_us__.benefit,
                 acceptance_criteria: acceptance_criteria
             }) AS user_stories
-            RETURN n.procedure_name AS name, 
-                   n.summary AS summary,
+            RETURN __cy_n__.procedure_name AS name, 
+                   __cy_n__.summary AS summary,
                    user_stories AS user_stories, 
-                   labels(n)[0] AS type
-            ORDER BY n.file_name, n.startLine
+                   labels(__cy_n__)[0] AS type
+            ORDER BY __cy_n__.file_name, __cy_n__.startLine
         """
         
         async with self._cypher_lock:
@@ -621,14 +621,23 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
         # 병합된 결과를 parsed로 사용
         parsed = {"analysis": all_parsed_results}
         
-        queries = []
         # db 속성은 DML 처리(ast_processor)와 일관성을 위해 소문자로 변환
-        common = {
-            "db": (orchestrator.target or 'postgres').lower(),
-        }
+        db_name = (orchestrator.target or 'postgres').lower()
         
         # 대소문자 변환 옵션
         name_case = getattr(orchestrator, 'name_case', 'original')
+
+        # ===========================================
+        # UNWIND 배치용 데이터 수집 (개별 쿼리 대신)
+        # ===========================================
+        schemas_data = []  # 스키마 데이터
+        tables_data = []   # 테이블 데이터
+        columns_data = []  # 컬럼 데이터
+        fks_data = []      # FK 관계 데이터
+        
+        # 중복 방지용 세트
+        seen_schemas = set()
+        seen_tables = set()
 
         for table_info in parsed.get("analysis", []):
             table = table_info.get("table", {})
@@ -657,16 +666,31 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
             # DDL에서 발견된 스키마 수집 (name_case 적용된 값으로 저장)
             if schema and schema.lower() != 'public':
                 self._ddl_schemas.add(schema)
-
-            # Table 노드 생성 (MERGE 키: db, schema, name 사용)
-            # 같은 스키마/테이블명이면 같은 노드로 취급해야 함
-            merge_key = {
-                "db": common["db"],
-                "schema": schema,
-                "name": parsed_name
-            }
-            merge_str = ", ".join(f"`{k}`: '{v}'" for k, v in merge_key.items())
             
+            # 스키마 데이터 수집 (중복 방지)
+            schema_key = (db_name, schema)
+            if schema_key not in seen_schemas:
+                seen_schemas.add(schema_key)
+                schemas_data.append({
+                    "db": db_name,
+                    "name": schema
+                })
+            
+            # 테이블 데이터 수집 (중복 방지)
+            table_key = (db_name, schema, parsed_name)
+            if table_key not in seen_tables:
+                seen_tables.add(table_key)
+                tables_data.append({
+                    "db": db_name,
+                    "schema": schema,
+                    "name": parsed_name,
+                    "description": escape_for_cypher(comment),
+                    "description_source": "ddl" if comment else "",
+                    "table_type": table_type
+                })
+                ddl_stats["tables"] += 1
+            
+            # DDL 메타데이터 캐시 저장 (메모리)
             column_metadata = {}
             for col in columns:
                 col_name_raw = (col.get("name") or "").strip()
@@ -680,84 +704,44 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
                     "nullable": col.get("nullable", True),
                 }
             
-            set_props = {
-                **common,
-                "description": escape_for_cypher(comment),
-                "description_source": "ddl" if comment else "",  # DDL에서 추출된 설명
-                "table_type": table_type,
-            }
-            set_str = ", ".join(f"t.`{k}` = '{v}'" for k, v in set_props.items())
-            
-            # Schema 노드 생성 (스키마가 없으면 'public' 사용)
-            # 대소문자 변환은 이미 schema 변수에 적용됨
-            schema_name = schema if schema else self._apply_name_case('public', name_case)
-            schema_merge = {
-                "db": common["db"],
-                "name": schema_name,  # 대소문자 변환이 이미 적용됨
-            }
-            schema_merge_str = ", ".join(f"`{k}`: '{v}'" for k, v in schema_merge.items())
-            queries.append(f"MERGE (s:Schema {{{schema_merge_str}}}) RETURN s")
-            
-            # Table 노드 생성 및 Schema에 BELONGS_TO 관계 연결
-            queries.append(f"MERGE (t:Table {{{merge_str}}}) SET {set_str} RETURN t")
-            queries.append(
-                f"MATCH (t:Table {{{merge_str}}})\n"
-                f"MATCH (s:Schema {{{schema_merge_str}}})\n"
-                f"MERGE (t)-[r:BELONGS_TO]->(s) RETURN t, r, s"
-            )
-            ddl_stats["tables"] += 1
-            
-            # DDL 메타데이터 캐시 저장 (메모리)
-            # 키는 소문자로 저장하여 대소문자 무관하게 조회 가능
-            # 원본 대소문자도 함께 저장하여 SP 분석에서 DDL과 동일한 대소문자 사용
-            table_key = (schema.lower(), parsed_name.lower())
-            self._ddl_table_metadata[table_key] = {
+            cache_key = (schema.lower(), parsed_name.lower())
+            self._ddl_table_metadata[cache_key] = {
                 "description": comment,
                 "columns": column_metadata,
-                "original_schema": schema,  # DDL에서 사용한 원본 스키마명
-                "original_name": parsed_name,  # DDL에서 사용한 원본 테이블명
+                "original_schema": schema,
+                "original_name": parsed_name,
             }
 
-            # Column 노드 생성
+            # 컬럼 데이터 수집
             for col in columns:
                 col_name_raw = (col.get("name") or "").strip()
                 if not col_name_raw:
                     continue
                 
-                # 대소문자 변환 적용
                 col_name = self._apply_name_case(col_name_raw, name_case)
-                
                 col_type = (col.get("dtype") or col.get("type") or "").strip()
                 col_nullable = col.get("nullable", True)
                 col_comment = (col.get("comment") or "").strip()
                 fqn = ".".join(filter(None, [schema, parsed_name, col_name])).lower()
-                escaped_fqn = escape_for_cypher(fqn)
-
-                col_merge = {"fqn": escaped_fqn}
-                col_merge_str = ", ".join(f"`{k}`: '{v}'" for k, v in col_merge.items())
-                col_set = {
+                
+                col_data = {
+                    "fqn": escape_for_cypher(fqn),
                     "name": escape_for_cypher(col_name),
                     "dtype": escape_for_cypher(col_type),
                     "description": escape_for_cypher(col_comment),
-                    "description_source": "ddl" if col_comment else "",  # DDL에서 추출된 설명
-                    "nullable": "true" if col_nullable else "false",
-                    "fqn": escaped_fqn,
+                    "description_source": "ddl" if col_comment else "",
+                    "nullable": col_nullable,
+                    "table_db": db_name,
+                    "table_schema": schema,
+                    "table_name": parsed_name
                 }
-                if col_name_raw.upper() in primary_keys:  # PK 체크는 원본 대문자로
-                    col_set["pk_constraint"] = f"{parsed_name}_pkey"
+                if col_name_raw.upper() in primary_keys:
+                    col_data["pk_constraint"] = f"{parsed_name}_pkey"
                 
-                col_set_str = ", ".join(f"c.`{k}` = '{v}'" for k, v in col_set.items())
-                queries.append(f"MERGE (c:Column {{{col_merge_str}}}) SET {col_set_str} RETURN c")
-                queries.append(
-                    f"MATCH (t:Table {{{merge_str}}})\n"
-                    f"MATCH (c:Column {{{col_merge_str}}})\n"
-                    f"MERGE (t)-[r:HAS_COLUMN]->(c) RETURN t, r, c"
-                )
+                columns_data.append(col_data)
                 ddl_stats["columns"] += 1
 
-            # FK 관계 생성 - 각 FK 매핑마다 별도의 FK_TO_TABLE 관계 생성
-            # 속성: sourceColumn, targetColumn, type, source
-            # source='ddl': DDL에서 추출 (실선 표시)
+            # FK 관계 데이터 수집
             for fk in foreign_keys:
                 src_col_raw = (fk.get("column") or "").strip()
                 ref = (fk.get("ref") or "").strip()
@@ -768,53 +752,181 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
                 ref_schema_parsed, ref_table_raw, _ = parse_table_identifier(ref_table_part)
                 ref_schema_final = self._apply_name_case(ref_schema_parsed or schema, name_case)
                 ref_table = self._apply_name_case(ref_table_raw, name_case)
-                
-                # 컬럼명에도 대소문자 변환 적용
                 src_col = self._apply_name_case(src_col_raw, name_case)
                 ref_col = self._apply_name_case(ref_col_raw, name_case)
 
-                # 참조 테이블 MERGE (스키마/이름으로만 매칭)
-                ref_table_merge = {
-                    "db": common["db"],
-                    "schema": ref_schema_final or "",
-                    "name": ref_table or ""
-                }
-                ref_merge_str = ", ".join(f"`{k}`: '{v}'" for k, v in ref_table_merge.items())
-                queries.append(f"MERGE (rt:Table {{{ref_merge_str}}}) RETURN rt")
-                
-                escaped_src_col = escape_for_cypher(src_col)
-                escaped_tgt_col = escape_for_cypher(ref_col)
-                
-                queries.append(
-                    f"MATCH (t:Table {{{merge_str}}})\n"
-                    f"MATCH (rt:Table {{{ref_merge_str}}})\n"
-                    f"MERGE (t)-[r:FK_TO_TABLE {{sourceColumn: '{escaped_src_col}', targetColumn: '{escaped_tgt_col}'}}]->(rt)\n"
-                    f"ON CREATE SET r.type = 'many_to_one', r.source = 'ddl'\n"
-                    f"RETURN t, r, rt"
-                )
+                fks_data.append({
+                    "from_db": db_name,
+                    "from_schema": schema,
+                    "from_table": parsed_name,
+                    "from_column": escape_for_cypher(src_col),
+                    "to_db": db_name,
+                    "to_schema": ref_schema_final or "",
+                    "to_table": ref_table or "",
+                    "to_column": escape_for_cypher(ref_col)
+                })
                 ddl_stats["fks"] += 1
 
-        # Neo4j에 저장
+        # ===========================================
+        # UNWIND 배치 실행 (7~8번의 Neo4j 호출로 완료!)
+        # ===========================================
         if emit_progress:
-            yield emit_message(f"   💾 Neo4j 저장 중: {ddl_stats['tables']}개 테이블, {ddl_stats['columns']}개 컬럼, {ddl_stats['fks']}개 FK")
+            yield emit_message(f"   💾 UNWIND 배치 저장 시작: {ddl_stats['tables']}개 테이블, {ddl_stats['columns']}개 컬럼, {ddl_stats['fks']}개 FK")
             yield emit_phase_event(
                 phase_num=0,
                 phase_name="DDL 처리",
                 status="in_progress",
                 progress=saving_start,
                 details={
-                    "step": "saving_to_neo4j",
+                    "step": "unwind_batch",
                     "tables": ddl_stats['tables'],
                     "columns": ddl_stats['columns'],
                     "fks": ddl_stats['fks']
                 }
             )
         
-        async with self._cypher_lock:
-            result = await client.run_graph_query(queries)
+        all_nodes: dict = {}
+        all_relationships: dict = {}
+        
+        # 1. 스키마 노드 생성
+        if schemas_data:
+            if emit_progress:
+                yield emit_message(f"      📦 [1/6] 스키마 {len(schemas_data)}개 생성 중...")
+            schema_query = """
+            UNWIND $items AS item
+            MERGE (__cy_s__:Schema {db: item.db, name: item.name})
+            RETURN __cy_s__
+            """
+            async with self._cypher_lock:
+                result = await client.run_batch_unwind(schema_query, schemas_data)
+            for node in result.get("Nodes", []):
+                all_nodes[node.get("Node ID")] = node
+        
+        # 2. 테이블 노드 생성
+        if tables_data:
+            if emit_progress:
+                yield emit_message(f"      📦 [2/6] 테이블 {len(tables_data)}개 생성 중...")
+            table_query = """
+            UNWIND $items AS item
+            MERGE (__cy_t__:Table {db: item.db, schema: item.schema, name: item.name})
+            SET __cy_t__.description = item.description,
+                __cy_t__.description_source = item.description_source,
+                __cy_t__.table_type = item.table_type
+            RETURN __cy_t__
+            """
+            async with self._cypher_lock:
+                result = await client.run_batch_unwind(table_query, tables_data)
+            for node in result.get("Nodes", []):
+                all_nodes[node.get("Node ID")] = node
+        
+        # 3. 테이블-스키마 관계 생성
+        if tables_data:
+            if emit_progress:
+                yield emit_message(f"      📦 [3/6] 테이블-스키마 관계 {len(tables_data)}개 생성 중...")
+            belongs_query = """
+            UNWIND $items AS item
+            MATCH (__cy_t__:Table {db: item.db, schema: item.schema, name: item.name})
+            MATCH (__cy_s__:Schema {db: item.db, name: item.schema})
+            MERGE (__cy_t__)-[__cy_r__:BELONGS_TO]->(__cy_s__)
+            RETURN __cy_t__, __cy_r__, __cy_s__
+            """
+            async with self._cypher_lock:
+                result = await client.run_batch_unwind(belongs_query, tables_data)
+            for node in result.get("Nodes", []):
+                all_nodes[node.get("Node ID")] = node
+            for rel in result.get("Relationships", []):
+                all_relationships[rel.get("Relationship ID")] = rel
+        
+        # 4. 컬럼 노드 생성
+        if columns_data:
+            if emit_progress:
+                yield emit_message(f"      📦 [4/6] 컬럼 {len(columns_data)}개 생성 중...")
+            column_query = """
+            UNWIND $items AS item
+            MERGE (__cy_c__:Column {fqn: item.fqn})
+            SET __cy_c__.name = item.name,
+                __cy_c__.dtype = item.dtype,
+                __cy_c__.description = item.description,
+                __cy_c__.description_source = item.description_source,
+                __cy_c__.nullable = item.nullable,
+                __cy_c__.pk_constraint = CASE WHEN item.pk_constraint IS NOT NULL THEN item.pk_constraint ELSE __cy_c__.pk_constraint END
+            RETURN __cy_c__
+            """
+            async with self._cypher_lock:
+                result = await client.run_batch_unwind(column_query, columns_data)
+            for node in result.get("Nodes", []):
+                all_nodes[node.get("Node ID")] = node
+        
+        # 5. 테이블-컬럼 관계 생성
+        if columns_data:
+            if emit_progress:
+                yield emit_message(f"      📦 [5/6] 테이블-컬럼 관계 {len(columns_data)}개 생성 중...")
+            has_column_query = """
+            UNWIND $items AS item
+            MATCH (__cy_t__:Table {db: item.table_db, schema: item.table_schema, name: item.table_name})
+            MATCH (__cy_c__:Column {fqn: item.fqn})
+            MERGE (__cy_t__)-[__cy_r__:HAS_COLUMN]->(__cy_c__)
+            RETURN __cy_t__, __cy_r__, __cy_c__
+            """
+            async with self._cypher_lock:
+                result = await client.run_batch_unwind(has_column_query, columns_data)
+            for node in result.get("Nodes", []):
+                all_nodes[node.get("Node ID")] = node
+            for rel in result.get("Relationships", []):
+                all_relationships[rel.get("Relationship ID")] = rel
+        
+        # 6. FK 관계 생성 (참조 테이블 MERGE + FK 관계)
+        if fks_data:
+            if emit_progress:
+                yield emit_message(f"      📦 [6/6] FK 관계 {len(fks_data)}개 생성 중...")
+            # 먼저 참조 테이블이 없으면 생성
+            ref_tables_query = """
+            UNWIND $items AS item
+            MERGE (__cy_rt__:Table {db: item.to_db, schema: item.to_schema, name: item.to_table})
+            RETURN __cy_rt__
+            """
+            async with self._cypher_lock:
+                result = await client.run_batch_unwind(ref_tables_query, fks_data)
+            for node in result.get("Nodes", []):
+                all_nodes[node.get("Node ID")] = node
+            
+            # FK 관계 생성
+            fk_query = """
+            UNWIND $items AS item
+            MATCH (__cy_t__:Table {db: item.from_db, schema: item.from_schema, name: item.from_table})
+            MATCH (__cy_rt__:Table {db: item.to_db, schema: item.to_schema, name: item.to_table})
+            MERGE (__cy_t__)-[__cy_r__:FK_TO_TABLE {sourceColumn: item.from_column, targetColumn: item.to_column}]->(__cy_rt__)
+            ON CREATE SET __cy_r__.type = 'many_to_one', __cy_r__.source = 'ddl'
+            RETURN __cy_t__, __cy_r__, __cy_rt__
+            """
+            async with self._cypher_lock:
+                result = await client.run_batch_unwind(fk_query, fks_data)
+            for node in result.get("Nodes", []):
+                all_nodes[node.get("Node ID")] = node
+            for rel in result.get("Relationships", []):
+                all_relationships[rel.get("Relationship ID")] = rel
         
         if emit_progress:
-            yield emit_message(f"   ✅ Neo4j 저장 완료")
+            yield emit_message(f"   ✅ UNWIND 배치 저장 완료: {len(all_nodes)}개 노드, {len(all_relationships)}개 관계")
+            yield emit_phase_event(
+                phase_num=0,
+                phase_name="DDL 처리",
+                status="in_progress",
+                progress=saving_end,
+                details={
+                    "step": "unwind_completed",
+                    "nodes_created": len(all_nodes),
+                    "relationships_created": len(all_relationships)
+                }
+            )
+        
+        result = {
+            "Nodes": list(all_nodes.values()),
+            "Relationships": list(all_relationships.values())
+        }
+        
+        if emit_progress:
+            yield emit_message(f"   ✅ Neo4j 저장 완료: {len(result['Nodes'])}개 노드, {len(result['Relationships'])}개 관계 생성")
             yield emit_phase_event(
                 phase_num=0,
                 phase_name="DDL 처리",
@@ -824,7 +936,9 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
                     "step": "neo4j_saved",
                     "tables": ddl_stats['tables'],
                     "columns": ddl_stats['columns'],
-                    "fks": ddl_stats['fks']
+                    "fks": ddl_stats['fks'],
+                    "nodes_created": len(result['Nodes']),
+                    "relationships_created": len(result['Relationships'])
                 }
             )
         
@@ -991,19 +1105,71 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
             completed += 1
             stats.files_completed = completed
             
+            # Phase 1 진행률 계산 (0-50% 범위 사용)
+            phase1_progress = int(completed / total * 50)
+            
             if result["type"] == "error":
                 yield emit_message(f"   ❌ [{completed}/{total}] {result['file']}: {result['message'][:50]}")
                 stats.mark_file_failed(result['file'], "Phase1 실패")
+                yield emit_phase_event(
+                    phase_num=1,
+                    phase_name="AST 구조 분석",
+                    status="in_progress",
+                    progress=phase1_progress,
+                    details={"file": result['file'], "status": "failed", "completed": completed, "total": total}
+                )
             else:
                 stats.add_graph_result(result["graph"], is_static=True)
                 
                 graph = result["graph"]
-                graph_msg = format_graph_result(graph)
+                node_count = result.get("node_count", 0)
+                rel_count = result.get("rel_count", 0)
                 
+                # 노드 타입별 상세 집계
+                node_types = {}
+                for node in graph.get("Nodes", []):
+                    labels = node.get("Labels", [])
+                    for label in labels:
+                        node_types[label] = node_types.get(label, 0) + 1
+                
+                # 상세 메시지 생성
                 yield emit_message(f"   ✓ [{completed}/{total}] {result['file']}")
-                if graph_msg:
-                    for line in graph_msg.split("\n")[:3]:
-                        yield emit_message(f"      {line}")
+                
+                if node_types:
+                    # 주요 노드 타입 표시
+                    proc_count = node_types.get("PROCEDURE", 0) + node_types.get("FUNCTION", 0)
+                    stmt_count = sum(v for k, v in node_types.items() if k in ["SELECT", "INSERT", "UPDATE", "DELETE", "MERGE"])
+                    table_refs = node_types.get("Table", 0)
+                    
+                    detail_parts = []
+                    if proc_count:
+                        detail_parts.append(f"프로시저/함수 {proc_count}개")
+                    if stmt_count:
+                        detail_parts.append(f"SQL문 {stmt_count}개")
+                    if table_refs:
+                        detail_parts.append(f"테이블 참조 {table_refs}개")
+                    
+                    if detail_parts:
+                        yield emit_message(f"      → {', '.join(detail_parts)}")
+                    
+                    # 관계 정보
+                    if rel_count > 0:
+                        yield emit_message(f"      → 관계 {rel_count}개 생성 (FROM, WRITES, CALLS 등)")
+                
+                yield emit_phase_event(
+                    phase_num=1,
+                    phase_name="AST 구조 분석",
+                    status="in_progress",
+                    progress=phase1_progress,
+                    details={
+                        "file": result['file'],
+                        "nodes": node_count,
+                        "relationships": rel_count,
+                        "completed": completed,
+                        "total": total,
+                        "node_types": node_types
+                    }
+                )
                 
                 yield emit_data(
                     graph=graph,
@@ -1098,9 +1264,19 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
             
             completed += 1
             
+            # Phase 2 진행률 계산 (50-100% 범위 사용)
+            phase2_progress = 50 + int(completed / total * 50)
+            
             if result_type == "error":
                 yield emit_message(f"   ❌ [{completed}/{total}] {result['file']}: {result['message'][:50]}")
                 stats.mark_file_failed(result['file'], "Phase2 실패")
+                yield emit_phase_event(
+                    phase_num=2,
+                    phase_name="AI 분석",
+                    status="in_progress",
+                    progress=phase2_progress,
+                    details={"file": result['file'], "status": "failed", "completed": completed, "total": total}
+                )
             else:
                 stats.llm_batches_executed += 1
                 graph = result["graph"]
@@ -1111,11 +1287,37 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
                 failed_details = result.get("failed_details", [])
                 fail_info = f" (배치 {failed_batches}개 실패)" if failed_batches > 0 else ""
                 
-                graph_msg = format_graph_result(graph)
+                # 분석 결과 상세 집계
+                node_count = len(graph.get("Nodes", []))
+                rel_count = len(graph.get("Relationships", []))
+                
+                # 업데이트된 노드 타입별 집계
+                updated_types = {}
+                for node in graph.get("Nodes", []):
+                    labels = node.get("Labels", [])
+                    for label in labels:
+                        updated_types[label] = updated_types.get(label, 0) + 1
+                
                 yield emit_message(f"   ✓ [{completed}/{total}] {result['file']} (쿼리 {result['query_count']}개){fail_info}")
-                if graph_msg:
-                    for line in graph_msg.split("\n")[:3]:
-                        yield emit_message(f"      {line}")
+                
+                # LLM 분석 결과 상세 표시
+                if updated_types:
+                    # 주요 업데이트 표시
+                    summary_added = sum(1 for n in graph.get("Nodes", []) if n.get("Properties", {}).get("summary"))
+                    table_desc_added = sum(1 for n in graph.get("Nodes", []) 
+                                           if "Table" in (n.get("Labels") or []) 
+                                           and n.get("Properties", {}).get("analyzed_description"))
+                    
+                    detail_parts = []
+                    if summary_added:
+                        detail_parts.append(f"요약 {summary_added}개 생성")
+                    if table_desc_added:
+                        detail_parts.append(f"테이블 설명 {table_desc_added}개 보강")
+                    if rel_count:
+                        detail_parts.append(f"관계 {rel_count}개 업데이트")
+                    
+                    if detail_parts:
+                        yield emit_message(f"      → {', '.join(detail_parts)}")
                 
                 # 실패 상세 정보 출력 (최대 3개)
                 if failed_details:
@@ -1123,10 +1325,25 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
                     for detail in failed_details[:3]:
                         yield emit_message(f"      ⚠️ 배치 #{detail['batch_id']} ({detail['node_ranges']}): {detail['error'][:50]}")
                 
+                yield emit_phase_event(
+                    phase_num=2,
+                    phase_name="AI 분석",
+                    status="in_progress",
+                    progress=phase2_progress,
+                    details={
+                        "file": result['file'],
+                        "queries": result['query_count'],
+                        "nodes_updated": node_count,
+                        "relationships_updated": rel_count,
+                        "completed": completed,
+                        "total": total
+                    }
+                )
+                
                 yield emit_data(
                     graph=graph,
                     line_number=0,
-                    analysis_progress=50 + int(completed / total * 50),
+                    analysis_progress=phase2_progress,
                     current_file=result["file"],
                 )
 
@@ -1143,9 +1360,10 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
         orchestrator: Any,
         stats: AnalysisStats,
     ) -> AsyncGenerator[bytes, None]:
-        """Phase 4: 테이블/컬럼 벡터라이징
+        """Phase 4: 테이블/컬럼 벡터라이징 (배치 최적화)
         
         Neo4j에 저장된 테이블/컬럼의 description을 기반으로 임베딩 생성
+        배치 처리로 성능 최적화
         """
         from openai import AsyncOpenAI
         
@@ -1158,18 +1376,27 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
         openai_client = AsyncOpenAI(api_key=api_key)
         embedding_client = EmbeddingClient(openai_client)
         
-        # 테이블 벡터라이징
-        yield emit_message("   📊 테이블 벡터라이징 중...")
+        # ===========================================
+        # 테이블 벡터라이징 (배치 처리)
+        # ===========================================
+        yield emit_message("   📊 [Phase 4-1] 테이블 벡터라이징 시작...")
+        yield emit_phase_event(
+            phase_num=4,
+            phase_name="벡터라이징",
+            status="in_progress",
+            progress=0,
+            details={"step": "table_vectorizing"}
+        )
         
         table_query = """
-        MATCH (t:Table)
-        WHERE (t.vector IS NULL OR size(t.vector) = 0)
-          AND (t.description IS NOT NULL OR t.analyzed_description IS NOT NULL)
-        RETURN elementId(t) AS tid, 
-               t.name AS name,
-               t.schema AS schema,
-               coalesce(t.description, t.analyzed_description, '') AS description
-        ORDER BY t.schema, t.name
+        MATCH (__cy_t__:Table)
+        WHERE (__cy_t__.vector IS NULL OR size(__cy_t__.vector) = 0)
+          AND (__cy_t__.description IS NOT NULL OR __cy_t__.analyzed_description IS NOT NULL)
+        RETURN elementId(__cy_t__) AS tid, 
+               __cy_t__.name AS name,
+               __cy_t__.schema AS schema,
+               coalesce(__cy_t__.description, __cy_t__.analyzed_description, '') AS description
+        ORDER BY __cy_t__.schema, __cy_t__.name
         """
         
         try:
@@ -1177,46 +1404,101 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
                 result = await client.execute_queries([table_query])
             
             tables = result[0] if result and result[0] else []
+            total_tables = len(tables)
             
-            for item in tables:
-                description = item.get("description", "") or ""
-                if not description:
-                    continue
+            if total_tables == 0:
+                yield emit_message("      ℹ️ 벡터화할 테이블이 없습니다")
+            else:
+                yield emit_message(f"      📋 벡터화 대상: {total_tables}개 테이블")
                 
-                text = embedding_client.format_table_text(
-                    table_name=item.get("name", ""),
-                    description=description
-                )
-                vector = await embedding_client.embed_text(text)
+                # 테이블도 배치로 처리 (50개씩)
+                batch_size = 50
+                for batch_idx in range(0, total_tables, batch_size):
+                    batch = tables[batch_idx:batch_idx + batch_size]
+                    batch_num = batch_idx // batch_size + 1
+                    total_batches = (total_tables + batch_size - 1) // batch_size
+                    
+                    # 유효한 테이블만 필터링
+                    valid_items = []
+                    texts = []
+                    for item in batch:
+                        description = item.get("description", "") or ""
+                        if not description:
+                            continue
+                        text = embedding_client.format_table_text(
+                            table_name=item.get("name", ""),
+                            description=description
+                        )
+                        texts.append(text)
+                        valid_items.append(item)
+                    
+                    if not texts:
+                        continue
+                    
+                    # 배치 진행 상황 표시
+                    batch_progress = int(batch_idx / total_tables * 25)  # 0-25% 범위
+                    yield emit_message(f"      🔄 [{batch_num}/{total_batches}] 테이블 {len(valid_items)}개 임베딩 생성 중...")
+                    yield emit_phase_event(
+                        phase_num=4,
+                        phase_name="벡터라이징",
+                        status="in_progress",
+                        progress=batch_progress,
+                        details={"step": "table_embedding", "batch": batch_num, "total_batches": total_batches}
+                    )
+                    
+                    # 배치 임베딩 API 호출
+                    vectors = await embedding_client.embed_batch(texts)
+                    
+                    # UNWIND 배치 저장용 데이터 생성
+                    vector_updates = []
+                    for item, vector in zip(valid_items, vectors):
+                        if vector:
+                            vector_updates.append({
+                                "tid": item['tid'],
+                                "vector": vector
+                            })
+                            stats.tables_vectorized += 1
+                    
+                    # UNWIND로 한번에 저장
+                    if vector_updates:
+                        update_query = """
+                        UNWIND $items AS item
+                        MATCH (__cy_t__) WHERE elementId(__cy_t__) = item.tid
+                        SET __cy_t__.vector = item.vector
+                        RETURN __cy_t__
+                        """
+                        async with self._cypher_lock:
+                            await client.execute_with_params(update_query, {"items": vector_updates})
+                        
+                        yield emit_message(f"      ✓ [{batch_num}/{total_batches}] {len(vector_updates)}개 테이블 벡터 저장 완료")
                 
-                if vector:
-                    set_query = f"""
-                    MATCH (t)
-                    WHERE elementId(t) = '{item['tid']}'
-                    SET t.vector = {vector}
-                    """
-                    async with self._cypher_lock:
-                        await client.execute_queries([set_query])
-                    stats.tables_vectorized += 1
-            
-            yield emit_message(f"   ✅ 테이블 {stats.tables_vectorized}개 벡터라이징 완료")
+                yield emit_message(f"   ✅ 테이블 벡터라이징 완료: {stats.tables_vectorized}개 테이블")
             
         except Exception as e:
             yield emit_message(f"   ⚠️ 테이블 벡터라이징 실패: {str(e)[:100]}")
         
-        # 컬럼 벡터라이징
-        yield emit_message("   📊 컬럼 벡터라이징 중...")
+        # ===========================================
+        # 컬럼 벡터라이징 (배치 처리)
+        # ===========================================
+        yield emit_message("   📊 [Phase 4-2] 컬럼 벡터라이징 시작...")
+        yield emit_phase_event(
+            phase_num=4,
+            phase_name="벡터라이징",
+            status="in_progress",
+            progress=25,
+            details={"step": "column_vectorizing"}
+        )
         
         column_query = """
-        MATCH (t:Table)-[:HAS_COLUMN]->(c:Column)
-        WHERE (c.vector IS NULL OR size(c.vector) = 0)
-          AND c.description IS NOT NULL AND c.description <> ''
-        RETURN elementId(c) AS cid,
-               c.name AS column_name,
-               t.name AS table_name,
-               coalesce(c.dtype, '') AS dtype,
-               c.description AS description
-        ORDER BY t.schema, t.name, c.name
+        MATCH (__cy_t__:Table)-[:HAS_COLUMN]->(__cy_c__:Column)
+        WHERE (__cy_c__.vector IS NULL OR size(__cy_c__.vector) = 0)
+          AND __cy_c__.description IS NOT NULL AND __cy_c__.description <> ''
+        RETURN elementId(__cy_c__) AS cid,
+               __cy_c__.name AS column_name,
+               __cy_t__.name AS table_name,
+               coalesce(__cy_c__.dtype, '') AS dtype,
+               __cy_c__.description AS description
+        ORDER BY __cy_t__.schema, __cy_t__.name, __cy_c__.name
         """
         
         try:
@@ -1224,38 +1506,74 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
                 result = await client.execute_queries([column_query])
             
             columns = result[0] if result and result[0] else []
+            total_columns = len(columns)
             
-            # 배치 처리
-            batch_size = 50
-            for i in range(0, len(columns), batch_size):
-                batch = columns[i:i + batch_size]
-                texts = []
-                
-                for item in batch:
-                    text = embedding_client.format_column_text(
-                        column_name=item.get("column_name", ""),
-                        table_name=item.get("table_name", ""),
-                        dtype=item.get("dtype", ""),
-                        description=item.get("description", "")
+            if total_columns == 0:
+                yield emit_message("      ℹ️ 벡터화할 컬럼이 없습니다")
+            else:
+                yield emit_message(f"      📋 벡터화 대상: {total_columns}개 컬럼")
+            
+                # 배치 처리 (50개씩)
+                batch_size = 50
+                for i in range(0, total_columns, batch_size):
+                    batch = columns[i:i + batch_size]
+                    batch_num = i // batch_size + 1
+                    total_batches = (total_columns + batch_size - 1) // batch_size
+                    texts = []
+                    
+                    for item in batch:
+                        text = embedding_client.format_column_text(
+                            column_name=item.get("column_name", ""),
+                            table_name=item.get("table_name", ""),
+                            dtype=item.get("dtype", ""),
+                            description=item.get("description", "")
+                        )
+                        texts.append(text)
+                    
+                    # 배치 진행 상황 표시
+                    batch_progress = 25 + int(i / total_columns * 75)  # 25-100% 범위
+                    yield emit_message(f"      🔄 [{batch_num}/{total_batches}] 컬럼 {len(texts)}개 임베딩 생성 중...")
+                    yield emit_phase_event(
+                        phase_num=4,
+                        phase_name="벡터라이징",
+                        status="in_progress",
+                        progress=batch_progress,
+                        details={"step": "column_embedding", "batch": batch_num, "total_batches": total_batches, "done": i, "total": total_columns}
                     )
-                    texts.append(text)
-                
-                vectors = await embedding_client.embed_batch(texts)
-                
-                for item, vector in zip(batch, vectors):
-                    if vector:
-                        set_query = f"""
-                        MATCH (c)
-                        WHERE elementId(c) = '{item['cid']}'
-                        SET c.vector = {vector}
+                    
+                    vectors = await embedding_client.embed_batch(texts)
+                    
+                    # UNWIND 배치 저장용 데이터 생성
+                    vector_updates = []
+                    for item, vector in zip(batch, vectors):
+                        if vector:
+                            vector_updates.append({
+                                "cid": item['cid'],
+                                "vector": vector
+                            })
+                            stats.columns_vectorized += 1
+                    
+                    # UNWIND로 한번에 저장
+                    if vector_updates:
+                        update_query = """
+                        UNWIND $items AS item
+                        MATCH (__cy_c__) WHERE elementId(__cy_c__) = item.cid
+                        SET __cy_c__.vector = item.vector
+                        RETURN __cy_c__
                         """
                         async with self._cypher_lock:
-                            await client.execute_queries([set_query])
-                        stats.columns_vectorized += 1
+                            await client.execute_with_params(update_query, {"items": vector_updates})
+                        
+                        yield emit_message(f"      ✓ [{batch_num}/{total_batches}] {len(vector_updates)}개 컬럼 벡터 저장 완료")
                 
-                yield emit_message(f"   ... 컬럼 {min(i + batch_size, len(columns))}/{len(columns)} 처리 중")
-            
-            yield emit_message(f"   ✅ 컬럼 {stats.columns_vectorized}개 벡터라이징 완료")
+                yield emit_message(f"   ✅ 컬럼 벡터라이징 완료: {stats.columns_vectorized}개 컬럼")
+                yield emit_phase_event(
+                    phase_num=4,
+                    phase_name="벡터라이징",
+                    status="completed",
+                    progress=100,
+                    details={"tables_vectorized": stats.tables_vectorized, "columns_vectorized": stats.columns_vectorized}
+                )
             
         except Exception as e:
             yield emit_message(f"   ⚠️ 컬럼 벡터라이징 실패: {str(e)[:100]}")

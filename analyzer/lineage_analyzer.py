@@ -272,14 +272,14 @@ class LineageAnalyzer:
             
             # 기존 PROCEDURE/FUNCTION 노드에 ETL 플래그 설정
             queries.append(f"""
-                MATCH (proc)
-                WHERE (proc:PROCEDURE OR proc:FUNCTION)
-                  AND proc.procedure_name =~ '(?i){escaped_proc_name}'
-                SET proc.is_etl = true,
-                    proc.etl_operation = '{lineage.operation_type}',
-                    proc.etl_source_count = {len(lineage.source_tables)},
-                    proc.etl_target_count = {len(lineage.target_tables)}
-                RETURN proc
+                MATCH (__cy_proc__)
+                WHERE (__cy_proc__:PROCEDURE OR __cy_proc__:FUNCTION)
+                  AND __cy_proc__.procedure_name =~ '(?i){escaped_proc_name}'
+                SET __cy_proc__.is_etl = true,
+                    __cy_proc__.etl_operation = '{lineage.operation_type}',
+                    __cy_proc__.etl_source_count = {len(lineage.source_tables)},
+                    __cy_proc__.etl_target_count = {len(lineage.target_tables)}
+                RETURN __cy_proc__
             """)
             stats["etl_nodes"] += 1
             
@@ -291,15 +291,15 @@ class LineageAnalyzer:
                 
                 # 테이블명만으로 매칭 (스키마는 선택적)
                 queries.append(f"""
-                    MATCH (proc)
-                    WHERE (proc:PROCEDURE OR proc:FUNCTION)
-                      AND proc.procedure_name =~ '(?i){escaped_proc_name}'
-                    MATCH (t:Table)
-                    WHERE t.name =~ '(?i){table_name}'
-                    MERGE (proc)-[r:ETL_READS]->(t)
-                    SET r.operation = '{lineage.operation_type}',
-                        r.file_name = '{escape_for_cypher(file_name)}'
-                    RETURN proc, r, t
+                    MATCH (__cy_proc__)
+                    WHERE (__cy_proc__:PROCEDURE OR __cy_proc__:FUNCTION)
+                      AND __cy_proc__.procedure_name =~ '(?i){escaped_proc_name}'
+                    MATCH (__cy_t__:Table)
+                    WHERE __cy_t__.name =~ '(?i){table_name}'
+                    MERGE (__cy_proc__)-[__cy_r__:ETL_READS]->(__cy_t__)
+                    SET __cy_r__.operation = '{lineage.operation_type}',
+                        __cy_r__.file_name = '{escape_for_cypher(file_name)}'
+                    RETURN __cy_proc__, __cy_r__, __cy_t__
                 """)
                 stats["etl_reads"] += 1
             
@@ -309,15 +309,15 @@ class LineageAnalyzer:
                 table_name = escape_for_cypher(target_table["name"])
                 
                 queries.append(f"""
-                    MATCH (proc)
-                    WHERE (proc:PROCEDURE OR proc:FUNCTION)
-                      AND proc.procedure_name =~ '(?i){escaped_proc_name}'
-                    MATCH (t:Table)
-                    WHERE t.name =~ '(?i){table_name}'
-                    MERGE (proc)-[r:ETL_WRITES]->(t)
-                    SET r.operation = '{lineage.operation_type}',
-                        r.file_name = '{escape_for_cypher(file_name)}'
-                    RETURN proc, r, t
+                    MATCH (__cy_proc__)
+                    WHERE (__cy_proc__:PROCEDURE OR __cy_proc__:FUNCTION)
+                      AND __cy_proc__.procedure_name =~ '(?i){escaped_proc_name}'
+                    MATCH (__cy_t__:Table)
+                    WHERE __cy_t__.name =~ '(?i){table_name}'
+                    MERGE (__cy_proc__)-[__cy_r__:ETL_WRITES]->(__cy_t__)
+                    SET __cy_r__.operation = '{lineage.operation_type}',
+                        __cy_r__.file_name = '{escape_for_cypher(file_name)}'
+                    RETURN __cy_proc__, __cy_r__, __cy_t__
                 """)
                 stats["etl_writes"] += 1
             
@@ -330,15 +330,15 @@ class LineageAnalyzer:
                     tgt_name = escape_for_cypher(target_table["name"])
                     
                     queries.append(f"""
-                        MATCH (src:Table)
-                        WHERE src.name =~ '(?i){src_name}'
-                        MATCH (tgt:Table)
-                        WHERE tgt.name =~ '(?i){tgt_name}'
-                        MERGE (src)-[r:DATA_FLOWS_TO]->(tgt)
-                        SET r.via_etl = '{etl_name}',
-                            r.operation = '{lineage.operation_type}',
-                            r.file_name = '{escape_for_cypher(file_name)}'
-                        RETURN src, r, tgt
+                        MATCH (__cy_src__:Table)
+                        WHERE __cy_src__.name =~ '(?i){src_name}'
+                        MATCH (__cy_tgt__:Table)
+                        WHERE __cy_tgt__.name =~ '(?i){tgt_name}'
+                        MERGE (__cy_src__)-[__cy_r__:DATA_FLOWS_TO]->(__cy_tgt__)
+                        SET __cy_r__.via_etl = '{etl_name}',
+                            __cy_r__.operation = '{lineage.operation_type}',
+                            __cy_r__.file_name = '{escape_for_cypher(file_name)}'
+                        RETURN __cy_src__, __cy_r__, __cy_tgt__
                     """)
                     stats["data_flows"] += 1
         

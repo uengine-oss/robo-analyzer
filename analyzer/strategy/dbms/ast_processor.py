@@ -445,27 +445,27 @@ class DbmsAstProcessor(BaseAstProcessor):
         escaped_code = escape_for_cypher(node.code)
         
         base_set = [
-            f"n.endLine = {node.end_line}",
-            f"n.name = '{escaped_name}'",
-            f"n.node_code = '{escaped_code}'",
-            f"n.token = {node.token}",
-            f"n.has_children = {has_children}",
+            f"__cy_n__.endLine = {node.end_line}",
+            f"__cy_n__.name = '{escaped_name}'",
+            f"__cy_n__.node_code = '{escaped_code}'",
+            f"__cy_n__.token = {node.token}",
+            f"__cy_n__.has_children = {has_children}",
         ]
         
         # PROCEDURE/FUNCTION: procedure_name, schema_name, procedure_type 속성 추가
         if label in PROCEDURE_TYPES and node.unit_name:
-            base_set.append(f"n.procedure_name = '{escape_for_cypher(node.unit_name)}'")
-            base_set.append(f"n.procedure_type = '{label}'")
+            base_set.append(f"__cy_n__.procedure_name = '{escape_for_cypher(node.unit_name)}'")
+            base_set.append(f"__cy_n__.procedure_type = '{label}'")
             if node.schema_name:
-                base_set.append(f"n.schema_name = '{escape_for_cypher(node.schema_name)}'")
+                base_set.append(f"__cy_n__.schema_name = '{escape_for_cypher(node.schema_name)}'")
         elif node.unit_name:
-            base_set.append(f"n.procedure_name = '{escape_for_cypher(node.unit_name)}'")
+            base_set.append(f"__cy_n__.procedure_name = '{escape_for_cypher(node.unit_name)}'")
             if node.schema_name:
-                base_set.append(f"n.schema_name = '{escape_for_cypher(node.schema_name)}'")
+                base_set.append(f"__cy_n__.schema_name = '{escape_for_cypher(node.schema_name)}'")
         
         if node.has_children:
             escaped_placeholder = escape_for_cypher(node.get_placeholder_code())
-            base_set.append(f"n.summarized_code = '{escaped_placeholder}'")
+            base_set.append(f"__cy_n__.summarized_code = '{escaped_placeholder}'")
         
         base_set_str = ", ".join(base_set)
         
@@ -475,15 +475,15 @@ class DbmsAstProcessor(BaseAstProcessor):
             escaped_schema = escape_for_cypher(node.schema_name or "")
             schema_match = f"schema_name: '{escaped_schema}', " if node.schema_name else ""
             queries.append(
-                f"MERGE (n:{label} {{{schema_match}procedure_name: '{escaped_proc_name}'}})\n"
-                f"SET n.startLine = {node.start_line}, n.directory = '{escape_for_cypher(self.full_directory)}', n.file_name = '{self.file_name}', {base_set_str}\n"
-                f"RETURN n"
+                f"MERGE (__cy_n__:{label} {{{schema_match}procedure_name: '{escaped_proc_name}'}})\n"
+                f"SET __cy_n__.startLine = {node.start_line}, __cy_n__.directory = '{escape_for_cypher(self.full_directory)}', __cy_n__.file_name = '{self.file_name}', {base_set_str}\n"
+                f"RETURN __cy_n__"
             )
         else:
             queries.append(
-                f"MERGE (n:{label} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
+                f"MERGE (__cy_n__:{label} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
                 f"SET {base_set_str}\n"
-                f"RETURN n"
+                f"RETURN __cy_n__"
             )
         return queries
 
@@ -510,10 +510,10 @@ class DbmsAstProcessor(BaseAstProcessor):
     def _build_next_query(self, prev: StatementNode, current: StatementNode) -> str:
         """NEXT 관계 쿼리"""
         return (
-            f"MATCH (prev:{prev.node_type} {{startLine: {prev.start_line}, {self.node_base_props}}})\n"
-            f"MATCH (current:{current.node_type} {{startLine: {current.start_line}, {self.node_base_props}}})\n"
-            f"MERGE (prev)-[r:NEXT]->(current)\n"
-            f"RETURN r"
+            f"MATCH (__cy_prev__:{prev.node_type} {{startLine: {prev.start_line}, {self.node_base_props}}})\n"
+            f"MATCH (__cy_curr__:{current.node_type} {{startLine: {current.start_line}, {self.node_base_props}}})\n"
+            f"MERGE (__cy_prev__)-[__cy_r__:NEXT]->(__cy_curr__)\n"
+            f"RETURN __cy_r__"
         )
 
     async def _run_preprocessing(self) -> List[str]:
@@ -592,12 +592,12 @@ class DbmsAstProcessor(BaseAstProcessor):
                     escaped_node_name = escape_for_cypher(node_name)
                     
                     queries.append(
-                        f"MATCH (n:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
-                        f"SET n.endLine = {node.end_line}, n.name = '{escaped_node_name}', "
-                        f"n.summary = '{escaped_summary}', n.node_code = '{escaped_code}', "
-                        f"n.token = {node.token}, n.procedure_name = '{escape_for_cypher(node.unit_name or '')}', "
-                        f"n.has_children = {'true' if node.has_children else 'false'}\n"
-                        f"RETURN n"
+                        f"MATCH (__cy_n__:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
+                        f"SET __cy_n__.endLine = {node.end_line}, __cy_n__.name = '{escaped_node_name}', "
+                        f"__cy_n__.summary = '{escaped_summary}', __cy_n__.node_code = '{escaped_code}', "
+                        f"__cy_n__.token = {node.token}, __cy_n__.procedure_name = '{escape_for_cypher(node.unit_name or '')}', "
+                        f"__cy_n__.has_children = {'true' if node.has_children else 'false'}\n"
+                        f"RETURN __cy_n__"
                     )
                     
                     # 프로시저별 summary 저장
@@ -613,27 +613,27 @@ class DbmsAstProcessor(BaseAstProcessor):
                         package_name = escape_for_cypher(package_raw.strip())
                         proc_name = escape_for_cypher(proc_raw.strip())
                         queries.append(
-                            f"MATCH (c:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
-                            f"MERGE (target:PROCEDURE {{directory: '{package_name}', procedure_name: '{proc_name}'}})\n"
-                            f"MERGE (c)-[r:CALL {{scope: 'external'}}]->(target)\n"
-                            f"RETURN c, target, r"
+                            f"MATCH (__cy_c__:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
+                            f"MERGE (__cy_target__:PROCEDURE {{directory: '{package_name}', procedure_name: '{proc_name}'}})\n"
+                            f"MERGE (__cy_c__)-[__cy_r__:CALL {{scope: 'external'}}]->(__cy_target__)\n"
+                            f"RETURN __cy_c__, __cy_target__, __cy_r__"
                         )
                     else:
                         escaped_call = escape_for_cypher(call_name)
                         queries.append(
-                            f"MATCH (c:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
-                            f"MATCH (p {{procedure_name: '{escaped_call}', {self.node_base_props}}})\n"
-                            f"WHERE p:PROCEDURE OR p:FUNCTION\n"
-                            f"MERGE (c)-[r:CALL {{scope: 'internal'}}]->(p)\n"
-                            f"RETURN c, p, r"
+                            f"MATCH (__cy_c__:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})\n"
+                            f"MATCH (__cy_p__ {{procedure_name: '{escaped_call}', {self.node_base_props}}})\n"
+                            f"WHERE __cy_p__:PROCEDURE OR __cy_p__:FUNCTION\n"
+                            f"MERGE (__cy_c__)-[__cy_r__:CALL {{scope: 'internal'}}]->(__cy_p__)\n"
+                            f"RETURN __cy_c__, __cy_p__, __cy_r__"
                         )
                 
                 # 변수 사용 마킹
                 for var_name in analysis.get('variables', []) or []:
                     queries.append(
-                        f"MATCH (v:Variable {{name: '{escape_for_cypher(var_name)}', {self.node_base_props}}})\n"
-                        f"SET v.`{node.start_line}_{node.end_line}` = 'Used'\n"
-                        f"RETURN v"
+                        f"MATCH (__cy_v__:Variable {{name: '{escape_for_cypher(var_name)}', {self.node_base_props}}})\n"
+                        f"SET __cy_v__.`{node.start_line}_{node.end_line}` = 'Used'\n"
+                        f"RETURN __cy_v__"
                     )
         
         # 테이블 분석 결과 처리 (None 허용 - 일반 분석만 있는 경우)
@@ -721,9 +721,9 @@ class DbmsAstProcessor(BaseAstProcessor):
             # Neo4j 쿼리 생성
             summary_json = json.dumps(final_summary, ensure_ascii=False)
             queries.append(
-                f"MATCH (n:{info.procedure_type} {{procedure_name: '{escape_for_cypher(info.procedure_name)}', {self.node_base_props}}})\n"
-                f"SET n.summary = {summary_json}\n"
-                f"RETURN n"
+                f"MATCH (__cy_n__:{info.procedure_type} {{procedure_name: '{escape_for_cypher(info.procedure_name)}', {self.node_base_props}}})\n"
+                f"SET __cy_n__.summary = {summary_json}\n"
+                f"RETURN __cy_n__"
             )
             
             # User Story 노드 생성
@@ -735,11 +735,11 @@ class DbmsAstProcessor(BaseAstProcessor):
                 benefit = escape_for_cypher(us.get('benefit', ''))
                 
                 queries.append(
-                    f"MATCH (p:{info.procedure_type} {{procedure_name: '{proc_name_escaped}', {self.node_base_props}}})\n"
-                    f"MERGE (us:UserStory {{id: '{us_id}', procedure_name: '{proc_name_escaped}', {self.node_base_props}}})\n"
-                    f"SET us.role = '{role}', us.goal = '{goal}', us.benefit = '{benefit}'\n"
-                    f"MERGE (p)-[r:HAS_USER_STORY]->(us)\n"
-                    f"RETURN p, us, r"
+                    f"MATCH (__cy_p__:{info.procedure_type} {{procedure_name: '{proc_name_escaped}', {self.node_base_props}}})\n"
+                    f"MERGE (__cy_us__:UserStory {{id: '{us_id}', procedure_name: '{proc_name_escaped}', {self.node_base_props}}})\n"
+                    f"SET __cy_us__.role = '{role}', __cy_us__.goal = '{goal}', __cy_us__.benefit = '{benefit}'\n"
+                    f"MERGE (__cy_p__)-[__cy_r__:HAS_USER_STORY]->(__cy_us__)\n"
+                    f"RETURN __cy_p__, __cy_us__, __cy_r__"
                 )
                 
                 # Acceptance Criteria 노드
@@ -753,11 +753,11 @@ class DbmsAstProcessor(BaseAstProcessor):
                     ac_then = json.dumps(ac.get('then', []), ensure_ascii=False)
                     
                     queries.append(
-                        f"MATCH (us:UserStory {{id: '{us_id}', {self.node_base_props}}})\n"
-                        f"MERGE (ac:AcceptanceCriteria {{id: '{ac_id}', user_story_id: '{us_id}', {self.node_base_props}}})\n"
-                        f"SET ac.title = '{ac_title}', ac.given = {ac_given}, ac.when = {ac_when}, ac.then = {ac_then}\n"
-                        f"MERGE (us)-[r:HAS_AC]->(ac)\n"
-                        f"RETURN us, ac, r"
+                        f"MATCH (__cy_us__:UserStory {{id: '{us_id}', {self.node_base_props}}})\n"
+                        f"MERGE (__cy_ac__:AcceptanceCriteria {{id: '{ac_id}', user_story_id: '{us_id}', {self.node_base_props}}})\n"
+                        f"SET __cy_ac__.title = '{ac_title}', __cy_ac__.given = {ac_given}, __cy_ac__.when = {ac_when}, __cy_ac__.then = {ac_then}\n"
+                        f"MERGE (__cy_us__)-[__cy_r__:HAS_AC]->(__cy_ac__)\n"
+                        f"RETURN __cy_us__, __cy_ac__, __cy_r__"
                     )
             
             us_count = len(all_user_stories)
@@ -808,7 +808,7 @@ class DbmsAstProcessor(BaseAstProcessor):
         if not variables:
             return queries
         
-        node_match = f"MATCH (n:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})"
+        node_match = f"MATCH (__cy_n__:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})"
         
         for var in variables:
             var_name = var.get("name", "")
@@ -826,10 +826,10 @@ class DbmsAstProcessor(BaseAstProcessor):
             
             queries.append(
                 f"{node_match}\n"
-                f"MERGE (v:Variable {{name: '{escaped_name}', {self.node_base_props}}})\n"
-                f"SET v.type = '{escaped_type}', v.role = '{escaped_role}', v.description = '{escaped_desc}'\n"
-                f"MERGE (n)-[:DECLARES]->(v)\n"
-                f"RETURN v"
+                f"MERGE (__cy_v__:Variable {{name: '{escaped_name}', {self.node_base_props}}})\n"
+                f"SET __cy_v__.type = '{escaped_type}', __cy_v__.role = '{escaped_role}', __cy_v__.description = '{escaped_desc}'\n"
+                f"MERGE (__cy_n__)-[:DECLARES]->(__cy_v__)\n"
+                f"RETURN __cy_v__"
             )
         
         return queries
@@ -861,7 +861,7 @@ class DbmsAstProcessor(BaseAstProcessor):
             if not node:
                 continue
             
-            node_merge = f"MATCH (n:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})"
+            node_merge = f"MATCH (__cy_n__:{node.node_type} {{startLine: {node.start_line}, {self.node_base_props}}})"
             
             # CREATE_TEMP_TABLE 처리
             if node.node_type == 'CREATE_TEMP_TABLE':
@@ -875,9 +875,9 @@ class DbmsAstProcessor(BaseAstProcessor):
                     name_part = self._apply_name_case(name_part_raw)
                     queries.append(
                         f"{node_merge}\n"
-                        f"SET n:Table, n.name = '{escape_for_cypher(name_part)}', "
-                        f"n.schema = '{escape_for_cypher(schema_part)}', n.db = '{self.dbms}'\n"
-                        f"RETURN n"
+                        f"SET __cy_n__:Table, __cy_n__.name = '{escape_for_cypher(name_part)}', "
+                        f"__cy_n__.schema = '{escape_for_cypher(schema_part)}', __cy_n__.db = '{self.dbms}'\n"
+                        f"RETURN __cy_n__"
                     )
                 continue
             
@@ -915,20 +915,20 @@ class DbmsAstProcessor(BaseAstProcessor):
                 if 'w' in access_mode:
                     rel_types.append(TABLE_RELATIONSHIP_MAP.get('w', 'WRITES'))
                 
-                table_merge = self._build_table_merge(name_part, schema_part, preserve_vars=['n'], skip_case_conversion=skip_case_conversion)
+                table_merge = self._build_table_merge(name_part, schema_part, preserve_vars=['__cy_n__'], skip_case_conversion=skip_case_conversion)
                 
                 table_desc_raw = entry.get('tableDescription') or entry.get('description') or ''
                 bucket_key = self._record_table_summary(schema_part, name_part, table_desc_raw, skip_case_conversion=skip_case_conversion)
                 
-                table_query = f"{node_merge}\nWITH n\n{table_merge}\nSET t.db = coalesce(t.db, '{self.dbms}')"
+                table_query = f"{node_merge}\nWITH __cy_n__\n{table_merge}\nSET __cy_t__.db = coalesce(__cy_t__.db, '{self.dbms}')"
                 
                 if db_link_value:
-                    table_query += f"\nSET t.db_link = COALESCE(t.db_link, '{db_link_value}')"
+                    table_query += f"\nSET __cy_t__.db_link = COALESCE(__cy_t__.db_link, '{db_link_value}')"
                 
                 for i, rel_type in enumerate(rel_types):
-                    table_query += f"\nMERGE (n)-[r{i}:{rel_type}]->(t)"
+                    table_query += f"\nMERGE (__cy_n__)-[__cy_r{i}__:{rel_type}]->(__cy_t__)"
                 
-                table_query += "\nRETURN n, t"
+                table_query += "\nRETURN __cy_n__, __cy_t__"
                 queries.append(table_query)
                 
                 # 컬럼 처리 (컬럼용은 preserve_vars=None으로 별도 생성)
@@ -987,12 +987,12 @@ class DbmsAstProcessor(BaseAstProcessor):
                         fqn = escape_for_cypher('.'.join(filter(None, [converted_schema_part, converted_name_part, column_name])).lower())
                         # Column MERGE: fqn 기준 (고유키)
                         queries.append(
-                            f"{table_merge_for_column}\nWITH t\n"
-                            f"MERGE (c:Column {{fqn: '{fqn}'}})\n"
-                            f"SET c.name = '{escaped_col_name}', c.dtype = '{col_type}', "
-                            f"c.description = '{col_desc}', c.description_source = 'procedure', c.nullable = '{nullable}'\n"
-                            f"MERGE (t)-[r:HAS_COLUMN]->(c)\n"
-                            f"RETURN t, c, r"
+                            f"{table_merge_for_column}\nWITH __cy_t__\n"
+                            f"MERGE (__cy_c__:Column {{fqn: '{fqn}'}})\n"
+                            f"SET __cy_c__.name = '{escaped_col_name}', __cy_c__.dtype = '{col_type}', "
+                            f"__cy_c__.description = '{col_desc}', __cy_c__.description_source = 'procedure', __cy_c__.nullable = '{nullable}'\n"
+                            f"MERGE (__cy_t__)-[__cy_r__:HAS_COLUMN]->(__cy_c__)\n"
+                            f"RETURN __cy_t__, __cy_c__, __cy_r__"
                         )
                     else:
                         # schema가 없는 경우 동적 fqn 계산 대신 정적 fqn 사용
@@ -1000,12 +1000,12 @@ class DbmsAstProcessor(BaseAstProcessor):
                         fqn = escape_for_cypher('.'.join(filter(None, [converted_name_part, column_name])).lower())
                         # Column MERGE: fqn 기준
                         queries.append(
-                            f"{table_merge_for_column}\nWITH t\n"
-                            f"MERGE (c:Column {{fqn: '{fqn}'}})\n"
-                            f"ON CREATE SET c.name = '{escaped_col_name}', c.dtype = '{col_type}', "
-                            f"c.description = '{col_desc}', c.description_source = 'procedure', c.nullable = '{nullable}'\n"
-                            f"MERGE (t)-[r:HAS_COLUMN]->(c)\n"
-                            f"RETURN t, c, r"
+                            f"{table_merge_for_column}\nWITH __cy_t__\n"
+                            f"MERGE (__cy_c__:Column {{fqn: '{fqn}'}})\n"
+                            f"ON CREATE SET __cy_c__.name = '{escaped_col_name}', __cy_c__.dtype = '{col_type}', "
+                            f"__cy_c__.description = '{col_desc}', __cy_c__.description_source = 'procedure', __cy_c__.nullable = '{nullable}'\n"
+                            f"MERGE (__cy_t__)-[__cy_r__:HAS_COLUMN]->(__cy_c__)\n"
+                            f"RETURN __cy_t__, __cy_c__, __cy_r__"
                         )
             
             # DBLink 처리
@@ -1021,13 +1021,13 @@ class DbmsAstProcessor(BaseAstProcessor):
                 escaped_link_name = escape_for_cypher(link_name)
                 remote_merge = self._build_table_merge(name_link, schema_link)
                 queries.append(
-                    f"{remote_merge}\nSET t.db_link = '{escaped_link_name}'\n"
-                    f"WITH t\n"
-                    f"MERGE (l:DBLink {{name: '{escaped_link_name}'}})\n"
-                    f"MERGE (l)-[r1:CONTAINS]->(t)\n"
-                    f"WITH t, l\n{node_merge}\n"
-                    f"MERGE (n)-[r2:DB_LINK {{mode: '{mode}'}}]->(t)\n"
-                    f"RETURN l, t, n"
+                    f"{remote_merge}\nSET __cy_t__.db_link = '{escaped_link_name}'\n"
+                    f"WITH __cy_t__\n"
+                    f"MERGE (__cy_l__:DBLink {{name: '{escaped_link_name}'}})\n"
+                    f"MERGE (__cy_l__)-[__cy_r1__:CONTAINS]->(__cy_t__)\n"
+                    f"WITH __cy_t__, __cy_l__\n{node_merge}\n"
+                    f"MERGE (__cy_n__)-[__cy_r2__:DB_LINK {{mode: '{mode}'}}]->(__cy_t__)\n"
+                    f"RETURN __cy_l__, __cy_t__, __cy_n__"
                 )
             
             # FK 관계 처리
@@ -1066,11 +1066,11 @@ class DbmsAstProcessor(BaseAstProcessor):
                     escaped_tgt_col = escape_for_cypher(self._apply_name_case(tgt_col))
                     
                     fk_query = (
-                        f"MATCH (st:Table {{{src_props}}})\n"
-                        f"MATCH (tt:Table {{{tgt_props}}})\n"
-                        f"MERGE (st)-[r:FK_TO_TABLE {{sourceColumn: '{escaped_src_col}', targetColumn: '{escaped_tgt_col}'}}]->(tt)\n"
-                        f"ON CREATE SET r.type = 'many_to_one', r.source = 'procedure'\n"
-                        f"RETURN st, tt, r"
+                        f"MATCH (__cy_st__:Table {{{src_props}}})\n"
+                        f"MATCH (__cy_tt__:Table {{{tgt_props}}})\n"
+                        f"MERGE (__cy_st__)-[__cy_r__:FK_TO_TABLE {{sourceColumn: '{escaped_src_col}', targetColumn: '{escaped_tgt_col}'}}]->(__cy_tt__)\n"
+                        f"ON CREATE SET __cy_r__.type = 'many_to_one', __cy_r__.source = 'procedure'\n"
+                        f"RETURN __cy_st__, __cy_tt__, __cy_r__"
                     )
                     queries.append(fk_query)
                 
@@ -1084,11 +1084,11 @@ class DbmsAstProcessor(BaseAstProcessor):
                     src_fqn = escape_for_cypher('.'.join(filter(None, [effective_src_schema, src_name, converted_src_col])).lower())
                     tgt_fqn = escape_for_cypher('.'.join(filter(None, [effective_tgt_schema, tgt_name, converted_tgt_col])).lower())
                     fk_col_query = (
-                        f"MATCH (sc:Column {{fqn: '{src_fqn}'}})\n"
-                        f"MATCH (dc:Column {{fqn: '{tgt_fqn}'}})\n"
-                        f"MERGE (sc)-[r:FK_TO]->(dc)\n"
-                        f"ON CREATE SET r.source = 'procedure'\n"
-                        f"RETURN sc, dc, r"
+                        f"MATCH (__cy_sc__:Column {{fqn: '{src_fqn}'}})\n"
+                        f"MATCH (__cy_dc__:Column {{fqn: '{tgt_fqn}'}})\n"
+                        f"MERGE (__cy_sc__)-[__cy_r__:FK_TO]->(__cy_dc__)\n"
+                        f"ON CREATE SET __cy_r__.source = 'procedure'\n"
+                        f"RETURN __cy_sc__, __cy_dc__, __cy_r__"
                     )
                     queries.append(fk_col_query)
         
@@ -1104,7 +1104,7 @@ class DbmsAstProcessor(BaseAstProcessor):
         Args:
             table_name: 테이블 이름
             schema: 스키마 이름 (없으면 default_schema 사용)
-            preserve_vars: WITH 절에서 유지할 변수 목록 (예: ['n'] -> WITH n, s)
+            preserve_vars: WITH 절에서 유지할 변수 목록 (예: ['__cy_n__'] -> WITH __cy_n__, __cy_s__)
             skip_case_conversion: True면 대소문자 변환을 건너뜀 (이미 변환된 값인 경우)
         """
         # schema가 없으면 default_schema 사용, default_schema도 없으면 'public'
@@ -1122,17 +1122,17 @@ class DbmsAstProcessor(BaseAstProcessor):
         
         # WITH 절 구성: preserve_vars가 있으면 해당 변수들도 함께 유지
         if preserve_vars:
-            with_vars = ", ".join(preserve_vars + ["s"])
+            with_vars = ", ".join(preserve_vars + ["__cy_s__"])
         else:
-            with_vars = "s"
+            with_vars = "__cy_s__"
         
         # Schema MERGE + Table MERGE + BELONGS_TO 관계
         # MERGE 키: db, schema, name만 사용 (같은 스키마/테이블명이면 같은 노드)
         return (
-            f"MERGE (s:Schema {{db: '{self.dbms}', name: '{schema_value}'}})\n"
+            f"MERGE (__cy_s__:Schema {{db: '{self.dbms}', name: '{schema_value}'}})\n"
             f"WITH {with_vars}\n"
-            f"MERGE (t:Table {{name: '{escaped_name}', schema: '{schema_value}', db: '{self.dbms}'}})\n"
-            f"MERGE (t)-[:BELONGS_TO]->(s)"
+            f"MERGE (__cy_t__:Table {{name: '{escaped_name}', schema: '{schema_value}', db: '{self.dbms}'}})\n"
+            f"MERGE (__cy_t__)-[:BELONGS_TO]->(__cy_s__)"
         )
 
     def _record_table_summary(self, schema: Optional[str], name: str, description: Optional[str], skip_case_conversion: bool = False) -> Tuple[str, str]:
@@ -1306,12 +1306,12 @@ class DbmsAstProcessor(BaseAstProcessor):
             # 기존 description이 비어있을 때만 description에도 저장 + description_source='procedure' 설정
             # description_source는 description이 비어있을 때만 'procedure'로 설정
             queries.append(
-                f"MATCH (t:Table {{{table_props}}})\n"
-                f"SET t.analyzed_description = '{escaped_llm_table_desc}'\n"
-                f"WITH t\n"
-                f"WHERE t.description IS NULL OR t.description = ''\n"
-                f"SET t.description = '{escaped_llm_table_desc}', t.description_source = 'procedure'\n"
-                f"RETURN t"
+                f"MATCH (__cy_t__:Table {{{table_props}}})\n"
+                f"SET __cy_t__.analyzed_description = '{escaped_llm_table_desc}'\n"
+                f"WITH __cy_t__\n"
+                f"WHERE __cy_t__.description IS NULL OR __cy_t__.description = ''\n"
+                f"SET __cy_t__.description = '{escaped_llm_table_desc}', __cy_t__.description_source = 'procedure'\n"
+                f"RETURN __cy_t__"
             )
         
         for column_info in result.get('columns', []) or []:
@@ -1330,12 +1330,12 @@ class DbmsAstProcessor(BaseAstProcessor):
             # 프로시저 분석 결과는 analyzed_description에 항상 저장
             # 기존 description이 비어있을 때만 description에도 저장 + description_source='procedure' 설정
             queries.append(
-                f"MATCH (c:Column {{{column_props}}})\n"
-                f"SET c.analyzed_description = '{escaped_llm_column_desc}'\n"
-                f"WITH c\n"
-                f"WHERE c.description IS NULL OR c.description = ''\n"
-                f"SET c.description = '{escaped_llm_column_desc}', c.description_source = 'procedure'\n"
-                f"RETURN c"
+                f"MATCH (__cy_c__:Column {{{column_props}}})\n"
+                f"SET __cy_c__.analyzed_description = '{escaped_llm_column_desc}'\n"
+                f"WITH __cy_c__\n"
+                f"WHERE __cy_c__.description IS NULL OR __cy_c__.description = ''\n"
+                f"SET __cy_c__.description = '{escaped_llm_column_desc}', __cy_c__.description_source = 'procedure'\n"
+                f"RETURN __cy_c__"
             )
         
         return queries

@@ -237,7 +237,7 @@ class AnalysisOrchestrator:
         
         try:
             await client.execute_queries([
-                "MATCH (n) DETACH DELETE n"
+                "MATCH (__cy_n__) DETACH DELETE __cy_n__"
             ])
             logging.info("Neo4j 데이터 삭제 완료")
         
@@ -266,7 +266,7 @@ class AnalysisOrchestrator:
             
             # Neo4j 데이터 삭제
             await client.execute_queries([
-                "MATCH (n) DETACH DELETE n"
+                "MATCH (__cy_n__) DETACH DELETE __cy_n__"
             ])
             logging.info("Neo4j 데이터 삭제 완료")
         
