@@ -347,8 +347,11 @@ def aggregate_user_stories_from_results(results: List[Dict[str, Any]]) -> List[D
 # DDL 청크 분할 유틸리티
 #==============================================================================
 
-# DDL 청크 분할 시 최대 토큰 수 (안전 마진 포함)
-MAX_DDL_CHUNK_TOKENS = 60000  # GPT-4 128K 기준, 출력 여유분 고려
+# DDL 청크 분할 시 최대 토큰 수
+# LLM 출력 제한(max_tokens=32768) 고려: 테이블당 약 700토큰 출력
+# 청크당 최대 20개 테이블 → 출력 14K 토큰 (충분한 안전 마진)
+# 입력 5K 토큰 → 평균 15~25개 테이블 → 출력 10.5~17.5K 토큰
+MAX_DDL_CHUNK_TOKENS = 5000
 
 
 def split_ddl_into_chunks(ddl_content: str, max_tokens: int = MAX_DDL_CHUNK_TOKENS) -> List[str]:

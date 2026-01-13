@@ -112,7 +112,7 @@ class AnalysisOrchestrator:
         self.target = (target or "java").lower()
         self.name_case = (name_case or "original").lower()  # original, uppercase, lowercase
         
-        # 디렉토리 경로 초기화
+        # 디렉토리 경로 초기화 - 단순하게 data/ 직접 하위에서 찾음
         self.dirs = {
             "ddl": os.path.join(settings.path.data_dir, "ddl"),
             "src": os.path.join(settings.path.data_dir, "source"),

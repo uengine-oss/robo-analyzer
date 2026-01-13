@@ -6,15 +6,23 @@ ETL 코드에서 데이터 흐름(Source → Target)을 추출하여 Neo4j에 �
 - INSERT/MERGE 문에서 타겟 테이블 추출
 - SELECT/FROM/JOIN 절에서 소스 테이블 추출
 - 데이터 흐름 관계(DATA_FLOW) 생성
+- 기존 Table 노드와 연결하여 리니지 시각화
+
+관계 타입:
+- ETL_READS: ETL 프로시저가 소스 테이블에서 데이터를 읽음
+- ETL_WRITES: ETL 프로시저가 타겟 테이블에 데이터를 씀
+- DATA_FLOWS_TO: 소스 테이블에서 타겟 테이블로 데이터가 흐름
 """
 
 import re
 import logging
-from typing import Optional
+from typing import Optional, Dict, List, Tuple
 from dataclasses import dataclass, field
 
 from analyzer.neo4j_client import Neo4jClient
 from util.utility_tool import escape_for_cypher, log_process
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -25,6 +33,8 @@ class LineageInfo:
     target_tables: list[str] = field(default_factory=list)
     operation_type: str = "ETL"  # ETL, INSERT, MERGE, UPDATE, DELETE
     description: str = ""
+    file_name: str = ""
+    is_etl: bool = False  # ETL 패턴으로 감지됨
 
 
 class LineageAnalyzer:
@@ -193,8 +203,20 @@ class LineageAnalyzer:
         lineage.source_tables = sorted(sources)
         lineage.target_tables = sorted(targets)
         
-        # ETL이 여러 작업을 포함하면 ETL로 표시
-        if len(targets) > 1 or (lineage.source_tables and lineage.target_tables):
+        # ETL 패턴 감지: 소스 테이블에서 데이터를 읽어 타겟 테이블에 쓰는 패턴
+        # - INSERT INTO ... SELECT FROM ...
+        # - MERGE INTO ... USING ...
+        # - UPDATE ... SET ... (FROM 절이 있는 경우)
+        if lineage.source_tables and lineage.target_tables:
+            lineage.is_etl = True
+            lineage.operation_type = "ETL"
+            logger.debug(
+                f"ETL 패턴 감지: {proc_name} | "
+                f"sources={lineage.source_tables} → targets={lineage.target_tables}"
+            )
+        elif len(targets) > 1:
+            # 여러 테이블에 쓰는 경우도 ETL로 간주
+            lineage.is_etl = True
             lineage.operation_type = "ETL"
         
         return lineage
@@ -215,115 +237,141 @@ class LineageAnalyzer:
         client: Neo4jClient,
         lineage_list: list[LineageInfo],
         file_name: str = "",
+        name_case: str = "original",  # uppercase, lowercase, original
     ) -> dict:
         """리니지 정보를 Neo4j에 저장합니다.
+        
+        기존 PROCEDURE/FUNCTION 노드와 Table 노드를 연결합니다.
+        별도의 DataSource 노드 대신 기존 노드를 활용합니다.
         
         Args:
             client: Neo4j 클라이언트
             lineage_list: LineageInfo 리스트
             file_name: 원본 파일명
+            name_case: 이름 대소문자 처리 (uppercase, lowercase, original)
             
         Returns:
             저장 결과 (노드/관계 수)
         """
         queries = []
-        stats = {"etl_nodes": 0, "data_sources": 0, "data_flows": 0}
+        stats = {
+            "etl_nodes": 0, 
+            "etl_reads": 0, 
+            "etl_writes": 0, 
+            "data_flows": 0,
+            "matched_tables": 0,
+        }
         
         for lineage in lineage_list:
-            etl_name = escape_for_cypher(lineage.etl_name)
+            if not lineage.is_etl:
+                continue  # ETL 패턴이 아니면 스킵
             
-            # ETL 프로세스 노드 생성
+            etl_name = escape_for_cypher(lineage.etl_name)
+            proc_name = self._apply_name_case(lineage.etl_name, name_case)
+            escaped_proc_name = escape_for_cypher(proc_name)
+            
+            # 기존 PROCEDURE/FUNCTION 노드에 ETL 플래그 설정
             queries.append(f"""
-                MERGE (etl:ETLProcess {{
-                    name: '{etl_name}'
-                }})
-                SET etl.operation_type = '{lineage.operation_type}',
-                    etl.file_name = '{escape_for_cypher(file_name)}',
-                    etl.source_count = {len(lineage.source_tables)},
-                    etl.target_count = {len(lineage.target_tables)}
-                RETURN etl
+                MATCH (proc)
+                WHERE (proc:PROCEDURE OR proc:FUNCTION)
+                  AND proc.procedure_name =~ '(?i){escaped_proc_name}'
+                SET proc.is_etl = true,
+                    proc.etl_operation = '{lineage.operation_type}',
+                    proc.etl_source_count = {len(lineage.source_tables)},
+                    proc.etl_target_count = {len(lineage.target_tables)}
+                RETURN proc
             """)
             stats["etl_nodes"] += 1
             
-            # 소스 테이블 → DataSource 노드 + DATA_FLOW_FROM 관계
+            # 소스 테이블 → ETL 관계 (ETL_READS)
             for source in lineage.source_tables:
-                source_name = escape_for_cypher(source)
-                queries.append(f"""
-                    MERGE (ds:DataSource {{
-                        name: '{source_name}'
-                    }})
-                    SET ds.type = 'SOURCE'
-                    RETURN ds
-                """)
-                stats["data_sources"] += 1
+                source_table = self._parse_table_name(source, name_case)
+                table_name = escape_for_cypher(source_table["name"])
+                schema_name = escape_for_cypher(source_table["schema"])
                 
-                # 소스 → ETL 관계
+                # 테이블명만으로 매칭 (스키마는 선택적)
                 queries.append(f"""
-                    MATCH (ds:DataSource {{
-                        name: '{source_name}'
-                    }})
-                    MATCH (etl:ETLProcess {{
-                        name: '{etl_name}'
-                    }})
-                    MERGE (ds)-[r:DATA_FLOW_TO]->(etl)
-                    SET r.flow_type = 'SOURCE_TO_ETL'
-                    RETURN ds, r, etl
+                    MATCH (proc)
+                    WHERE (proc:PROCEDURE OR proc:FUNCTION)
+                      AND proc.procedure_name =~ '(?i){escaped_proc_name}'
+                    MATCH (t:Table)
+                    WHERE t.name =~ '(?i){table_name}'
+                    MERGE (proc)-[r:ETL_READS]->(t)
+                    SET r.operation = '{lineage.operation_type}',
+                        r.file_name = '{escape_for_cypher(file_name)}'
+                    RETURN proc, r, t
                 """)
-                stats["data_flows"] += 1
+                stats["etl_reads"] += 1
             
-            # 타겟 테이블 → DataSource 노드 + DATA_FLOW_TO 관계
+            # ETL → 타겟 테이블 관계 (ETL_WRITES)
             for target in lineage.target_tables:
-                target_name = escape_for_cypher(target)
-                queries.append(f"""
-                    MERGE (ds:DataSource {{
-                        name: '{target_name}'
-                    }})
-                    SET ds.type = 'TARGET'
-                    RETURN ds
-                """)
-                stats["data_sources"] += 1
+                target_table = self._parse_table_name(target, name_case)
+                table_name = escape_for_cypher(target_table["name"])
                 
-                # ETL → 타겟 관계
                 queries.append(f"""
-                    MATCH (etl:ETLProcess {{
-                        name: '{etl_name}'
-                    }})
-                    MATCH (ds:DataSource {{
-                        name: '{target_name}'
-                    }})
-                    MERGE (etl)-[r:DATA_FLOW_TO]->(ds)
-                    SET r.flow_type = 'ETL_TO_TARGET'
-                    RETURN etl, r, ds
+                    MATCH (proc)
+                    WHERE (proc:PROCEDURE OR proc:FUNCTION)
+                      AND proc.procedure_name =~ '(?i){escaped_proc_name}'
+                    MATCH (t:Table)
+                    WHERE t.name =~ '(?i){table_name}'
+                    MERGE (proc)-[r:ETL_WRITES]->(t)
+                    SET r.operation = '{lineage.operation_type}',
+                        r.file_name = '{escape_for_cypher(file_name)}'
+                    RETURN proc, r, t
                 """)
-                stats["data_flows"] += 1
+                stats["etl_writes"] += 1
             
-            # 소스 → 타겟 직접 연결 (전체 흐름 표시용)
+            # 소스 테이블 → 타겟 테이블 직접 연결 (DATA_FLOWS_TO)
             for source in lineage.source_tables:
                 for target in lineage.target_tables:
-                    source_name = escape_for_cypher(source)
-                    target_name = escape_for_cypher(target)
+                    source_table = self._parse_table_name(source, name_case)
+                    target_table = self._parse_table_name(target, name_case)
+                    src_name = escape_for_cypher(source_table["name"])
+                    tgt_name = escape_for_cypher(target_table["name"])
+                    
                     queries.append(f"""
-                        MATCH (src:DataSource {{
-                            name: '{source_name}'
-                        }})
-                        MATCH (tgt:DataSource {{
-                            name: '{target_name}'
-                        }})
-                        MERGE (src)-[r:TRANSFORMS_TO]->(tgt)
+                        MATCH (src:Table)
+                        WHERE src.name =~ '(?i){src_name}'
+                        MATCH (tgt:Table)
+                        WHERE tgt.name =~ '(?i){tgt_name}'
+                        MERGE (src)-[r:DATA_FLOWS_TO]->(tgt)
                         SET r.via_etl = '{etl_name}',
-                            r.operation = '{lineage.operation_type}'
+                            r.operation = '{lineage.operation_type}',
+                            r.file_name = '{escape_for_cypher(file_name)}'
                         RETURN src, r, tgt
                     """)
+                    stats["data_flows"] += 1
         
         if queries:
             await client.execute_queries(queries)
             log_process(
                 "LINEAGE", "SAVE",
                 f"Neo4j 저장 완료: ETL {stats['etl_nodes']}개, "
-                f"DataSource {stats['data_sources']}개, Flow {stats['data_flows']}개"
+                f"ETL_READS {stats['etl_reads']}개, "
+                f"ETL_WRITES {stats['etl_writes']}개, "
+                f"DATA_FLOWS_TO {stats['data_flows']}개"
             )
         
         return stats
+    
+    def _apply_name_case(self, name: str, case: str) -> str:
+        """이름 대소문자 변환"""
+        if case == "uppercase":
+            return name.upper()
+        elif case == "lowercase":
+            return name.lower()
+        return name
+    
+    def _parse_table_name(self, table_ref: str, name_case: str) -> dict:
+        """테이블 참조를 스키마와 테이블명으로 분리"""
+        parts = table_ref.strip().split(".")
+        if len(parts) >= 2:
+            schema = self._apply_name_case(parts[-2], name_case)
+            name = self._apply_name_case(parts[-1], name_case)
+        else:
+            schema = ""
+            name = self._apply_name_case(parts[0], name_case)
+        return {"schema": schema, "name": name}
 
 
 async def analyze_lineage_from_sql(

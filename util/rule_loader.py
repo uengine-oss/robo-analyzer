@@ -117,13 +117,20 @@ class RuleLoader:
         except TemplateError as e:
             raise ValueError(f"프롬프트 렌더링 오류 ({rule_name}): {e}")
     
-    def execute(self, rule_name: str, inputs: Dict[str, Any], api_key: str) -> Dict[str, Any]:
+    def execute(
+        self, 
+        rule_name: str, 
+        inputs: Dict[str, Any], 
+        api_key: str,
+        model: str | None = None,
+    ) -> Dict[str, Any]:
         """프롬프트 실행 (LLM 호출)
         
         Args:
             rule_name: 규칙 이름 (YAML 파일명, 확장자 제외)
             inputs: 프롬프트 입력값
             api_key: LLM API 키
+            model: 사용할 LLM 모델 (None이면 기본 모델 사용)
             
         Returns:
             LLM 응답 (JSON 파싱됨)
@@ -133,7 +140,7 @@ class RuleLoader:
             prompt_text = self.render_prompt(rule_name, inputs)
             rule_path = os.path.join(self.rule_dir, f"{rule_name}.yaml")
 
-            llm = get_llm(api_key=api_key)
+            llm = get_llm(api_key=api_key, model=model)
             chain = (
                 RunnablePassthrough()
                 | PromptTemplate.from_template("{prompt}")

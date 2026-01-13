@@ -1683,3 +1683,357 @@ async def vectorize_schema(
         raise HTTPException(500, build_error_body(e))
     finally:
         await client.close()
+
+
+# =============================================================================
+# DW Star Schema Registration API - OLAP 스타스키마 등록 + 벡터라이징
+# =============================================================================
+
+class DWColumnInfo(BaseModel):
+    """DW 컬럼 정보"""
+    name: str
+    dtype: str = "VARCHAR"
+    description: Optional[str] = None
+    is_pk: bool = False
+    is_fk: bool = False
+    fk_target_table: Optional[str] = None  # FK 대상 테이블 (예: "dw.dim_time")
+
+
+class DWDimensionInfo(BaseModel):
+    """DW 디멘전 테이블 정보"""
+    name: str  # 테이블명 (예: "dim_time")
+    columns: List[DWColumnInfo] = []
+    source_tables: List[str] = []  # 원본 테이블 (예: ["RWIS.RDF01HH_TB"])
+
+
+class DWFactTableInfo(BaseModel):
+    """DW 팩트 테이블 정보"""
+    name: str  # 테이블명 (예: "fact_turbidity")
+    columns: List[DWColumnInfo] = []
+    source_tables: List[str] = []
+
+
+class DWStarSchemaRequest(BaseModel):
+    """DW 스타스키마 등록 요청"""
+    cube_name: str
+    db_name: str = "postgres"
+    dw_schema: str = "dw"
+    fact_table: DWFactTableInfo
+    dimensions: List[DWDimensionInfo] = []
+    create_embeddings: bool = True  # 임베딩 자동 생성 여부
+
+
+@router.post("/schema/dw-tables")
+async def register_dw_star_schema(
+    request: Request,
+    body: DWStarSchemaRequest
+):
+    """DW 스타스키마 테이블/컬럼을 Neo4j에 등록하고 벡터 임베딩 생성
+    
+    OLAP 백엔드에서 호출하여 DW 테이블을 Neo4j에 등록합니다.
+    기존 robo-analyzer의 벡터라이징 기능을 활용합니다.
+    
+    Request Body:
+        cube_name: 큐브 이름
+        db_name: 데이터베이스 이름
+        dw_schema: DW 스키마명 (기본: dw)
+        fact_table: 팩트 테이블 정보
+        dimensions: 디멘전 테이블 목록
+        create_embeddings: 임베딩 자동 생성 여부
+    
+    Response:
+        { success, message, tables_created, columns_created, embeddings_created }
+    """
+    from openai import AsyncOpenAI
+    from util.embedding_client import EmbeddingClient
+    
+    api_key = request.headers.get("X-API-Key") or settings.llm.api_key
+    
+    logger.info("[API] DW 스타스키마 등록 시작 | cube=%s | schema=%s", body.cube_name, body.dw_schema)
+    
+    client = Neo4jClient()
+    tables_created = 0
+    columns_created = 0
+    embeddings_created = 0
+    
+    try:
+        queries = []
+        
+        # 1. Schema 노드 생성/업데이트
+        queries.append(f"""
+            MERGE (s:Schema {{db: '{escape_for_cypher(body.db_name)}', name: '{escape_for_cypher(body.dw_schema)}'}})
+            SET s.description = 'Data Warehouse schema for OLAP cubes',
+                s.type = 'DW',
+                s.updated_at = datetime()
+            RETURN s
+        """)
+        
+        # 2. 디멘전 테이블 생성
+        for dim in body.dimensions:
+            dim_table = dim.name
+            dim_desc = f"Dimension table for {body.cube_name} cube"
+            
+            # 테이블 노드 생성
+            queries.append(f"""
+                MERGE (t:Table {{
+                    db: '{escape_for_cypher(body.db_name)}',
+                    schema: '{escape_for_cypher(body.dw_schema)}',
+                    name: '{escape_for_cypher(dim_table)}'
+                }})
+                SET t.table_type = 'DIMENSION',
+                    t.cube_name = '{escape_for_cypher(body.cube_name)}',
+                    t.description = '{escape_for_cypher(dim_desc)}',
+                    t.updated_at = datetime()
+                RETURN t.name AS name
+            """)
+            tables_created += 1
+            
+            # Schema -> Table 관계
+            queries.append(f"""
+                MATCH (s:Schema {{db: '{escape_for_cypher(body.db_name)}', name: '{escape_for_cypher(body.dw_schema)}'}})
+                MATCH (t:Table {{db: '{escape_for_cypher(body.db_name)}', schema: '{escape_for_cypher(body.dw_schema)}', name: '{escape_for_cypher(dim_table)}'}})
+                MERGE (s)-[:HAS_TABLE]->(t)
+            """)
+            
+            # 컬럼 노드 생성
+            for col in dim.columns:
+                col_fqn = f"{body.dw_schema}.{dim_table}.{col.name}".lower()
+                col_desc = col.description or f"Column {col.name} in {dim_table}"
+                
+                queries.append(f"""
+                    MATCH (t:Table {{db: '{escape_for_cypher(body.db_name)}', schema: '{escape_for_cypher(body.dw_schema)}', name: '{escape_for_cypher(dim_table)}'}})
+                    MERGE (c:Column {{fqn: '{escape_for_cypher(col_fqn)}'}})
+                    SET c.name = '{escape_for_cypher(col.name)}',
+                        c.dtype = '{escape_for_cypher(col.dtype)}',
+                        c.description = '{escape_for_cypher(col_desc)}',
+                        c.is_pk = {str(col.is_pk).lower()},
+                        c.is_fk = {str(col.is_fk).lower()},
+                        c.updated_at = datetime()
+                    MERGE (t)-[:HAS_COLUMN]->(c)
+                    RETURN c.name AS name
+                """)
+                columns_created += 1
+            
+            # 소스 테이블과의 DERIVED_FROM 관계
+            for src in dim.source_tables:
+                src_parts = src.split(".")
+                src_schema = src_parts[0] if len(src_parts) > 1 else "public"
+                src_table = src_parts[-1]
+                
+                queries.append(f"""
+                    MATCH (dw:Table {{db: '{escape_for_cypher(body.db_name)}', schema: '{escape_for_cypher(body.dw_schema)}', name: '{escape_for_cypher(dim_table)}'}})
+                    MATCH (src:Table {{name: '{escape_for_cypher(src_table)}'}})
+                    WHERE toLower(src.schema) = toLower('{escape_for_cypher(src_schema)}')
+                    MERGE (dw)-[:DERIVED_FROM {{cube: '{escape_for_cypher(body.cube_name)}'}}]->(src)
+                """)
+        
+        # 3. 팩트 테이블 생성
+        fact_table = body.fact_table.name
+        fact_desc = f"Fact table for {body.cube_name} cube"
+        
+        queries.append(f"""
+            MERGE (t:Table {{
+                db: '{escape_for_cypher(body.db_name)}',
+                schema: '{escape_for_cypher(body.dw_schema)}',
+                name: '{escape_for_cypher(fact_table)}'
+            }})
+            SET t.table_type = 'FACT',
+                t.cube_name = '{escape_for_cypher(body.cube_name)}',
+                t.description = '{escape_for_cypher(fact_desc)}',
+                t.updated_at = datetime()
+            RETURN t.name AS name
+        """)
+        tables_created += 1
+        
+        # Schema -> Table 관계
+        queries.append(f"""
+            MATCH (s:Schema {{db: '{escape_for_cypher(body.db_name)}', name: '{escape_for_cypher(body.dw_schema)}'}})
+            MATCH (t:Table {{db: '{escape_for_cypher(body.db_name)}', schema: '{escape_for_cypher(body.dw_schema)}', name: '{escape_for_cypher(fact_table)}'}})
+            MERGE (s)-[:HAS_TABLE]->(t)
+        """)
+        
+        # 팩트 테이블 컬럼 생성
+        for col in body.fact_table.columns:
+            col_fqn = f"{body.dw_schema}.{fact_table}.{col.name}".lower()
+            col_desc = col.description or f"Column {col.name} in {fact_table}"
+            
+            queries.append(f"""
+                MATCH (t:Table {{db: '{escape_for_cypher(body.db_name)}', schema: '{escape_for_cypher(body.dw_schema)}', name: '{escape_for_cypher(fact_table)}'}})
+                MERGE (c:Column {{fqn: '{escape_for_cypher(col_fqn)}'}})
+                SET c.name = '{escape_for_cypher(col.name)}',
+                    c.dtype = '{escape_for_cypher(col.dtype)}',
+                    c.description = '{escape_for_cypher(col_desc)}',
+                    c.is_pk = {str(col.is_pk).lower()},
+                    c.is_fk = {str(col.is_fk).lower()},
+                    c.updated_at = datetime()
+                MERGE (t)-[:HAS_COLUMN]->(c)
+                RETURN c.name AS name
+            """)
+            columns_created += 1
+            
+            # FK 관계 생성
+            if col.is_fk and col.fk_target_table:
+                fk_parts = col.fk_target_table.split(".")
+                fk_schema = fk_parts[0] if len(fk_parts) > 1 else body.dw_schema
+                fk_table = fk_parts[-1]
+                
+                queries.append(f"""
+                    MATCH (fact:Table {{db: '{escape_for_cypher(body.db_name)}', schema: '{escape_for_cypher(body.dw_schema)}', name: '{escape_for_cypher(fact_table)}'}})
+                    MATCH (dim:Table {{db: '{escape_for_cypher(body.db_name)}', schema: '{escape_for_cypher(fk_schema)}', name: '{escape_for_cypher(fk_table)}'}})
+                    MERGE (fact)-[:FK_TO_TABLE {{column: '{escape_for_cypher(col.name)}'}}]->(dim)
+                """)
+        
+        # 소스 테이블과의 DERIVED_FROM 관계
+        for src in body.fact_table.source_tables:
+            src_parts = src.split(".")
+            src_schema = src_parts[0] if len(src_parts) > 1 else "public"
+            src_table = src_parts[-1]
+            
+            queries.append(f"""
+                MATCH (dw:Table {{db: '{escape_for_cypher(body.db_name)}', schema: '{escape_for_cypher(body.dw_schema)}', name: '{escape_for_cypher(fact_table)}'}})
+                MATCH (src:Table {{name: '{escape_for_cypher(src_table)}'}})
+                WHERE toLower(src.schema) = toLower('{escape_for_cypher(src_schema)}')
+                MERGE (dw)-[:DERIVED_FROM {{cube: '{escape_for_cypher(body.cube_name)}'}}]->(src)
+            """)
+        
+        # 쿼리 실행
+        logger.info("[API] DW 스타스키마 쿼리 실행 | queries=%d", len(queries))
+        await client.execute_queries(queries)
+        
+        # 4. 벡터 임베딩 생성
+        if body.create_embeddings and api_key:
+            openai_client = AsyncOpenAI(api_key=api_key)
+            embedding_client = EmbeddingClient(openai_client)
+            
+            # 테이블 임베딩
+            table_query = f"""
+                MATCH (t:Table)
+                WHERE t.schema = '{escape_for_cypher(body.dw_schema)}'
+                  AND t.cube_name = '{escape_for_cypher(body.cube_name)}'
+                  AND t.description IS NOT NULL
+                RETURN elementId(t) AS tid, t.name AS name, t.description AS description
+            """
+            results = await client.execute_queries([table_query])
+            tables = results[0] if results else []
+            
+            for item in tables:
+                text = embedding_client.format_table_text(
+                    table_name=item.get("name", ""),
+                    description=item.get("description", "")
+                )
+                vector = await embedding_client.embed_text(text)
+                
+                if vector:
+                    set_query = f"""
+                        MATCH (t)
+                        WHERE elementId(t) = '{item['tid']}'
+                        SET t.vector = {vector}, t.embedding_updated = datetime()
+                    """
+                    await client.execute_queries([set_query])
+                    embeddings_created += 1
+            
+            # 컬럼 임베딩
+            column_query = f"""
+                MATCH (t:Table)-[:HAS_COLUMN]->(c:Column)
+                WHERE t.schema = '{escape_for_cypher(body.dw_schema)}'
+                  AND t.cube_name = '{escape_for_cypher(body.cube_name)}'
+                  AND c.description IS NOT NULL
+                RETURN elementId(c) AS cid, c.name AS column_name, t.name AS table_name,
+                       coalesce(c.dtype, '') AS dtype, c.description AS description
+            """
+            results = await client.execute_queries([column_query])
+            columns = results[0] if results else []
+            
+            texts = []
+            for item in columns:
+                text = embedding_client.format_column_text(
+                    column_name=item.get("column_name", ""),
+                    table_name=item.get("table_name", ""),
+                    dtype=item.get("dtype", ""),
+                    description=item.get("description", "")
+                )
+                texts.append(text)
+            
+            if texts:
+                vectors = await embedding_client.embed_batch(texts)
+                for item, vector in zip(columns, vectors):
+                    if vector:
+                        set_query = f"""
+                            MATCH (c)
+                            WHERE elementId(c) = '{item['cid']}'
+                            SET c.vector = {vector}, c.embedding_updated = datetime()
+                        """
+                        await client.execute_queries([set_query])
+                        embeddings_created += 1
+        
+        logger.info(
+            "[API] DW 스타스키마 등록 완료 | tables=%d | columns=%d | embeddings=%d",
+            tables_created, columns_created, embeddings_created
+        )
+        
+        return {
+            "success": True,
+            "message": f"DW 스타스키마 '{body.cube_name}' 등록 완료",
+            "tables_created": tables_created,
+            "columns_created": columns_created,
+            "embeddings_created": embeddings_created,
+            "cube_name": body.cube_name,
+            "dw_schema": body.dw_schema
+        }
+    
+    except Exception as e:
+        logger.error("[API] DW 스타스키마 등록 실패: %s", e)
+        raise HTTPException(500, build_error_body(e))
+    finally:
+        await client.close()
+
+
+@router.delete("/schema/dw-tables/{cube_name}")
+async def delete_dw_star_schema(
+    request: Request,
+    cube_name: str,
+    dw_schema: str = "dw",
+    db_name: str = "postgres"
+):
+    """DW 스타스키마 테이블/컬럼을 Neo4j에서 삭제
+    
+    Args:
+        cube_name: 삭제할 큐브 이름
+        dw_schema: DW 스키마명
+        db_name: 데이터베이스 이름
+    """
+    logger.info("[API] DW 스타스키마 삭제 | cube=%s | schema=%s", cube_name, dw_schema)
+    
+    client = Neo4jClient()
+    
+    try:
+        # 해당 큐브의 테이블/컬럼/관계 삭제
+        delete_queries = [
+            # 컬럼 삭제
+            f"""
+                MATCH (t:Table {{cube_name: '{escape_for_cypher(cube_name)}', schema: '{escape_for_cypher(dw_schema)}'}})-[:HAS_COLUMN]->(c:Column)
+                DETACH DELETE c
+            """,
+            # 테이블 삭제
+            f"""
+                MATCH (t:Table {{cube_name: '{escape_for_cypher(cube_name)}', schema: '{escape_for_cypher(dw_schema)}'}})
+                DETACH DELETE t
+            """
+        ]
+        
+        await client.execute_queries(delete_queries)
+        
+        logger.info("[API] DW 스타스키마 삭제 완료 | cube=%s", cube_name)
+        
+        return {
+            "success": True,
+            "message": f"DW 스타스키마 '{cube_name}' 삭제 완료",
+            "cube_name": cube_name,
+            "dw_schema": dw_schema
+        }
+    
+    except Exception as e:
+        logger.error("[API] DW 스타스키마 삭제 실패: %s", e)
+        raise HTTPException(500, build_error_body(e))
+    finally:
+        await client.close()

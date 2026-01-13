@@ -40,6 +40,8 @@ from util.utility_tool import (
     calculate_code_token,
 )
 from util.embedding_client import EmbeddingClient
+from util.ddl_parser import parse_ddl as regex_parse_ddl
+from analyzer.lineage_analyzer import LineageAnalyzer, LineageInfo
 
 
 class DbmsAnalyzer(BaseStreamingAnalyzer):
@@ -97,10 +99,9 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
         total_files = len(file_names)
         self._file_semaphore = asyncio.Semaphore(settings.concurrency.file_concurrency)
         
-        # 파이프라인 상태 초기화 (기존 상태 제거 후 새로 생성)
-        # 이전 세션에서 일시정지된 상태가 유지되는 버그 방지
-        pipeline_controller.remove_state(orchestrator.user_id)
-        pipeline_state = pipeline_controller.get_state(orchestrator.user_id)
+        # 파이프라인 상태 초기화
+        pipeline_controller.reset()
+        pipeline_state = pipeline_controller.get_state()
 
         # LLM 캐시 상태 표시
         if settings.llm.cache_enabled:
@@ -245,6 +246,30 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
             yield emit_message("⏹️ 파이프라인이 중단되었습니다")
             pipeline_state.set_phase(PipelinePhase.CANCELLED)
             return
+        
+        # ========== Phase 5: 리니지 분석 (ETL 패턴 감지) ==========
+        pipeline_state.set_phase(PipelinePhase.LINEAGE_ANALYSIS, "데이터 리니지 분석 중", 0)
+        yield emit_phase_event(5, "리니지 분석", "started", 0, {"canPause": True})
+        yield emit_message("")
+        yield self.emit_separator()
+        yield self.emit_phase_header(5, "🔗 데이터 리니지 분석", "ETL 패턴 감지")
+        yield self.emit_separator()
+        
+        async for chunk in self._run_lineage_phase(client, orchestrator, stats):
+            yield chunk
+        
+        yield emit_message("")
+        yield self.emit_phase_complete(5, "리니지 분석 완료")
+        yield emit_phase_event(5, "리니지 분석", "completed", 100, {
+            "etl_count": getattr(stats, 'etl_count', 0),
+            "data_flows": getattr(stats, 'data_flows', 0)
+        })
+        
+        # Phase 5 후 일시정지 체크
+        if not await pipeline_state.wait_if_paused():
+            yield emit_message("⏹️ 파이프라인이 중단되었습니다")
+            pipeline_state.set_phase(PipelinePhase.CANCELLED)
+            return
 
     # =========================================================================
     # User Story 문서 생성 (BaseStreamingAnalyzer 구현)
@@ -335,12 +360,29 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
             yield emit_message("")
             yield self.emit_file_start(idx, ddl_count, ddl_file)
             
-            ddl_graph, ddl_stats = await self._process_ddl(
+            # 파일 단위 진행률: 각 파일이 (idx-1)/ddl_count ~ idx/ddl_count 구간 차지
+            file_base_progress = int(((idx - 1) / ddl_count) * 100)
+            file_end_progress = int((idx / ddl_count) * 100)
+            
+            # _process_ddl은 이제 AsyncGenerator - 메시지와 최종 결과를 yield
+            ddl_graph = None
+            ddl_stats = {"tables": 0, "columns": 0, "fks": 0}
+            
+            async for item in self._process_ddl(
                 ddl_path=os.path.join(ddl_dir, ddl_file),
                 client=client,
                 file_name=ddl_file,
                 orchestrator=orchestrator,
-            )
+                emit_progress=True,
+                file_base_progress=file_base_progress,
+                file_end_progress=file_end_progress,
+            ):
+                if isinstance(item, tuple):
+                    # 최종 결과 (ddl_graph, ddl_stats)
+                    ddl_graph, ddl_stats = item
+                else:
+                    # 진행 상황 메시지 (bytes)
+                    yield item
             
             if ddl_stats["tables"]:
                 yield emit_message(f"   ✓ Table 노드: {ddl_stats['tables']}개")
@@ -348,6 +390,9 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
                 yield emit_message(f"   ✓ Column 노드: {ddl_stats['columns']}개")
             if ddl_stats["fks"]:
                 yield emit_message(f"   ✓ FK 관계: {ddl_stats['fks']}개")
+            
+            # 파일 완료 시 진행률 업데이트
+            yield emit_phase_event(0, "DDL 처리", "running", file_end_progress)
             
             stats.add_ddl_result(ddl_stats["tables"], ddl_stats["columns"], ddl_stats["fks"])
             
@@ -417,51 +462,161 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
         client: Neo4jClient,
         file_name: str,
         orchestrator: Any,
-    ) -> tuple[dict, dict]:
-        """DDL 파일 처리 및 테이블/컬럼 노드 생성
+        emit_progress: bool = True,
+        use_llm: bool = False,  # 기본값: 정규식 파서 사용 (빠름)
+        file_base_progress: int = 0,  # 파일 시작 진행률
+        file_end_progress: int = 100,  # 파일 종료 진행률
+    ) -> AsyncGenerator[bytes | tuple[dict, dict], None]:
+        """DDL 파일 처리 및 테이블/컬럼 노드 생성 (스트리밍)
         
-        대용량 DDL 파일의 경우 CREATE TABLE 단위로 청크 분할하여 처리합니다.
-        각 청크에는 CREATE TABLE, COMMENT ON, ALTER TABLE 구문이 함께 포함됩니다.
+        Args:
+            use_llm: True면 LLM 사용, False면 정규식 파서 사용 (기본: False, 빠른 파싱)
+            file_base_progress: 이 파일 처리 시작 시 전체 진행률 (0-100)
+            file_end_progress: 이 파일 처리 완료 시 전체 진행률 (0-100)
+        
+        Yields:
+            bytes: 진행 상황 메시지 (emit_message)
+            tuple[dict, dict]: 최종 결과 (ddl_graph, ddl_stats) - 마지막에 한 번만
         """
+        import re
         ddl_stats = {"tables": 0, "columns": 0, "fks": 0}
+        
+        # 진행률 범위 계산 (파일 내에서 파싱 50%, 저장 50% 비율)
+        file_range = file_end_progress - file_base_progress
+        parsing_end = file_base_progress + int(file_range * 0.5)
+        saving_start = parsing_end
+        saving_end = file_end_progress
         
         async with aiofiles.open(ddl_path, "r", encoding="utf-8") as f:
             ddl_content = await f.read()
         
-        # 대용량 DDL 청크 분할
-        ddl_chunks = split_ddl_into_chunks(ddl_content)
         total_tokens = calculate_code_token(ddl_content)
-        chunk_count = len(ddl_chunks)
         
-        if chunk_count > 1:
-            log_process("DDL", "CHUNK", f"📦 대용량 DDL 분할: {total_tokens:,} 토큰 → {chunk_count}개 청크")
-        
-        loader = RuleLoader(target_lang="dbms")
-        
-        # 청크별 LLM 호출 및 결과 병합
-        all_parsed_results: List[Dict] = []
-        for chunk_idx, chunk in enumerate(ddl_chunks, 1):
-            chunk_tokens = calculate_code_token(chunk)
-            if chunk_count > 1:
-                log_process("DDL", "CHUNK", f"  청크 {chunk_idx}/{chunk_count} 처리 중 ({chunk_tokens:,} 토큰)")
+        # ========================================
+        # 정규식 파서 사용 (기본값 - 빠름)
+        # ========================================
+        if not use_llm:
+            if emit_progress:
+                yield emit_message(f"   ⚡ 정규식 파서 사용 (빠른 모드)")
+                yield emit_phase_event(
+                    phase_num=0,
+                    phase_name="DDL 처리",
+                    status="in_progress",
+                    progress=file_base_progress + int(file_range * 0.1),
+                    details={"mode": "regex", "tokens": total_tokens}
+                )
             
             try:
-                # LLM 호출을 비동기로 처리 (I/O 블로킹 방지)
-                import asyncio
-                chunk_parsed = await asyncio.to_thread(
-                    loader.execute,
-                    "ddl",
-                    {"ddl_content": chunk, "locale": orchestrator.locale},
-                    orchestrator.api_key,
-                )
-                tables_in_chunk = len(chunk_parsed.get("analysis", []))
-                all_parsed_results.extend(chunk_parsed.get("analysis", []))
+                # 정규식 파서로 한 번에 파싱 (매우 빠름)
+                parsed = await asyncio.to_thread(regex_parse_ddl, ddl_content)
+                all_parsed_results = parsed.get("analysis", [])
                 
-                if chunk_count > 1:
-                    log_process("DDL", "CHUNK", f"  ✅ 청크 {chunk_idx} 완료: {tables_in_chunk}개 테이블 파싱")
+                table_count = len(all_parsed_results)
+                if emit_progress:
+                    # 처음 5개 테이블명 미리보기
+                    table_names = [t.get("table", {}).get("name", "?") for t in all_parsed_results[:5]]
+                    preview = ", ".join(table_names)
+                    if table_count > 5:
+                        preview += f" 외 {table_count - 5}개"
+                    
+                    yield emit_message(f"   ✅ 파싱 완료: {table_count}개 테이블 ({preview})")
+                    yield emit_phase_event(
+                        phase_num=0,
+                        phase_name="DDL 처리",
+                        status="in_progress",
+                        progress=parsing_end,
+                        details={"tables_parsed": table_count, "mode": "regex"}
+                    )
+                    
             except Exception as e:
-                log_process("DDL", "ERROR", f"  ❌ 청크 {chunk_idx} 실패: {str(e)[:100]}")
-                raise AnalysisError(f"DDL 청크 {chunk_idx} 파싱 실패: {e}")
+                if emit_progress:
+                    yield emit_message(f"   ❌ 정규식 파싱 실패: {str(e)[:80]}")
+                raise AnalysisError(f"DDL 정규식 파싱 실패: {e}")
+        
+        # ========================================
+        # LLM 파서 사용 (use_llm=True인 경우)
+        # ========================================
+        else:
+            # 대용량 DDL 청크 분할
+            ddl_chunks = split_ddl_into_chunks(ddl_content)
+            chunk_count = len(ddl_chunks)
+            
+            if chunk_count > 1 and emit_progress:
+                yield emit_message(f"   📦 대용량 DDL 분할: {total_tokens:,} 토큰 → {chunk_count}개 청크")
+            
+            loader = RuleLoader(target_lang="dbms")
+            
+            # CREATE TABLE 패턴 (청크에서 테이블명 추출용)
+            table_pattern = re.compile(
+                r'CREATE\s+(?:TABLE|VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+)?([\w\."]+)',
+                re.IGNORECASE
+            )
+            
+            # 청크별 LLM 호출 및 결과 병합
+            all_parsed_results: List[Dict] = []
+            total_tables_parsed = 0
+            
+            for chunk_idx, chunk in enumerate(ddl_chunks, 1):
+                chunk_tokens = calculate_code_token(chunk)
+                
+                # 청크에 포함된 테이블명 추출 (미리보기용)
+                tables_in_chunk_raw = table_pattern.findall(chunk)
+                tables_preview = [t.replace('"', '').split('.')[-1] for t in tables_in_chunk_raw[:3]]
+                preview_str = ", ".join(tables_preview)
+                if len(tables_in_chunk_raw) > 3:
+                    preview_str += f" 외 {len(tables_in_chunk_raw) - 3}개"
+                
+                # 진행률 계산 (청크 기준)
+                progress_percent = int((chunk_idx - 1) / chunk_count * 100)
+                
+                if emit_progress:
+                    yield emit_message(f"   🔄 [{chunk_idx}/{chunk_count}] 파싱 중: {preview_str}")
+                    yield emit_phase_event(
+                        phase_num=0,
+                        phase_name="DDL 처리",
+                        status="in_progress",
+                        progress=progress_percent,
+                        details={"chunk": chunk_idx, "total_chunks": chunk_count, "current_tables": preview_str}
+                    )
+                
+                try:
+                    # LLM 호출 (DDL 파싱용 빠른 모델)
+                    chunk_parsed = await asyncio.to_thread(
+                        loader.execute,
+                        "ddl",
+                        {"ddl_content": chunk, "locale": orchestrator.locale},
+                        orchestrator.api_key,
+                        model="gpt-4.1-mini",
+                    )
+                    tables_in_chunk = len(chunk_parsed.get("analysis", []))
+                    all_parsed_results.extend(chunk_parsed.get("analysis", []))
+                    total_tables_parsed += tables_in_chunk
+                    
+                    # 파싱된 테이블명 표시
+                    parsed_table_names = [
+                        t.get("table", {}).get("name", "?") 
+                        for t in chunk_parsed.get("analysis", [])[:5]
+                    ]
+                    parsed_preview = ", ".join(parsed_table_names)
+                    if tables_in_chunk > 5:
+                        parsed_preview += f" 외 {tables_in_chunk - 5}개"
+                    
+                    progress_percent = int(chunk_idx / chunk_count * 100)
+                    
+                    if emit_progress:
+                        yield emit_message(f"   ✅ [{chunk_idx}/{chunk_count}] 완료: {tables_in_chunk}개 테이블 ({parsed_preview})")
+                        yield emit_phase_event(
+                            phase_num=0,
+                            phase_name="DDL 처리",
+                            status="in_progress",
+                            progress=progress_percent,
+                            details={"chunk": chunk_idx, "total_chunks": chunk_count, "tables_parsed": total_tables_parsed}
+                        )
+                    
+                except Exception as e:
+                    if emit_progress:
+                        yield emit_message(f"   ❌ [{chunk_idx}/{chunk_count}] 실패: {str(e)[:80]}")
+                    raise AnalysisError(f"DDL 청크 {chunk_idx} 파싱 실패: {e}")
         
         # 병합된 결과를 parsed로 사용
         parsed = {"analysis": all_parsed_results}
@@ -639,11 +794,44 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
                 )
                 ddl_stats["fks"] += 1
 
+        # Neo4j에 저장
+        if emit_progress:
+            yield emit_message(f"   💾 Neo4j 저장 중: {ddl_stats['tables']}개 테이블, {ddl_stats['columns']}개 컬럼, {ddl_stats['fks']}개 FK")
+            yield emit_phase_event(
+                phase_num=0,
+                phase_name="DDL 처리",
+                status="in_progress",
+                progress=saving_start,
+                details={
+                    "step": "saving_to_neo4j",
+                    "tables": ddl_stats['tables'],
+                    "columns": ddl_stats['columns'],
+                    "fks": ddl_stats['fks']
+                }
+            )
+        
         async with self._cypher_lock:
             result = await client.run_graph_query(queries)
         
+        if emit_progress:
+            yield emit_message(f"   ✅ Neo4j 저장 완료")
+            yield emit_phase_event(
+                phase_num=0,
+                phase_name="DDL 처리",
+                status="in_progress",
+                progress=saving_end,
+                details={
+                    "step": "neo4j_saved",
+                    "tables": ddl_stats['tables'],
+                    "columns": ddl_stats['columns'],
+                    "fks": ddl_stats['fks']
+                }
+            )
+        
         log_process("ANALYZE", "DDL", f"DDL 처리 완료: {file_name} (T:{ddl_stats['tables']}, C:{ddl_stats['columns']}, FK:{ddl_stats['fks']})")
-        return result, ddl_stats
+        
+        # 최종 결과를 특별한 형태로 yield (tuple)
+        yield (result, ddl_stats)
 
     # =========================================================================
     # 스키마 결정
@@ -1056,3 +1244,103 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
             
         except Exception as e:
             yield emit_message(f"   ⚠️ 컬럼 벡터라이징 실패: {str(e)[:100]}")
+
+    # =========================================================================
+    # 리니지 분석 (Phase 5)
+    # =========================================================================
+
+    async def _run_lineage_phase(
+        self,
+        client: Neo4jClient,
+        orchestrator: Any,
+        stats: AnalysisStats,
+    ) -> AsyncGenerator[bytes, None]:
+        """ETL 패턴 감지 및 데이터 리니지 관계 생성
+        
+        Stored Procedure가 ETL 역할을 하는지 분석하고,
+        Source 테이블 → ETL → Target 테이블 간 데이터 흐름 관계를 생성합니다.
+        """
+        source_dir = orchestrator.dirs.get("source", "")
+        
+        if not source_dir or not os.path.exists(source_dir):
+            yield emit_message("   ℹ️ SP 파일 없음 → 리니지 분석 건너뜀")
+            return
+        
+        # SP 파일 목록 가져오기
+        sql_files = []
+        for root, _, files in os.walk(source_dir):
+            for f in files:
+                if f.endswith(".sql"):
+                    sql_files.append(os.path.join(root, f))
+        
+        if not sql_files:
+            yield emit_message("   ℹ️ SP 파일 없음 → 리니지 분석 건너뜀")
+            return
+        
+        yield emit_message(f"   🔍 {len(sql_files)}개 SP 파일에서 ETL 패턴 분석...")
+        
+        # 리니지 분석기 생성
+        lineage_analyzer = LineageAnalyzer(dbms="oracle")
+        all_lineages: list[LineageInfo] = []
+        
+        # 각 SP 파일 분석
+        for idx, sql_file in enumerate(sql_files, 1):
+            file_name = os.path.basename(sql_file)
+            
+            try:
+                async with aiofiles.open(sql_file, "r", encoding="utf-8", errors="ignore") as f:
+                    sql_content = await f.read()
+                
+                # 리니지 분석
+                lineages = lineage_analyzer.analyze_sql_content(sql_content, file_name)
+                
+                # ETL 패턴이 감지된 경우만 저장
+                etl_lineages = [l for l in lineages if l.is_etl]
+                if etl_lineages:
+                    for l in etl_lineages:
+                        l.file_name = file_name
+                    all_lineages.extend(etl_lineages)
+                    yield emit_message(
+                        f"   ✅ {file_name}: ETL 패턴 {len(etl_lineages)}개 감지"
+                    )
+                
+            except Exception as e:
+                log_process("LINEAGE", "ERROR", f"{file_name} 분석 실패: {e}")
+        
+        # ETL 패턴이 감지된 경우 Neo4j에 저장
+        if all_lineages:
+            yield emit_message(f"\n   📊 총 {len(all_lineages)}개 ETL 패턴 → Neo4j 저장...")
+            
+            try:
+                # name_case 옵션 가져오기
+                name_case = getattr(orchestrator, "name_case", "original")
+                
+                result = await lineage_analyzer.save_lineage_to_neo4j(
+                    client=client,
+                    lineage_list=all_lineages,
+                    file_name="",
+                    name_case=name_case,
+                )
+                
+                # 통계 업데이트
+                if not hasattr(stats, 'etl_count'):
+                    stats.etl_count = 0
+                if not hasattr(stats, 'data_flows'):
+                    stats.data_flows = 0
+                
+                stats.etl_count = result.get("etl_nodes", 0)
+                stats.data_flows = result.get("data_flows", 0)
+                
+                yield emit_message(
+                    f"   ✅ 리니지 저장 완료: "
+                    f"ETL 프로시저 {result.get('etl_nodes', 0)}개, "
+                    f"ETL_READS {result.get('etl_reads', 0)}개, "
+                    f"ETL_WRITES {result.get('etl_writes', 0)}개, "
+                    f"DATA_FLOWS_TO {result.get('data_flows', 0)}개"
+                )
+                
+            except Exception as e:
+                yield emit_message(f"   ⚠️ 리니지 저장 실패: {str(e)[:100]}")
+                log_process("LINEAGE", "ERROR", f"Neo4j 저장 실패: {e}")
+        else:
+            yield emit_message("   ℹ️ ETL 패턴 없음 → 리니지 관계 미생성")
