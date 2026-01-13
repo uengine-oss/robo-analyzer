@@ -1031,7 +1031,8 @@ class DbmsAstProcessor(BaseAstProcessor):
                 )
             
             # FK 관계 처리
-            for relation in range_entry.get('fkRelations', []) or []:
+            fk_relations = range_entry.get('fkRelations', []) or []
+            for relation in fk_relations:
                 src_table = (relation.get('sourceTable') or '').strip()
                 tgt_table = (relation.get('targetTable') or '').strip()
                 src_columns = [c.strip() for c in (relation.get('sourceColumns') or []) if c]
@@ -1064,15 +1065,17 @@ class DbmsAstProcessor(BaseAstProcessor):
                     escaped_src_col = escape_for_cypher(self._apply_name_case(src_col))
                     escaped_tgt_col = escape_for_cypher(self._apply_name_case(tgt_col))
                     
-                    queries.append(
+                    fk_query = (
                         f"MATCH (st:Table {{{src_props}}})\n"
                         f"MATCH (tt:Table {{{tgt_props}}})\n"
                         f"MERGE (st)-[r:FK_TO_TABLE {{sourceColumn: '{escaped_src_col}', targetColumn: '{escaped_tgt_col}'}}]->(tt)\n"
                         f"ON CREATE SET r.type = 'many_to_one', r.source = 'procedure'\n"
                         f"RETURN st, tt, r"
                     )
+                    queries.append(fk_query)
                 
                 # Column 간 FK_TO 관계도 생성
+                # source='procedure': 스토어드 프로시저 분석에서 추출 (점선 표시)
                 for src_col, tgt_col in zip(src_columns, tgt_columns):
                     # 컬럼명에도 대소문자 변환 적용
                     converted_src_col = self._apply_name_case(src_col)
@@ -1080,12 +1083,14 @@ class DbmsAstProcessor(BaseAstProcessor):
                     # fqn 생성 시에도 effective_schema 사용 (테이블 생성과 일관성 유지)
                     src_fqn = escape_for_cypher('.'.join(filter(None, [effective_src_schema, src_name, converted_src_col])).lower())
                     tgt_fqn = escape_for_cypher('.'.join(filter(None, [effective_tgt_schema, tgt_name, converted_tgt_col])).lower())
-                    queries.append(
+                    fk_col_query = (
                         f"MATCH (sc:Column {{fqn: '{src_fqn}'}})\n"
                         f"MATCH (dc:Column {{fqn: '{tgt_fqn}'}})\n"
                         f"MERGE (sc)-[r:FK_TO]->(dc)\n"
+                        f"ON CREATE SET r.source = 'procedure'\n"
                         f"RETURN sc, dc, r"
                     )
+                    queries.append(fk_col_query)
         
         return queries
     

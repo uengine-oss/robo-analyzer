@@ -654,9 +654,9 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
             schema = self._apply_name_case(parsed_schema if parsed_schema else "public", name_case)
             parsed_name = self._apply_name_case(parsed_name, name_case)
             
-            # DDL에서 발견된 스키마 수집 (내부 비교용으로 소문자 저장)
+            # DDL에서 발견된 스키마 수집 (name_case 적용된 값으로 저장)
             if schema and schema.lower() != 'public':
-                self._ddl_schemas.add(schema.lower())
+                self._ddl_schemas.add(schema)
 
             # Table 노드 생성 (MERGE 키: db, schema, name 사용)
             # 같은 스키마/테이블명이면 같은 노드로 취급해야 함
@@ -837,26 +837,38 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
     # 스키마 결정
     # =========================================================================
 
-    def _resolve_default_schema(self, directory: str) -> str:
+    def _resolve_default_schema(self, directory: str, name_case: str = 'original') -> str:
         """파일 경로에서 기본 스키마를 결정합니다.
         
         우선순위:
         1. 경로의 폴더명 중 DDL 스키마와 일치하는 것 (깊은 폴더 우선)
-        2. 매칭 실패 시 'public'
+        2. 매칭 실패 시 파일이 존재하는 디렉토리명 사용
+        
+        Args:
+            directory: 파일이 위치한 디렉토리 경로
+            name_case: 대소문자 변환 옵션 (original, uppercase, lowercase)
         """
-        if not directory or not self._ddl_schemas:
-            return "public"
+        if not directory:
+            return self._apply_name_case("public", name_case)
         
         # 경로를 폴더 목록으로 분리 (깊은 순서대로)
         parts = directory.replace("\\", "/").split("/")
-        parts = [p.lower() for p in parts if p]
+        parts = [p for p in parts if p]  # 빈 문자열 제거
         
-        # 깊은 폴더부터 매칭 (역순 순회)
-        for folder in reversed(parts):
-            if folder in self._ddl_schemas:
-                return folder
+        if not parts:
+            return self._apply_name_case("public", name_case)
         
-        return "public"
+        # DDL 스키마가 있으면 매칭 시도 (깊은 폴더부터)
+        # 대소문자 무관 비교 후, DDL에 저장된 원본 대소문자 반환
+        if self._ddl_schemas:
+            ddl_schemas_lower_map = {s.lower(): s for s in self._ddl_schemas}
+            for folder in reversed(parts):
+                matched = ddl_schemas_lower_map.get(folder.lower())
+                if matched:
+                    return matched  # DDL에서 name_case 적용된 값 그대로 반환
+        
+        # 매칭 실패 시 파일이 존재하는 디렉토리명(가장 깊은 폴더)에 name_case 적용
+        return self._apply_name_case(parts[-1], name_case)
 
     # =========================================================================
     # 파일 로드
@@ -910,8 +922,11 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
         async def process_file(ctx: FileAnalysisContext):
             async with self._file_semaphore:
                 try:
-                    # 파일 경로 기반 기본 스키마 결정
-                    default_schema = self._resolve_default_schema(ctx.directory)
+                    # name_case 옵션 가져오기
+                    name_case = getattr(orchestrator, 'name_case', 'original')
+                    
+                    # 파일 경로 기반 기본 스키마 결정 (name_case 적용)
+                    default_schema = self._resolve_default_schema(ctx.directory, name_case)
                     
                     processor = DbmsAstProcessor(
                         antlr_data=ctx.ast_data,
@@ -924,7 +939,7 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
                         last_line=len(ctx.source_lines),
                         default_schema=default_schema,
                         ddl_table_metadata=self._ddl_table_metadata,
-                        name_case=getattr(orchestrator, 'name_case', 'original'),
+                        name_case=name_case,
                     )
                     ctx.processor = processor
                     

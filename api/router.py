@@ -699,7 +699,6 @@ async def semantic_search_tables(
     Response: JSON
         [{ name, schema, description, similarity }, ...]
     """
-    user_id = extract_user_id(request)
     api_key = request.headers.get("X-API-Key") or settings.llm.api_key
     
     if not api_key:
