@@ -1061,9 +1061,16 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
                     queries = processor.build_static_graph_queries()
                     
                     if queries:
+                        all_nodes = {}
+                        all_relationships = {}
                         async with self._cypher_lock:
-                            graph = await client.run_graph_query(queries)
+                            async for batch_result in client.run_graph_query(queries):
+                                for node in batch_result.get("Nodes", []):
+                                    all_nodes[node["Node ID"]] = node
+                                for rel in batch_result.get("Relationships", []):
+                                    all_relationships[rel["Relationship ID"]] = rel
                         
+                        graph = {"Nodes": list(all_nodes.values()), "Relationships": list(all_relationships.values())}
                         node_count = len(graph.get("Nodes", []))
                         rel_count = len(graph.get("Relationships", []))
                         
@@ -1102,13 +1109,15 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
         # 결과 수신 및 스트리밍
         while completed < total:
             result = await asyncio.wait_for(results_queue.get(), timeout=300.0)
+            result_type = result.get("type", "")
+            
             completed += 1
             stats.files_completed = completed
             
             # Phase 1 진행률 계산 (0-50% 범위 사용)
             phase1_progress = int(completed / total * 50)
             
-            if result["type"] == "error":
+            if result_type == "error":
                 yield emit_message(f"   ❌ [{completed}/{total}] {result['file']}: {result['message'][:50]}")
                 stats.mark_file_failed(result['file'], "Phase1 실패")
                 yield emit_phase_event(
@@ -1212,9 +1221,27 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
                     analysis_queries, failed_batch_count, failed_details = await ctx.processor.run_llm_analysis()
                     
                     if analysis_queries:
+                        all_nodes = {}
+                        all_relationships = {}
                         async with self._cypher_lock:
-                            graph = await client.run_graph_query(analysis_queries)
+                            async for batch_result in client.run_graph_query(analysis_queries):
+                                for node in batch_result.get("Nodes", []):
+                                    all_nodes[node["Node ID"]] = node
+                                for rel in batch_result.get("Relationships", []):
+                                    all_relationships[rel["Relationship ID"]] = rel
+                                # 배치 진행률 스트리밍 (그래프 데이터 포함)
+                                await results_queue.put({
+                                    "type": "batch_progress",
+                                    "file": ctx.file_name,
+                                    "batch": batch_result.get("batch", 0),
+                                    "total_batches": batch_result.get("total_batches", 0),
+                                    "graph": {
+                                        "Nodes": batch_result.get("Nodes", []),
+                                        "Relationships": batch_result.get("Relationships", []),
+                                    },
+                                })
                         
+                        graph = {"Nodes": list(all_nodes.values()), "Relationships": list(all_relationships.values())}
                         ctx.status = FileStatus.PH2_OK
                         await results_queue.put({
                             "type": "success",
@@ -1222,7 +1249,7 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
                             "graph": graph,
                             "query_count": len(analysis_queries),
                             "failed_batches": failed_batch_count,
-                            "failed_details": failed_details,  # 상세 정보 추가
+                            "failed_details": failed_details,
                         })
                     else:
                         ctx.status = FileStatus.PH2_OK
@@ -1260,6 +1287,17 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
             # warning은 카운트하지 않음 (추가 정보일 뿐)
             if result_type == "warning":
                 yield emit_message(f"   ⚠️ {result['file']}: {result['message']}")
+                continue
+            
+            # 배치 진행률은 카운트하지 않음 (중간 진행 상태)
+            if result_type == "batch_progress":
+                batch = result.get("batch", 0)
+                total_batches = result.get("total_batches", 0)
+                graph = result.get("graph")
+                yield emit_message(f"      📦 {result['file']}: 배치 {batch}/{total_batches} 저장 완료")
+                # 배치별 그래프 데이터 즉시 전송
+                if graph:
+                    yield emit_data(graph=graph)
                 continue
             
             completed += 1
@@ -1388,6 +1426,7 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
             details={"step": "table_vectorizing"}
         )
         
+        # description과 analyzed_description을 합쳐서 임베딩 생성 (검색 품질 향상)
         table_query = """
         MATCH (__cy_t__:Table)
         WHERE (__cy_t__.vector IS NULL OR size(__cy_t__.vector) = 0)
@@ -1395,7 +1434,13 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
         RETURN elementId(__cy_t__) AS tid, 
                __cy_t__.name AS name,
                __cy_t__.schema AS schema,
-               coalesce(__cy_t__.description, __cy_t__.analyzed_description, '') AS description
+               trim(
+                 coalesce(__cy_t__.description, '') + 
+                 CASE WHEN __cy_t__.analyzed_description IS NOT NULL AND __cy_t__.analyzed_description <> '' 
+                      THEN ' | AI 분석: ' + __cy_t__.analyzed_description 
+                      ELSE '' 
+                 END
+               ) AS description
         ORDER BY __cy_t__.schema, __cy_t__.name
         """
         
@@ -1489,15 +1534,22 @@ class DbmsAnalyzer(BaseStreamingAnalyzer):
             details={"step": "column_vectorizing"}
         )
         
+        # description과 analyzed_description을 합쳐서 임베딩 생성 (검색 품질 향상)
         column_query = """
         MATCH (__cy_t__:Table)-[:HAS_COLUMN]->(__cy_c__:Column)
         WHERE (__cy_c__.vector IS NULL OR size(__cy_c__.vector) = 0)
-          AND __cy_c__.description IS NOT NULL AND __cy_c__.description <> ''
+          AND (__cy_c__.description IS NOT NULL OR __cy_c__.analyzed_description IS NOT NULL)
         RETURN elementId(__cy_c__) AS cid,
                __cy_c__.name AS column_name,
                __cy_t__.name AS table_name,
                coalesce(__cy_c__.dtype, '') AS dtype,
-               __cy_c__.description AS description
+               trim(
+                 coalesce(__cy_c__.description, '') + 
+                 CASE WHEN __cy_c__.analyzed_description IS NOT NULL AND __cy_c__.analyzed_description <> '' 
+                      THEN ' | AI 분석: ' + __cy_c__.analyzed_description 
+                      ELSE '' 
+                 END
+               ) AS description
         ORDER BY __cy_t__.schema, __cy_t__.name, __cy_c__.name
         """
         

@@ -25,6 +25,7 @@ from typing import Any, Dict, List, Optional, Tuple, Set
 from config.settings import settings
 from util.exception import AnalysisError
 from util.utility_tool import escape_for_cypher, calculate_code_token, log_process
+from analyzer.pipeline_control import pipeline_controller
 
 from analyzer.strategy.base.statement_node import StatementNode
 from analyzer.strategy.base.batch import AnalysisBatch, BatchPlanner
@@ -398,6 +399,10 @@ class BaseAstProcessor(ABC):
             - 자식 중 ok=False가 있으면 부모도 ok=False (불완전 요약 전파)
             """
             async with semaphore:
+                # 배치 시작 전 일시정지/중단 체크
+                if not await pipeline_controller.check_continue():
+                    raise AnalysisError("파이프라인 중단됨")
+                
                 try:
                     # 1. 배치 내 모든 노드의 자식 완료 및 부모 컨텍스트 준비를 기다림
                     for node in batch.nodes:

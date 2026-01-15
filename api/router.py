@@ -1589,11 +1589,18 @@ async def vectorize_schema(
             
             where_clause = " AND ".join(where_parts) if where_parts else "true"
             
+            # description과 analyzed_description을 합쳐서 임베딩 생성 (검색 품질 향상)
             table_query = f"""
                 MATCH (__cy_t__:Table)
                 WHERE {where_clause}
                 RETURN elementId(__cy_t__) AS tid, __cy_t__.name AS name, __cy_t__.schema AS schema,
-                       coalesce(__cy_t__.description, __cy_t__.analyzed_description, '') AS description
+                       trim(
+                         coalesce(__cy_t__.description, '') + 
+                         CASE WHEN __cy_t__.analyzed_description IS NOT NULL AND __cy_t__.analyzed_description <> '' 
+                              THEN ' | AI 분석: ' + __cy_t__.analyzed_description 
+                              ELSE '' 
+                         END
+                       ) AS description
                 ORDER BY __cy_t__.schema, __cy_t__.name
             """
             
@@ -1627,15 +1634,23 @@ async def vectorize_schema(
                 where_parts.append(f"toLower(__cy_t__.schema) = toLower('{escape_for_cypher(body.schema)}')")
             if not body.reembed_existing:
                 where_parts.append("(__cy_c__.embedding IS NULL OR size(__cy_c__.embedding) = 0)")
-            where_parts.append("__cy_c__.description IS NOT NULL AND __cy_c__.description <> ''")
+            where_parts.append("(__cy_c__.description IS NOT NULL OR __cy_c__.analyzed_description IS NOT NULL)")
             
             where_clause = " AND ".join(where_parts) if where_parts else "true"
             
+            # description과 analyzed_description을 합쳐서 임베딩 생성 (검색 품질 향상)
             column_query = f"""
                 MATCH (__cy_t__:Table)-[:HAS_COLUMN]->(__cy_c__:Column)
                 WHERE {where_clause}
                 RETURN elementId(__cy_c__) AS cid, __cy_c__.name AS column_name, __cy_t__.name AS table_name,
-                       coalesce(__cy_c__.dtype, '') AS dtype, __cy_c__.description AS description
+                       coalesce(__cy_c__.dtype, '') AS dtype,
+                       trim(
+                         coalesce(__cy_c__.description, '') + 
+                         CASE WHEN __cy_c__.analyzed_description IS NOT NULL AND __cy_c__.analyzed_description <> '' 
+                              THEN ' | AI 분석: ' + __cy_c__.analyzed_description 
+                              ELSE '' 
+                         END
+                       ) AS description
                 ORDER BY __cy_t__.schema, __cy_t__.name, __cy_c__.name
             """
             

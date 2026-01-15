@@ -208,6 +208,19 @@ class PipelineController:
             return True
         return False
     
+    async def check_continue(self) -> bool:
+        """계속 진행 가능 여부 체크
+        
+        배치 처리 등에서 간단히 호출:
+            if not await pipeline_controller.check_continue():
+                return  # 중단됨
+        
+        Returns:
+            True: 계속 진행 가능
+            False: 중단됨 (stop 호출됨)
+        """
+        return await self.get_state().wait_if_paused()
+    
     def get_status(self) -> dict:
         """상태 조회"""
         return self.get_state().to_dict()

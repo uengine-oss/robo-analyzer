@@ -12,12 +12,13 @@ Cypher 쿼리 실행 및 그래프 데이터 관리를 담당합니다.
 import asyncio
 import logging
 import warnings
-from typing import Any, Optional
+from typing import Any, Optional, AsyncGenerator
 
 from neo4j import AsyncGraphDatabase
 
 from config.settings import settings
 from util.exception import Neo4jError, QueryExecutionError, Neo4jConnectionError
+from analyzer.pipeline_control import pipeline_controller
 
 # Neo4j notification warnings 무시
 warnings.filterwarnings("ignore", category=DeprecationWarning, module="neo4j")
@@ -127,53 +128,72 @@ class Neo4jClient:
                 cause=e,
             )
 
-    async def run_graph_query(self, queries: list[str]) -> dict[str, list]:
-        """분석 결과 저장용 - 자동 커밋 모드로 순차 실행
+    async def run_graph_query(
+        self, 
+        queries: list[str],
+        batch_size: Optional[int] = None,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """분석 결과 저장용 - 배치 단위로 실행하고 각 배치 결과를 yield
         
         Phase 1 AST, Phase 2 LLM 분석 결과 저장에 사용.
         각 쿼리가 자동 커밋되어 즉시 DB에 반영됨.
-        
-        장점:
-            - 순차 실행으로 노드→관계 의존성 보장
-            - 각 쿼리 즉시 커밋으로 MERGE 충돌 방지
-            - 이전 쿼리 결과가 다음 쿼리에서 즉시 보임
+        배치 단위로 결과를 yield하여 실시간 스트리밍 가능.
         
         Args:
             queries: 실행할 Cypher 쿼리 리스트 (MERGE, CREATE 등)
+            batch_size: 배치 크기 (None이면 settings에서 가져옴)
             
-        Returns:
-            {"Nodes": [...], "Relationships": [...]} - 생성/수정된 그래프 데이터
+        Yields:
+            {"Nodes": [...], "Relationships": [...], "batch": N, "total_batches": M}
         """
         if not queries:
-            return {"Nodes": [], "Relationships": []}
+            yield {"Nodes": [], "Relationships": [], "batch": 0, "total_batches": 0}
+            return
+        
+        if batch_size is None:
+            batch_size = settings.batch.neo4j_query_batch_size
+        
+        total_batches = (len(queries) + batch_size - 1) // batch_size
         
         try:
-            nodes: dict[str, dict] = {}
-            relationships: dict[str, dict] = {}
-
             async with self._driver.session(database=self._database) as session:
-                for query in queries:
-                    # 자동 커밋 모드: 각 쿼리가 즉시 커밋됨
-                    graph = await (await session.run(query)).graph()
+                for batch_idx in range(total_batches):
+                    # 배치 시작 전 일시정지/중단 체크
+                    if not await pipeline_controller.check_continue():
+                        return
+                    
+                    start = batch_idx * batch_size
+                    end = min(start + batch_size, len(queries))
+                    batch_queries = queries[start:end]
+                    
+                    nodes: dict[str, dict] = {}
+                    relationships: dict[str, dict] = {}
+                    
+                    for query in batch_queries:
+                        # 자동 커밋 모드: 각 쿼리가 즉시 커밋됨
+                        graph = await (await session.run(query)).graph()
 
-                    for node in graph.nodes:
-                        self._collect_node(node, nodes)
+                        for node in graph.nodes:
+                            self._collect_node(node, nodes)
 
-                    for rel in graph.relationships:
-                        relationships[rel.element_id] = {
-                            "Relationship ID": rel.element_id,
-                            "Type": rel.type,
-                            "Properties": dict(rel),
-                            "Start Node ID": rel.start_node.element_id,
-                            "End Node ID": rel.end_node.element_id,
-                        }
-                        self._collect_node(rel.start_node, nodes)
-                        self._collect_node(rel.end_node, nodes)
-
-            return {
-                "Nodes": list(nodes.values()),
-                "Relationships": list(relationships.values()),
-            }
+                        for rel in graph.relationships:
+                            relationships[rel.element_id] = {
+                                "Relationship ID": rel.element_id,
+                                "Type": rel.type,
+                                "Properties": dict(rel),
+                                "Start Node ID": rel.start_node.element_id,
+                                "End Node ID": rel.end_node.element_id,
+                            }
+                            self._collect_node(rel.start_node, nodes)
+                            self._collect_node(rel.end_node, nodes)
+                    
+                    yield {
+                        "Nodes": list(nodes.values()),
+                        "Relationships": list(relationships.values()),
+                        "batch": batch_idx + 1,
+                        "total_batches": total_batches,
+                    }
+                    
         except Exception as e:
             raise QueryExecutionError(
                 "그래프 쿼리 실행 중 오류 발생",

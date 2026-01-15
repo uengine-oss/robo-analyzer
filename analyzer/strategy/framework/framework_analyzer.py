@@ -291,10 +291,16 @@ class FrameworkAnalyzer(BaseStreamingAnalyzer):
                     queries = processor.build_static_graph_queries()
                     
                     if queries:
-                        # Cypher 쿼리 실행 (락 사용)
+                        all_nodes = {}
+                        all_relationships = {}
                         async with self._cypher_lock:
-                            graph = await client.run_graph_query(queries)
+                            async for batch_result in client.run_graph_query(queries):
+                                for node in batch_result.get("Nodes", []):
+                                    all_nodes[node["Node ID"]] = node
+                                for rel in batch_result.get("Relationships", []):
+                                    all_relationships[rel["Relationship ID"]] = rel
                         
+                        graph = {"Nodes": list(all_nodes.values()), "Relationships": list(all_relationships.values())}
                         node_count = len(graph.get("Nodes", []))
                         rel_count = len(graph.get("Relationships", []))
                         
@@ -333,10 +339,12 @@ class FrameworkAnalyzer(BaseStreamingAnalyzer):
         # 결과 수신 및 스트리밍
         while completed < total:
             result = await asyncio.wait_for(results_queue.get(), timeout=300.0)
+            result_type = result.get("type", "")
+            
             completed += 1
             stats.files_completed = completed
             
-            if result["type"] == "error":
+            if result_type == "error":
                 yield emit_message(f"   ❌ [{completed}/{total}] {result['file']}: {result['message'][:50]}")
                 stats.mark_file_failed(result['file'], "Phase1 실패")
             else:
@@ -394,10 +402,27 @@ class FrameworkAnalyzer(BaseStreamingAnalyzer):
                     analysis_queries, failed_batch_count, failed_details = await ctx.processor.run_llm_analysis()
                     
                     if analysis_queries:
-                        # Cypher 쿼리 실행 (락 사용)
+                        all_nodes = {}
+                        all_relationships = {}
                         async with self._cypher_lock:
-                            graph = await client.run_graph_query(analysis_queries)
+                            async for batch_result in client.run_graph_query(analysis_queries):
+                                for node in batch_result.get("Nodes", []):
+                                    all_nodes[node["Node ID"]] = node
+                                for rel in batch_result.get("Relationships", []):
+                                    all_relationships[rel["Relationship ID"]] = rel
+                                # 배치 진행률 스트리밍 (그래프 데이터 포함)
+                                await results_queue.put({
+                                    "type": "batch_progress",
+                                    "file": ctx.file_name,
+                                    "batch": batch_result.get("batch", 0),
+                                    "total_batches": batch_result.get("total_batches", 0),
+                                    "graph": {
+                                        "Nodes": batch_result.get("Nodes", []),
+                                        "Relationships": batch_result.get("Relationships", []),
+                                    },
+                                })
                         
+                        graph = {"Nodes": list(all_nodes.values()), "Relationships": list(all_relationships.values())}
                         ctx.status = FileStatus.PH2_OK
                         await results_queue.put({
                             "type": "success",
@@ -405,7 +430,7 @@ class FrameworkAnalyzer(BaseStreamingAnalyzer):
                             "graph": graph,
                             "query_count": len(analysis_queries),
                             "failed_batches": failed_batch_count,
-                            "failed_details": failed_details,  # 상세 정보 추가
+                            "failed_details": failed_details,
                         })
                     else:
                         ctx.status = FileStatus.PH2_OK
@@ -443,6 +468,17 @@ class FrameworkAnalyzer(BaseStreamingAnalyzer):
             # warning은 카운트하지 않음 (추가 정보일 뿐)
             if result_type == "warning":
                 yield emit_message(f"   ⚠️ {result['file']}: {result['message']}")
+                continue
+            
+            # 배치 진행률은 카운트하지 않음 (중간 진행 상태)
+            if result_type == "batch_progress":
+                batch = result.get("batch", 0)
+                total_batches = result.get("total_batches", 0)
+                graph = result.get("graph")
+                yield emit_message(f"      📦 {result['file']}: 배치 {batch}/{total_batches} 저장 완료")
+                # 배치별 그래프 데이터 즉시 전송
+                if graph:
+                    yield emit_data(graph=graph)
                 continue
             
             completed += 1

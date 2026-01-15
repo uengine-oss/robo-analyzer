@@ -89,6 +89,8 @@ class BatchConfig:
     framework_max_batch_token: int = field(default_factory=lambda: int(os.getenv("FRAMEWORK_MAX_BATCH_TOKEN", "1000")))
     max_summary_chunk_token: int = field(default_factory=lambda: int(os.getenv("MAX_SUMMARY_CHUNK_TOKEN", "5000")))
     static_query_batch_size: int = field(default_factory=lambda: int(os.getenv("STATIC_QUERY_BATCH_SIZE", "40")))
+    # Neo4j 쿼리 배치 사이즈 (스트리밍 단위)
+    neo4j_query_batch_size: int = field(default_factory=lambda: int(os.getenv("NEO4J_QUERY_BATCH_SIZE", "30")))
     # 부모 컨텍스트 관련 설정
     max_context_token: int = field(default_factory=lambda: int(os.getenv("MAX_CONTEXT_TOKEN", "300")))
     parent_expand_threshold: int = field(default_factory=lambda: int(os.getenv("PARENT_EXPAND_THRESHOLD", "1000")))
