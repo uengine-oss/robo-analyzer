@@ -22,8 +22,8 @@ from typing import Any, Dict, List, Optional, Tuple, Set
 
 from config.settings import settings
 from util.rule_loader import RuleLoader
-from util.exception import AnalysisError
-from util.utility_tool import calculate_code_token, escape_for_cypher, parse_table_identifier, log_process
+# Exceptions: 모든 커스텀 예외는 RuntimeError로 대체됨
+from util.text_utils import calculate_code_token, escape_for_cypher, parse_table_identifier, log_process
 
 from analyzer.strategy.base.statement_node import StatementNode
 from analyzer.strategy.base.batch import AnalysisBatch
@@ -203,17 +203,55 @@ def extract_parent_context(skeleton_code: str, ancestor_context: str, api_key: s
 
 # ==================== 노드 수집기 ====================
 class StatementCollector:
-    """AST를 후위순회하여 `StatementNode`와 프로시저 정보를 수집합니다."""
-    def __init__(self, antlr_data: Dict[str, Any], file_content: str, directory: str, file_name: str):
+    """AST를 후위순회하여 `StatementNode`와 프로시저 정보를 수집합니다.
+    
+    file_content는 더 이상 필요하지 않음 - AST JSON의 code 속성 사용.
+    """
+    def __init__(self, antlr_data: Dict[str, Any], directory: str, file_name: str):
         """수집기에 필요한 AST 데이터와 파일 메타 정보를 초기화합니다."""
         self.antlr_data = antlr_data
-        self.file_content = file_content
         self.directory = directory
         self.file_name = file_name
         self.nodes: List[StatementNode] = []
         self.procedures: Dict[str, ProcedureInfo] = {}
         self._node_id = 0
-        self._file_lines = file_content.split('\n')
+
+    def _parse_code_to_lines(self, code: str, start_line: int, end_line: int) -> List[Tuple[int, str]]:
+        """JSON code 속성을 [(line_no, text), ...] 형태로 파싱합니다.
+        
+        Args:
+            code: '1: CREATE...\n2: ...' 또는 '1: CREATE...\r\n2: ...' 형태의 문자열
+            start_line: 노드 시작 라인 (fallback용)
+            end_line: 노드 종료 라인 (fallback용)
+            
+        Returns:
+            [(line_no, text), ...] 형태의 튜플 리스트
+        """
+        if not code:
+            return []
+        
+        # \r\n 또는 \n으로 분리
+        lines = code.replace('\r\n', '\n').split('\n')
+        parsed_lines: List[Tuple[int, str]] = []
+        
+        for line in lines:
+            if not line:
+                continue
+            # '123: text' 형태 파싱
+            match = re.match(r'^(\d+):\s?(.*)', line)
+            if match:
+                line_no = int(match.group(1))
+                text = match.group(2)
+                parsed_lines.append((line_no, text))
+            else:
+                # 매칭 실패 시 전체 라인을 텍스트로 (fallback)
+                if parsed_lines:
+                    last_no = parsed_lines[-1][0]
+                    parsed_lines.append((last_no + 1, line))
+                else:
+                    parsed_lines.append((start_line, line))
+        
+        return parsed_lines
 
     def collect(self) -> Tuple[List[StatementNode], Dict[str, ProcedureInfo]]:
         """AST 전역을 후위 순회하여 노드 목록과 프로시저 정보를 생성합니다."""
@@ -252,11 +290,10 @@ class StatementCollector:
         procedure_type = current_type
         schema_name = current_schema
 
-        # LLM 입력 및 요약 생성에 활용할 원본 코드를 라인 단위로 준비합니다.
-        line_entries = [
-            (line_no, self._file_lines[line_no - 1] if 0 <= line_no - 1 < len(self._file_lines) else '')
-            for line_no in range(start_line, end_line + 1)
-        ]
+        # AST JSON의 code 속성에서 라인 정보 추출
+        # code 형식: "1: CREATE...\r\n2: ..."
+        raw_code = node.get('code', '')
+        line_entries = self._parse_code_to_lines(raw_code, start_line, end_line)
         code = '\n'.join(f"{line_no}: {text}" for line_no, text in line_entries)
 
         # 프로시저 타입 처리: PROCEDURE/FUNCTION/TRIGGER/BEGIN
@@ -267,7 +304,18 @@ class StatementCollector:
                 schema_name = None
                 proc_name = f"anonymous_{start_line}"
             else:
-                schema_candidate, name_candidate = get_procedure_name_from_code(code)
+                # JSON에서 name, schema 직접 추출 (정규식 추출보다 정확)
+                name_from_json = node.get('name')
+                schema_from_json = node.get('schema')
+                
+                # JSON에 name이 있으면 사용, 없으면 기존 정규식 fallback
+                if name_from_json:
+                    name_candidate = name_from_json
+                    schema_candidate = schema_from_json
+                else:
+                    # fallback: 기존 정규식 추출 (deprecated)
+                    schema_candidate, name_candidate = get_procedure_name_from_code(code)
+                
                 procedure_key = self._make_proc_key(name_candidate, start_line)
                 procedure_type = node_type
                 schema_name = schema_candidate
@@ -316,6 +364,9 @@ class StatementCollector:
             # DBMS 전용 필드
             schema_name=schema_name,
             dml=dml,
+            # AST JSON 메타데이터 (선택적)
+            signature=node.get('signature'),
+            parameters=node.get('parameters'),
             lines=line_entries,
         )
         for child_node in child_nodes:
@@ -349,7 +400,6 @@ class DbmsAstProcessor(BaseAstProcessor):
     def __init__(
         self,
         antlr_data: dict,
-        file_content: str,
         directory: str,
         file_name: str,
         api_key: str,
@@ -360,10 +410,12 @@ class DbmsAstProcessor(BaseAstProcessor):
         ddl_table_metadata: Optional[Dict[Tuple[str, str], Dict[str, Any]]] = None,
         name_case: str = "original",
     ):
-        """DBMS Analyzer 초기화"""
+        """DBMS Analyzer 초기화
+        
+        file_content는 더 이상 필요하지 않음 - AST JSON의 code 속성 사용.
+        """
         super().__init__(
             antlr_data=antlr_data,
-            file_content=file_content,
             directory=directory,
             file_name=file_name,
             api_key=api_key,
@@ -405,7 +457,7 @@ class DbmsAstProcessor(BaseAstProcessor):
     def _collect_nodes(self) -> Tuple[List[StatementNode], Dict[str, ProcedureInfo]]:
         """AST 수집"""
         collector = StatementCollector(
-            self.antlr_data, self.file_content, self.directory, self.file_name
+            self.antlr_data, self.directory, self.file_name
         )
         return collector.collect()
 
@@ -451,6 +503,12 @@ class DbmsAstProcessor(BaseAstProcessor):
             f"__cy_n__.token = {node.token}",
             f"__cy_n__.has_children = {has_children}",
         ]
+        
+        # AST JSON 메타데이터 속성 추가 (있는 경우만)
+        if node.signature:
+            base_set.append(f"__cy_n__.signature = '{escape_for_cypher(node.signature)}'")
+        if node.parameters:
+            base_set.append(f"__cy_n__.parameters = '{escape_for_cypher(node.parameters)}'")
         
         # PROCEDURE/FUNCTION: procedure_name, schema_name, procedure_type 속성 추가
         if label in PROCEDURE_TYPES and node.unit_name:
@@ -556,7 +614,7 @@ class DbmsAstProcessor(BaseAstProcessor):
             return await general_task, None
         if table_task:
             return None, await table_task
-        raise AnalysisError("LLM 분석 대상이 없습니다")
+        raise RuntimeError("LLM 분석 대상이 없습니다")
 
     def _build_analysis_queries(
         self, 
@@ -569,7 +627,7 @@ class DbmsAstProcessor(BaseAstProcessor):
         
         # llm_result는 (general_result, table_result) 튜플이어야 함
         if not isinstance(llm_result, tuple):
-            raise AnalysisError(f"배치#{batch.batch_id} llm_result가 tuple이 아님: {type(llm_result).__name__}")
+            raise RuntimeError(f"배치#{batch.batch_id} llm_result가 tuple이 아님: {type(llm_result).__name__}")
         
         general_result, table_result = llm_result
         
@@ -694,7 +752,7 @@ class DbmsAstProcessor(BaseAstProcessor):
             chunk_results = [r for r in chunk_results if r]
             
             if not chunk_results:
-                raise AnalysisError(f"{info.procedure_name}: 청크 처리 결과가 모두 비어있음")
+                raise RuntimeError(f"{info.procedure_name}: 청크 처리 결과가 모두 비어있음")
             
             # 청크 통합
             if len(chunk_results) == 1:
@@ -802,7 +860,7 @@ class DbmsAstProcessor(BaseAstProcessor):
         queries: List[str] = []
         
         if not isinstance(result, dict):
-            raise AnalysisError(f"변수 분석 결과가 dict가 아님 (node={node.start_line}): {type(result).__name__}")
+            raise RuntimeError(f"변수 분석 결과가 dict가 아님 (node={node.start_line}): {type(result).__name__}")
         
         variables = result.get("variables") or []
         if not variables:
@@ -855,7 +913,7 @@ class DbmsAstProcessor(BaseAstProcessor):
                 start_line = int(start_line)
                 end_line = int(end_line)
             except (TypeError, ValueError) as e:
-                raise AnalysisError(f"LLM 테이블 분석 결과에 잘못된 라인 번호: startLine={range_entry.get('startLine')}, endLine={range_entry.get('endLine')}") from e
+                raise RuntimeError(f"LLM 테이블 분석 결과에 잘못된 라인 번호: startLine={range_entry.get('startLine')}, endLine={range_entry.get('endLine')}") from e
             
             node = node_map.get((start_line, end_line))
             if not node:
@@ -1289,7 +1347,7 @@ class DbmsAstProcessor(BaseAstProcessor):
         )
         
         if not isinstance(result, dict):
-            raise AnalysisError(f"테이블 요약 결과가 dict가 아님 ({schema_key}.{name_key}): {type(result).__name__}")
+            raise RuntimeError(f"테이블 요약 결과가 dict가 아님 ({schema_key}.{name_key}): {type(result).__name__}")
         
         queries: List[str] = []
         llm_table_desc = (result.get('tableDescription') or '').strip()

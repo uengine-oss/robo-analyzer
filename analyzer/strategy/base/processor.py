@@ -23,8 +23,7 @@ from abc import ABC, abstractmethod
 from typing import Any, Dict, List, Optional, Tuple, Set
 
 from config.settings import settings
-from util.exception import AnalysisError
-from util.utility_tool import escape_for_cypher, calculate_code_token, log_process
+from util.text_utils import escape_for_cypher, calculate_code_token, log_process
 from analyzer.pipeline_control import pipeline_controller
 
 from analyzer.strategy.base.statement_node import StatementNode
@@ -58,16 +57,17 @@ class BaseAstProcessor(ABC):
     def __init__(
         self,
         antlr_data: dict,
-        file_content: str,
         directory: str,
         file_name: str,
         api_key: str,
         locale: str,
         last_line: int,
     ):
-        """공통 초기화"""
+        """공통 초기화
+        
+        file_content는 더 이상 필요하지 않음 - AST JSON의 code 속성 사용.
+        """
         self.antlr_data = antlr_data
-        self.file_content = file_content
         self.last_line = last_line
         
         # Windows 경로 구분자(\\)를 /로 변환하여 일관성 유지
@@ -358,7 +358,7 @@ class BaseAstProcessor(ABC):
             (분석 결과 업데이트 쿼리 리스트, 실패한 배치 수, 실패 상세 정보 리스트)
         """
         if self._nodes is None:
-            raise AnalysisError(f"Phase 1이 먼저 실행되어야 합니다: {self.file_name}")
+            raise RuntimeError(f"Phase 1이 먼저 실행되어야 합니다: {self.file_name}")
         
         log_process("ANALYZE", "PHASE2", f"🤖 {self.full_directory} LLM 분석 시작")
         
@@ -401,7 +401,7 @@ class BaseAstProcessor(ABC):
             async with semaphore:
                 # 배치 시작 전 일시정지/중단 체크
                 if not await pipeline_controller.check_continue():
-                    raise AnalysisError("파이프라인 중단됨")
+                    raise RuntimeError("파이프라인 중단됨")
                 
                 try:
                     # 1. 배치 내 모든 노드의 자식 완료 및 부모 컨텍스트 준비를 기다림
@@ -476,7 +476,7 @@ class BaseAstProcessor(ABC):
         
         # 배치 실패 시 즉시 중단 - 부분 실패 허용 안함
         if failed_batch_count > 0:
-            raise AnalysisError(f"{self.full_directory}: {failed_batch_count}개 배치 실패 (상세: {all_failed_details})")
+            raise RuntimeError(f"{self.full_directory}: {failed_batch_count}개 배치 실패 (상세: {all_failed_details})")
         
         log_process("ANALYZE", "PHASE2", f"✅ {self.full_directory}: {len(all_queries)}개 업데이트 쿼리")
         return all_queries, failed_batch_count, all_failed_details
@@ -488,10 +488,10 @@ class BaseAstProcessor(ABC):
         전략별로 오버라이드 가능
         
         Raises:
-            AnalysisError: llm_result가 None이거나 예상치 못한 타입일 때
+            RuntimeError: llm_result가 None이거나 예상치 못한 타입일 때
         """
         if not llm_result:
-            raise AnalysisError(f"배치#{batch.batch_id} LLM 결과 없음")
+            raise RuntimeError(f"배치#{batch.batch_id} LLM 결과 없음")
         
         # 일반적인 경우: llm_result가 dict이고 analysis 배열이 있음
         if isinstance(llm_result, dict):
@@ -508,7 +508,7 @@ class BaseAstProcessor(ABC):
                     if analysis:
                         node.summary = analysis.get("summary") or ""
         else:
-            raise AnalysisError(f"배치#{batch.batch_id} 알 수 없는 결과 타입: {type(llm_result).__name__}")
+            raise RuntimeError(f"배치#{batch.batch_id} 알 수 없는 결과 타입: {type(llm_result).__name__}")
 
     # =========================================================================
     # 유틸리티 메서드
@@ -533,19 +533,19 @@ class BaseAstProcessor(ABC):
             result가 dict이면 그대로 반환
             
         Raises:
-            AnalysisError: result가 dict가 아닐 때
+            RuntimeError: result가 dict가 아닐 때
         """
         if result is None:
             if allow_none:
                 return {}
             batch_info = f"배치#{batch_id} " if batch_id else ""
-            raise AnalysisError(f"{batch_info}{context} 결과가 None입니다")
+            raise RuntimeError(f"{batch_info}{context} 결과가 None입니다")
         
         if isinstance(result, dict):
             return result
         
         batch_info = f"배치#{batch_id} " if batch_id else ""
-        raise AnalysisError(f"{batch_info}{context} 결과가 dict가 아님: {type(result).__name__}")
+        raise RuntimeError(f"{batch_info}{context} 결과가 dict가 아님: {type(result).__name__}")
     
     def _split_summaries_by_token(self, summaries: dict, max_token: int) -> List[dict]:
         """토큰 기준으로 summaries를 청크로 분할합니다."""

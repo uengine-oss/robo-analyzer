@@ -22,8 +22,8 @@ from typing import Any, Dict, List, Optional, Tuple, Set
 
 from config.settings import settings
 from util.rule_loader import RuleLoader
-from util.exception import AnalysisError
-from util.utility_tool import calculate_code_token, escape_for_cypher, log_process
+# Exceptions: 모든 커스텀 예외는 RuntimeError로 대체됨
+from util.text_utils import calculate_code_token, escape_for_cypher, log_process
 
 from analyzer.strategy.base.statement_node import StatementNode
 from analyzer.strategy.base.batch import AnalysisBatch
@@ -203,17 +203,55 @@ def analyze_parent_context(skeleton_code: str, ancestor_context: str, api_key: s
 
 # ==================== 노드 수집기 ====================
 class StatementCollector:
-    """AST를 후위순회하여 StatementNode와 클래스 정보를 수집합니다."""
+    """AST를 후위순회하여 StatementNode와 클래스 정보를 수집합니다.
+    
+    file_content는 더 이상 필요하지 않음 - AST JSON의 code 속성 사용.
+    """
 
-    def __init__(self, antlr_data: Dict[str, Any], file_content: str, directory: str, file_name: str):
+    def __init__(self, antlr_data: Dict[str, Any], directory: str, file_name: str):
         self.antlr_data = antlr_data
-        self.file_content = file_content
         self.directory = directory
         self.file_name = file_name
         self.nodes: List[StatementNode] = []
         self.classes: Dict[str, ClassInfo] = {}
         self._node_id = 0
-        self._file_lines = file_content.split("\n")
+
+    def _parse_code_to_lines(self, code: str, start_line: int, end_line: int) -> List[Tuple[int, str]]:
+        """JSON code 속성을 [(line_no, text), ...] 형태로 파싱합니다.
+        
+        Args:
+            code: '1: public class...\n2: ...' 또는 '1: public class...\r\n2: ...' 형태의 문자열
+            start_line: 노드 시작 라인 (fallback용)
+            end_line: 노드 종료 라인 (fallback용)
+            
+        Returns:
+            [(line_no, text), ...] 형태의 튜플 리스트
+        """
+        if not code:
+            return []
+        
+        # \r\n 또는 \n으로 분리
+        lines = code.replace('\r\n', '\n').split('\n')
+        parsed_lines: List[Tuple[int, str]] = []
+        
+        for line in lines:
+            if not line:
+                continue
+            # '123: text' 형태 파싱
+            match = re.match(r'^(\d+):\s?(.*)', line)
+            if match:
+                line_no = int(match.group(1))
+                text = match.group(2)
+                parsed_lines.append((line_no, text))
+            else:
+                # 매칭 실패 시 전체 라인을 텍스트로 (fallback)
+                if parsed_lines:
+                    last_no = parsed_lines[-1][0]
+                    parsed_lines.append((last_no + 1, line))
+                else:
+                    parsed_lines.append((start_line, line))
+        
+        return parsed_lines
 
     def collect(self) -> Tuple[List[StatementNode], Dict[str, ClassInfo]]:
         """AST 전역을 후위 순회하여 노드 목록과 클래스 정보를 생성합니다."""
@@ -255,11 +293,9 @@ class StatementCollector:
         end_line = node["endLine"]
         children = node.get("children", []) or []
 
-        # 코드 추출
-        line_entries = [
-            (ln, self._file_lines[ln - 1] if 0 < ln <= len(self._file_lines) else "")
-            for ln in range(start_line, end_line + 1)
-        ]
+        # AST JSON의 code 속성에서 라인 정보 추출
+        raw_code = node.get('code', '')
+        line_entries = self._parse_code_to_lines(raw_code, start_line, end_line)
         code = "\n".join(f"{ln}: {txt}" for ln, txt in line_entries)
 
         class_key = current_class
@@ -268,7 +304,14 @@ class StatementCollector:
 
         # 클래스/인터페이스 노드 처리
         if node_type in CLASS_TYPES:
-            extracted_name = self._extract_class_name(code, node_type)
+            # JSON에서 name 직접 추출 (정규식 추출보다 정확)
+            name_from_json = node.get('name')
+            if name_from_json:
+                extracted_name = name_from_json
+            else:
+                # fallback: 기존 정규식 추출 (deprecated)
+                extracted_name = self._extract_class_name(code, node_type)
+            
             class_key = self._make_class_key(extracted_name, start_line)
             class_name = extracted_name
             class_kind = node_type
@@ -307,6 +350,15 @@ class StatementCollector:
             unit_key=class_key,
             unit_name=class_name,
             unit_kind=class_kind,
+            # AST JSON 메타데이터 (선택적)
+            signature=node.get('signature'),
+            modifiers=node.get('modifiers'),
+            return_type=node.get('returnType'),
+            parameters=node.get('parameters'),
+            generic_type=node.get('genericType'),
+            extends_type=node.get('extendsType'),
+            implements_types=node.get('implementsTypes'),
+            field_type=node.get('fieldType'),
             lines=line_entries,
         )
         for c in child_nodes:
@@ -346,17 +398,18 @@ class FrameworkAstProcessor(BaseAstProcessor):
     def __init__(
         self,
         antlr_data: dict,
-        file_content: str,
         directory: str,
         file_name: str,
         api_key: str,
         locale: str,
         last_line: int,
     ):
-        """Framework Analyzer 초기화"""
+        """Framework Analyzer 초기화
+        
+        file_content는 더 이상 필요하지 않음 - AST JSON의 code 속성 사용.
+        """
         super().__init__(
             antlr_data=antlr_data,
-            file_content=file_content,
             directory=directory,
             file_name=file_name,
             api_key=api_key,
@@ -374,7 +427,7 @@ class FrameworkAstProcessor(BaseAstProcessor):
     def _collect_nodes(self) -> Tuple[List[StatementNode], Dict[str, ClassInfo]]:
         """AST 수집"""
         collector = StatementCollector(
-            self.antlr_data, self.file_content, self.directory, self.file_name
+            self.antlr_data, self.directory, self.file_name
         )
         nodes, classes = collector.collect()
         
@@ -420,6 +473,24 @@ class FrameworkAstProcessor(BaseAstProcessor):
             f"__cy_n__.token = {node.token}",
             f"__cy_n__.has_children = {has_children}",
         ]
+        
+        # AST JSON 메타데이터 속성 추가 (있는 경우만)
+        if node.signature:
+            base_set.append(f"__cy_n__.signature = '{escape_for_cypher(node.signature)}'")
+        if node.modifiers:
+            base_set.append(f"__cy_n__.modifiers = '{escape_for_cypher(node.modifiers)}'")
+        if node.return_type:
+            base_set.append(f"__cy_n__.returnType = '{escape_for_cypher(node.return_type)}'")
+        if node.parameters:
+            base_set.append(f"__cy_n__.parameters = '{escape_for_cypher(node.parameters)}'")
+        if node.generic_type:
+            base_set.append(f"__cy_n__.genericType = '{escape_for_cypher(node.generic_type)}'")
+        if node.extends_type:
+            base_set.append(f"__cy_n__.extendsType = '{escape_for_cypher(node.extends_type)}'")
+        if node.implements_types:
+            base_set.append(f"__cy_n__.implementsTypes = '{escape_for_cypher(node.implements_types)}'")
+        if node.field_type:
+            base_set.append(f"__cy_n__.fieldType = '{escape_for_cypher(node.field_type)}'")
 
         # CLASS/INTERFACE 등: class_name과 type 속성 추가
         if label in CLASS_TYPES and node.unit_name:
@@ -528,14 +599,14 @@ class FrameworkAstProcessor(BaseAstProcessor):
                     queries.extend(result)
                 elif isinstance(result, Exception):
                     # 선행 처리 실패 시 즉시 중단
-                    raise AnalysisError(f"선행 처리 실패: {result}") from result
+                    raise RuntimeError(f"선행 처리 실패: {result}") from result
         
         return queries
 
     async def _invoke_llm(self, batch: AnalysisBatch) -> Optional[Dict[str, Any]]:
         """LLM 호출 (일반 분석만)"""
         if not batch.ranges:
-            raise AnalysisError(f"배치 #{batch.batch_id}에 분석할 범위가 없습니다")
+            raise RuntimeError(f"배치 #{batch.batch_id}에 분석할 범위가 없습니다")
 
         code, context = batch.build_payload()
         result = await asyncio.to_thread(
@@ -682,7 +753,7 @@ class FrameworkAstProcessor(BaseAstProcessor):
             chunk_results = [r for r in chunk_results_raw if r]
             
             if not chunk_results:
-                raise AnalysisError(f"{info.name}: 청크 처리 결과가 모두 비어있음")
+                raise RuntimeError(f"{info.name}: 청크 처리 결과가 모두 비어있음")
             
             # 청크 통합
             if len(chunk_results) == 1:
@@ -829,7 +900,7 @@ class FrameworkAstProcessor(BaseAstProcessor):
     def _build_inheritance_queries(self, node: StatementNode, analysis: Dict[str, Any]) -> List[str]:
         """상속/구현 분석 결과를 쿼리로 변환"""
         if not isinstance(analysis, dict):
-            raise AnalysisError(f"상속 분석 결과가 유효하지 않습니다 (node={node.start_line}): {type(analysis)}")
+            raise RuntimeError(f"상속 분석 결과가 유효하지 않습니다 (node={node.start_line}): {type(analysis)}")
 
         queries: List[str] = []
         relations = analysis.get("relations") or []
@@ -856,7 +927,7 @@ class FrameworkAstProcessor(BaseAstProcessor):
     def _build_field_queries(self, node: StatementNode, analysis: Dict[str, Any]) -> List[str]:
         """필드 분석 결과를 쿼리로 변환"""
         if not isinstance(analysis, dict):
-            raise AnalysisError(f"필드 분석 결과가 유효하지 않습니다 (node={node.start_line}): {type(analysis)}")
+            raise RuntimeError(f"필드 분석 결과가 유효하지 않습니다 (node={node.start_line}): {type(analysis)}")
 
         queries: List[str] = []
         fields = analysis.get("fields") or []
@@ -904,7 +975,7 @@ class FrameworkAstProcessor(BaseAstProcessor):
     def _build_method_queries(self, node: StatementNode, analysis: Dict[str, Any]) -> List[str]:
         """메서드 분석 결과를 쿼리로 변환"""
         if not isinstance(analysis, dict):
-            raise AnalysisError(f"메서드 분석 결과가 유효하지 않습니다 (node={node.start_line}): {type(analysis)}")
+            raise RuntimeError(f"메서드 분석 결과가 유효하지 않습니다 (node={node.start_line}): {type(analysis)}")
 
         queries: List[str] = []
         

@@ -7,7 +7,7 @@ from langchain_core.prompts import PromptTemplate
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from util.llm_client import get_llm
+from client.llm_client import get_llm
 
 
 template = """

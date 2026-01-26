@@ -20,14 +20,13 @@ from typing import Any, AsyncGenerator, Optional, List
 import logging
 
 from analyzer.neo4j_client import Neo4jClient
-from util.stream_utils import (
+from util.stream_event import (
     emit_message,
     emit_error,
     emit_complete,
     emit_data,
 )
-from util.exception import AnalysisError, CodeProcessError
-from util.utility_tool import log_process
+from util.text_utils import log_process
 
 
 class AnalyzerStrategy(ABC):
@@ -285,7 +284,7 @@ class BaseStreamingAnalyzer(AnalyzerStrategy):
                 yield chunk
             yield emit_complete()
 
-        except AnalysisError as e:
+        except RuntimeError as e:
             log_process("ANALYZE", "ERROR", f"분석 오류: {e}", logging.ERROR, e)
             yield emit_error(str(e))
             raise
@@ -293,7 +292,7 @@ class BaseStreamingAnalyzer(AnalyzerStrategy):
             error_msg = f"예상치 못한 오류: {e}"
             log_process("ANALYZE", "ERROR", error_msg, logging.ERROR, e)
             yield emit_error(error_msg)
-            raise CodeProcessError(error_msg) from e
+            raise RuntimeError(error_msg) from e
         finally:
             await client.close()
 
@@ -335,7 +334,7 @@ class BaseStreamingAnalyzer(AnalyzerStrategy):
             else:
                 yield self.emit_skip("추출할 User Story 없음")
                 
-        except AnalysisError as e:
+        except RuntimeError as e:
             log_process("ANALYZE", "USER_STORY", f"User Story 생성 실패: {e}", logging.ERROR)
             raise  # 즉시 중단 - 부분 실패 허용 안함
 

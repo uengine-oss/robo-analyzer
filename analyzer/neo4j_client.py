@@ -17,7 +17,7 @@ from typing import Any, Optional, AsyncGenerator
 from neo4j import AsyncGraphDatabase
 
 from config.settings import settings
-from util.exception import Neo4jError, QueryExecutionError, Neo4jConnectionError
+# Exceptions: 모든 커스텀 예외는 RuntimeError로 대체됨
 from analyzer.pipeline_control import pipeline_controller
 
 # Neo4j notification warnings 무시
@@ -108,7 +108,7 @@ class Neo4jClient:
             각 쿼리의 결과 데이터 리스트 [[쿼리1결과], [쿼리2결과], ...]
             
         Raises:
-            QueryExecutionError: 쿼리 실행 실패 시
+            RuntimeError: 쿼리 실행 실패 시
         """
         if not queries:
             return []
@@ -122,11 +122,7 @@ class Neo4jClient:
                 return results
                 
         except Exception as e:
-            raise QueryExecutionError(
-                "Cypher 쿼리 실행 중 오류 발생",
-                query_count=len(queries),
-                cause=e,
-            )
+            raise RuntimeError(f"Cypher 쿼리 실행 중 오류 발생 (query_count={len(queries)}): {e}") from e
 
     async def run_graph_query(
         self, 
@@ -195,11 +191,7 @@ class Neo4jClient:
                     }
                     
         except Exception as e:
-            raise QueryExecutionError(
-                "그래프 쿼리 실행 중 오류 발생",
-                query_count=len(queries),
-                cause=e,
-            )
+            raise RuntimeError(f"그래프 쿼리 실행 중 오류 발생 (query_count={len(queries)}): {e}") from e
 
     @staticmethod
     def _collect_node(node, nodes_dict: dict) -> None:
@@ -257,10 +249,7 @@ class Neo4jClient:
                 result = await session.run(query, params)
                 return await result.data()
         except Exception as e:
-            raise QueryExecutionError(
-                "파라미터 쿼리 실행 중 오류 발생",
-                cause=e,
-            )
+            raise RuntimeError(f"파라미터 쿼리 실행 중 오류 발생: {e}") from e
 
     async def run_batch_unwind(
         self,
@@ -315,10 +304,7 @@ class Neo4jClient:
                 "Relationships": list(relationships.values()),
             }
         except Exception as e:
-            raise QueryExecutionError(
-                f"배치 쿼리 실행 중 오류 발생 (항목 수: {len(items)})",
-                cause=e,
-            )
+            raise RuntimeError(f"배치 쿼리 실행 중 오류 발생 (항목 수: {len(items)}): {e}") from e
 
     async def check_nodes_exist(
         self,
@@ -352,8 +338,5 @@ class Neo4jClient:
                 record = await result.single()
                 return record["exists"] if record else False
         except Exception as e:
-            raise QueryExecutionError(
-                "노드 존재 여부 확인 중 오류",
-                cause=e,
-            )
+            raise RuntimeError(f"노드 존재 여부 확인 중 오류: {e}") from e
 

@@ -263,3 +263,4 @@ def parse_ddl(ddl_content: str) -> Dict[str, Any]:
         파싱 결과 (LLM 파서와 동일한 형식)
     """
     return get_ddl_parser().parse(ddl_content)
+

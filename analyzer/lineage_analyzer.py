@@ -20,7 +20,7 @@ from typing import Optional, Dict, List, Tuple
 from dataclasses import dataclass, field
 
 from analyzer.neo4j_client import Neo4jClient
-from util.utility_tool import escape_for_cypher, log_process
+from util.text_utils import escape_for_cypher, log_process
 
 logger = logging.getLogger(__name__)
 

@@ -31,6 +31,9 @@ prompt: |
   
   [OUTPUT]
    주석 없이 아래 JSON만 출력합니다.
+   **⚠️ CRITICAL: 트레일링 콤마(trailing comma) 절대 금지** - 배열이나 객체의 마지막 요소 뒤에 콤마(,)를 붙이지 마세요.
+   예: `"roles": []` (O), `"roles": [],` (X)
+   
    ```json
    {
      "tableDescription": "DML 요약을 근거로 테이블의 기능/흐름/관계를 디테일하게 설명(1~2문장)",

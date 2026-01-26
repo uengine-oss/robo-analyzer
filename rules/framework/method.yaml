@@ -228,5 +228,6 @@ prompt: |
   - parameters, dependencies, field_assignments가 없으면 빈 배열 반환
   - primitive/wrapper/String/void는 dependencies에 포함하지 않음
   - is_value_object는 값 객체/enum/식별자일 때 true, 아니면 false 또는 null
+  - **⚠️ CRITICAL: 트레일링 콤마(trailing comma) 절대 금지** - 배열이나 객체의 마지막 요소 뒤에 콤마(,)를 붙이지 마세요. 예: `"parameters": []` (O), `"parameters": [],` (X)
 
 

@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from typing import List, Optional, Tuple, Set
 
 from config.settings import settings
-from util.utility_tool import calculate_code_token, log_process
+from util.text_utils import calculate_code_token, log_process
 
 # 설정에서 가져오는 상수
 MAX_CONTEXT_TOKEN = settings.batch.max_context_token
@@ -54,6 +54,16 @@ class StatementNode:
     # 전략별 확장 필드 (선택적)
     schema_name: Optional[str] = None   # DBMS 전용: 스키마 이름
     dml: bool = False                   # DBMS 전용: DML 문장 여부
+    
+    # AST JSON에서 추출한 메타데이터 (선택적)
+    signature: Optional[str] = None        # 함수/프로시저 시그니처
+    modifiers: Optional[str] = None        # public, private, static 등 수정자
+    return_type: Optional[str] = None      # 반환 타입
+    parameters: Optional[str] = None       # 파라미터 문자열
+    generic_type: Optional[str] = None     # 제네릭 타입
+    extends_type: Optional[str] = None     # 상속 타입 (extends)
+    implements_types: Optional[str] = None # 구현 인터페이스 (implements)
+    field_type: Optional[str] = None       # 필드 타입
     
     # 코드 라인 정보
     lines: List[Tuple[int, str]] = field(default_factory=list)

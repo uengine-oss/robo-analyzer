@@ -39,8 +39,7 @@ class FileAnalysisContext:
     Attributes:
         directory: 파일이 위치한 디렉토리
         file_name: 파일명
-        ast_data: 파싱된 AST JSON 데이터
-        source_lines: 소스 코드 라인 리스트
+        ast_data: 파싱된 AST JSON 데이터 (code 속성 포함)
         processor: AST 프로세서 인스턴스 (Phase 1에서 생성, Phase 2에서 재사용)
         status: 현재 파일 상태
         error_message: 실패 시 에러 메시지
@@ -48,7 +47,6 @@ class FileAnalysisContext:
     directory: str
     file_name: str
     ast_data: dict
-    source_lines: List[str]
     processor: Optional[Any] = None  # DbmsAstProcessor | FrameworkAstProcessor
     status: FileStatus = field(default=FileStatus.PENDING)
     error_message: str = ""

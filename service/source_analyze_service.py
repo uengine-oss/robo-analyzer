@@ -1,0 +1,259 @@
+"""소스 코드 분석 서비스
+
+소스 코드 분석 파이프라인을 관리합니다.
+
+주요 기능:
+- 파일 타입 감지
+- 분석 가능한 소스 파일 탐색
+- API 키 검증
+- 분석 실행
+"""
+
+import logging
+import os
+from typing import AsyncGenerator
+
+from fastapi import HTTPException
+
+from analyzer.strategy import AnalyzerFactory
+from client.llm_client import get_llm
+from config.settings import settings
+from util.file_type_detector import detect_batch_file_types
+
+
+# =============================================================================
+# 상수
+# =============================================================================
+
+# 전략별 소스 파일 확장자
+STRATEGY_EXTENSIONS = {
+    "framework": {".java", ".kt", ".scala"},
+    "dbms": {".sql", ".pls", ".pck", ".pkb", ".pks", ".trg", ".fnc", ".prc"},
+}
+DEFAULT_EXTENSIONS = {".java", ".sql"}
+
+
+# =============================================================================
+# 파일 타입 감지
+# =============================================================================
+
+def detect_source_file_types(files: list[tuple[str, str]]) -> dict:
+    """파일 내용을 분석하여 소스 코드 타입 자동 감지
+    
+    Args:
+        files: [(fileName, content), ...] 튜플 리스트
+        
+    Returns:
+        감지 결과 딕셔너리
+    """
+    return detect_batch_file_types(files)
+
+
+# =============================================================================
+# 디렉토리 경로 관리
+# =============================================================================
+
+def get_analysis_directories(strategy: str = "framework") -> dict[str, str]:
+    """분석에 필요한 디렉토리 경로 반환
+    
+    Args:
+        strategy: 분석 전략 (framework, dbms)
+        
+    Returns:
+        {"ddl": path, "src": path, "analysis": path}
+    """
+    return {
+        "ddl": os.path.join(settings.path.data_dir, "ddl"),
+        "src": os.path.join(settings.path.data_dir, "source"),
+        "analysis": os.path.join(settings.path.data_dir, "analysis"),
+    }
+
+
+def get_directory_paths(directory: str, base_dirs: dict[str, str]) -> dict[str, str]:
+    """디렉토리별 source/analysis 경로 반환
+    
+    Args:
+        directory: 하위 디렉토리명
+        base_dirs: 기본 디렉토리 경로
+        
+    Returns:
+        {"src": path, "analysis": path}
+    """
+    return {
+        "src": os.path.join(base_dirs["src"], directory),
+        "analysis": os.path.join(base_dirs["analysis"], directory),
+    }
+
+
+def check_ddl_files_exist(dirs: dict[str, str]) -> bool:
+    """DDL 디렉토리에 파일이 있는지 확인
+    
+    Args:
+        dirs: 디렉토리 경로 딕셔너리
+        
+    Returns:
+        DDL 파일 존재 여부
+    """
+    ddl_dir = dirs.get("ddl", "")
+    if not ddl_dir or not os.path.isdir(ddl_dir):
+        return False
+    
+    for _, _, files in os.walk(ddl_dir):
+        if files:
+            return True
+    return False
+
+
+# =============================================================================
+# 파일 탐색
+# =============================================================================
+
+def discover_analyzable_files(
+    strategy: str = "framework",
+    dirs: dict[str, str] = None
+) -> list[tuple[str, str]]:
+    """analysis/ 디렉토리에서 분석 가능한 JSON 파일 목록 탐색
+    
+    analysis/ 디렉토리의 JSON 파일을 직접 순회하여 분석 대상 목록 생성.
+    source 파일은 더 이상 필요하지 않음 (JSON에 code 속성 포함).
+    DDL만 있는 경우(analysis 디렉토리가 없는 경우) 빈 리스트 반환.
+    
+    Args:
+        strategy: 분석 전략 (framework, dbms)
+        dirs: 디렉토리 경로 딕셔너리 (없으면 자동 생성)
+        
+    Returns:
+        [(directory, file_name), ...] 형태의 튜플 리스트
+        file_name은 원본 소스 파일명 (예: procedure.sql)으로 반환
+    """
+    if dirs is None:
+        dirs = get_analysis_directories(strategy)
+    
+    analysis_dir = dirs.get("analysis", "")
+    
+    # DDL만 있는 경우 analysis 디렉토리가 없을 수 있음
+    if not analysis_dir or not os.path.isdir(analysis_dir):
+        logging.info("analysis 디렉토리가 없습니다 (DDL만 있는 경우일 수 있음): %s", analysis_dir)
+        return []
+    
+    extensions = STRATEGY_EXTENSIONS.get(strategy, DEFAULT_EXTENSIONS)
+    result = []
+    
+    # analysis 디렉토리를 직접 순회하여 JSON 파일 탐색
+    for root, _, files in os.walk(analysis_dir):
+        rel_dir = os.path.relpath(root, analysis_dir)
+        directory = "" if rel_dir == "." else rel_dir
+        
+        for json_file in files:
+            if not json_file.endswith('.json'):
+                continue
+            
+            # JSON 파일명에서 원본 소스 파일명 추론
+            base_name = os.path.splitext(json_file)[0]
+            
+            # 원본 확장자 확인 (strategy에 따른 확장자 중 하나)
+            # 기본적으로 첫 번째 확장자 사용 (dbms: .sql, framework: .java)
+            default_ext = list(extensions)[0] if extensions else ".sql"
+            source_file_name = f"{base_name}{default_ext}"
+            
+            result.append((directory, source_file_name))
+    
+    result.sort()
+    logging.info("분석 가능 소스 파일: %d개", len(result))
+    return result
+
+
+# =============================================================================
+# API 키 검증
+# =============================================================================
+
+async def validate_llm_api_key(api_key: str) -> None:
+    """LLM API 키 유효성 검증
+    
+    Args:
+        api_key: LLM API 키
+        
+    Raises:
+        HTTPException: 검증 실패 시
+    """
+    try:
+        llm = get_llm(api_key=api_key)
+        if not llm.invoke("ping"):
+            raise HTTPException(401, "API 키 검증 실패: ping 실패")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logging.error("API 키 검증 실패: %s", e)
+        raise HTTPException(401, f"API 키 검증 실패: {type(e).__name__}: {e}")
+
+
+# =============================================================================
+# 분석 실행
+# =============================================================================
+
+async def run_source_analysis(
+    file_names: list[tuple[str, str]],
+    api_key: str,
+    locale: str = "ko",
+    strategy: str = "framework",
+    target: str = "java",
+    name_case: str = "original",
+) -> AsyncGenerator[bytes, None]:
+    """소스 파일 분석 → Neo4j 그래프 이벤트 스트리밍
+    
+    Args:
+        file_names: [(directory, file_name), ...] 튜플 리스트
+        api_key: LLM API 키
+        locale: 출력 언어 (ko, en)
+        strategy: 분석 전략 (framework, dbms)
+        target: 타겟 언어 (java, oracle 등)
+        name_case: 메타데이터 대소문자 변환 옵션
+        
+    Yields:
+        NDJSON 스트리밍 이벤트
+    """
+    # 분석 컨텍스트 생성
+    context = AnalysisContext(
+        api_key=api_key,
+        locale=locale,
+        strategy=strategy,
+        target=target,
+        name_case=name_case,
+    )
+    
+    analyzer = AnalyzerFactory.create(strategy)
+    async for chunk in analyzer.analyze(file_names=file_names, orchestrator=context):
+        yield chunk
+
+
+class AnalysisContext:
+    """분석 실행을 위한 컨텍스트 객체
+    
+    BaseAnalyzer에서 사용하는 orchestrator 인터페이스를 구현합니다.
+    """
+    
+    __slots__ = ("api_key", "locale", "strategy", "target", "name_case", "dirs")
+    
+    def __init__(
+        self,
+        api_key: str,
+        locale: str = "ko",
+        strategy: str = "framework",
+        target: str = "java",
+        name_case: str = "original",
+    ):
+        self.api_key = api_key
+        self.locale = locale
+        self.strategy = (strategy or "framework").lower()
+        self.target = (target or "java").lower()
+        self.name_case = (name_case or "original").lower()
+        self.dirs = get_analysis_directories(strategy)
+    
+    def get_directory_dirs(self, directory: str) -> dict[str, str]:
+        """디렉토리별 source/analysis 경로 반환"""
+        return get_directory_paths(directory, self.dirs)
+    
+    def has_ddl_files(self) -> bool:
+        """DDL 디렉토리에 파일이 있는지 확인"""
+        return check_ddl_files_exist(self.dirs)
+

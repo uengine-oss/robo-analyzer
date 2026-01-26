@@ -150,4 +150,5 @@ prompt: |
   - 모든 필드 정보 반환 (primitive/String 포함)
   - target_class가 null이면 association_type도 null
   - association_reason는 선택 필드 (디버깅/검증용, null 가능)
+  - **⚠️ CRITICAL: 트레일링 콤마(trailing comma) 절대 금지** - 배열이나 객체의 마지막 요소 뒤에 콤마(,)를 붙이지 마세요. 예: `"fields": []` (O), `"fields": [],` (X)
 

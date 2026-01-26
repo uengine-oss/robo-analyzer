@@ -28,9 +28,8 @@ from langchain_core.output_parsers import JsonOutputParser
 from langchain_core.prompts import PromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 
-from util.exception import LLMCallError
 from util.llm_audit import invoke_with_audit
-from util.llm_client import get_llm
+from client.llm_client import get_llm
 
 logger = logging.getLogger(__name__)
 
@@ -166,11 +165,7 @@ class RuleLoader:
             
         except Exception as e:
             logger.error("[RULE] 프롬프트 실행 실패 | rule=%s | error=%s", rule_name, e)
-            raise LLMCallError(
-                f"{rule_name} 프롬프트 실행 중 오류: {e}",
-                prompt_name=rule_name,
-                cause=e,
-            )
+            raise RuntimeError(f"{rule_name} 프롬프트 실행 중 오류: {e}")
     
     def clear_cache(self):
         """캐시 초기화"""

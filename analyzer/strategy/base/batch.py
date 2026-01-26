@@ -13,7 +13,7 @@ from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple, TYPE_CHECKING
 
 from config.settings import settings
-from util.utility_tool import log_process
+from util.text_utils import log_process
 
 if TYPE_CHECKING:
     from analyzer.strategy.base.statement_node import StatementNode

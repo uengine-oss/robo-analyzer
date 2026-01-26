@@ -112,6 +112,19 @@ class PathConfig:
 
 
 @dataclass(frozen=True)
+class MetadataEnrichmentConfig:
+    """메타데이터 보강 설정 (Text2SQL 기반)"""
+    # Text2SQL API 설정
+    text2sql_api_url: str = field(default_factory=lambda: os.getenv("TEXT2SQL_API_URL", ""))
+    
+    # FK 추론 설정
+    fk_inference_enabled: bool = field(default_factory=lambda: os.getenv("FK_INFERENCE_ENABLED", "true").lower() == "true")
+    fk_sample_size: int = field(default_factory=lambda: int(os.getenv("FK_SAMPLE_SIZE", "25")))
+    fk_similarity_threshold: float = field(default_factory=lambda: float(os.getenv("FK_SIMILARITY_THRESHOLD", "0.8")))
+    fk_match_ratio_threshold: float = field(default_factory=lambda: float(os.getenv("FK_MATCH_RATIO_THRESHOLD", "0.8")))
+
+
+@dataclass(frozen=True)
 class AnalyzerConfig:
     """ROBO Analyzer 통합 설정"""
     neo4j: Neo4jConfig = field(default_factory=Neo4jConfig)
@@ -119,6 +132,7 @@ class AnalyzerConfig:
     concurrency: ConcurrencyConfig = field(default_factory=ConcurrencyConfig)
     batch: BatchConfig = field(default_factory=BatchConfig)
     path: PathConfig = field(default_factory=PathConfig)
+    metadata_enrichment: MetadataEnrichmentConfig = field(default_factory=MetadataEnrichmentConfig)
     
     # API 설정
     api_prefix: str = "/robo"
@@ -126,6 +140,11 @@ class AnalyzerConfig:
     # 서버 설정
     host: str = field(default_factory=lambda: os.getenv("HOST", "0.0.0.0"))
     port: int = field(default_factory=lambda: int(os.getenv("PORT", "5502")))
+    
+    # 편의 속성: OpenAI API Key (LLM 설정에서 가져옴)
+    @property
+    def openai_api_key(self) -> str:
+        return self.llm.api_key
 
 
 @lru_cache(maxsize=1)

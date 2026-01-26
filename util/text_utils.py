@@ -4,7 +4,7 @@
 - 토큰 계산
 - 문자열 처리 (Cypher 이스케이프)
 - User Story 문서 생성
-- 스트리밍 이벤트 (stream_utils에서 re-export)
+- 스트리밍 이벤트 (stream_event에서 re-export)
 """
 
 import logging
@@ -13,10 +13,8 @@ import uuid
 import tiktoken
 from typing import Optional, Dict, List, Any, Union
 
-from util.exception import RoboAnalyzerError
-
-# 스트리밍 유틸리티 (stream_utils.py에서 import)
-from util.stream_utils import (
+# 스트리밍 유틸리티 (stream_event.py에서 import)
+from util.stream_event import (
     emit_bytes,
     emit_message,
     emit_error,
@@ -120,7 +118,7 @@ def calculate_code_token(code: Union[str, Dict, List]) -> int:
     except Exception as e:
         err_msg = f"토큰 계산 도중 문제가 발생: {str(e)}"
         logging.error(err_msg)
-        raise RoboAnalyzerError(err_msg)
+        raise RuntimeError(err_msg)
 
 
 #==============================================================================
@@ -341,143 +339,3 @@ def aggregate_user_stories_from_results(results: List[Dict[str, Any]]) -> List[D
             story_id_counter += 1
     
     return all_stories
-
-
-#==============================================================================
-# DDL 청크 분할 유틸리티
-#==============================================================================
-
-# DDL 청크 분할 시 최대 토큰 수
-# LLM 출력 제한(max_tokens=32768) 고려: 테이블당 약 700토큰 출력
-# 청크당 최대 20개 테이블 → 출력 14K 토큰 (충분한 안전 마진)
-# 입력 5K 토큰 → 평균 15~25개 테이블 → 출력 10.5~17.5K 토큰
-MAX_DDL_CHUNK_TOKENS = 5000
-
-
-def split_ddl_into_chunks(ddl_content: str, max_tokens: int = MAX_DDL_CHUNK_TOKENS) -> List[str]:
-    """대용량 DDL을 CREATE TABLE 단위로 분할하여 청크로 나눕니다.
-    
-    각 CREATE TABLE 블록과 관련 COMMENT ON 구문을 함께 그룹화합니다.
-    ALTER TABLE (PK/FK 정의)도 해당 테이블 블록에 포함시킵니다.
-    
-    Args:
-        ddl_content: 전체 DDL 문자열
-        max_tokens: 청크당 최대 토큰 수
-        
-    Returns:
-        DDL 청크 리스트 (각 청크는 여러 CREATE TABLE 블록 포함 가능)
-    """
-    import re
-    
-    # DDL이 작으면 분할하지 않음
-    total_tokens = calculate_code_token(ddl_content)
-    if total_tokens <= max_tokens:
-        return [ddl_content]
-    
-    # 1. CREATE TABLE/VIEW 블록 추출 (정규식으로 분할)
-    # CREATE TABLE ... ; 패턴 매칭
-    create_pattern = re.compile(
-        r'(CREATE\s+(?:TABLE|VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+)?[\w\."]+\s*\([^;]+\);)',
-        re.IGNORECASE | re.DOTALL
-    )
-    
-    # 2. COMMENT ON 구문 추출 (여러 줄 코멘트 지원, 이스케이프된 작은따옴표 처리)
-    comment_pattern = re.compile(
-        r"(COMMENT\s+ON\s+(?:TABLE|COLUMN)\s+[\w\.\"]+(?:\.[\w\.\"]+)*\s+IS\s+'(?:[^']|'')*';)",
-        re.IGNORECASE | re.DOTALL
-    )
-    
-    # 3. ALTER TABLE 구문 추출 (PK, FK, CONSTRAINT)
-    alter_pattern = re.compile(
-        r'(ALTER\s+TABLE\s+[\w\."]+\s+ADD\s+(?:PRIMARY\s+KEY|CONSTRAINT|FOREIGN\s+KEY)[^;]+;)',
-        re.IGNORECASE | re.DOTALL
-    )
-    
-    # 테이블별로 DDL 블록 수집
-    table_blocks: Dict[str, List[str]] = {}
-    
-    # CREATE TABLE 블록 수집
-    for match in create_pattern.finditer(ddl_content):
-        stmt = match.group(1).strip()
-        # 테이블명 추출 (스키마.테이블 또는 테이블)
-        table_name_match = re.search(
-            r'CREATE\s+(?:TABLE|VIEW)\s+(?:IF\s+NOT\s+EXISTS\s+)?([\w\."]+)',
-            stmt, re.IGNORECASE
-        )
-        if table_name_match:
-            table_key = table_name_match.group(1).upper().replace('"', '').replace("'", '')
-            if table_key not in table_blocks:
-                table_blocks[table_key] = []
-            table_blocks[table_key].append(stmt)
-    
-    # COMMENT ON 구문 매핑
-    for match in comment_pattern.finditer(ddl_content):
-        stmt = match.group(1).strip()
-        # 테이블명 추출
-        if 'COMMENT ON TABLE' in stmt.upper():
-            # COMMENT ON TABLE SCHEMA."TABLE_NAME" IS '...';
-            table_match = re.search(r'COMMENT\s+ON\s+TABLE\s+([\w\."]+)', stmt, re.IGNORECASE)
-            if table_match:
-                table_key = table_match.group(1).upper().replace('"', '').replace("'", '')
-                if table_key in table_blocks:
-                    table_blocks[table_key].append(stmt)
-        else:  # COMMENT ON COLUMN
-            # COMMENT ON COLUMN SCHEMA."TABLE_NAME"."COLUMN_NAME" IS '...';
-            # 스키마.테이블.컬럼 또는 스키마.테이블.컬럼 형태에서 테이블명까지 추출
-            col_match = re.search(r'COMMENT\s+ON\s+COLUMN\s+([\w\."]+)\.([\w\."]+)\s+IS', stmt, re.IGNORECASE)
-            if col_match:
-                # 첫 번째 그룹이 스키마.테이블 또는 테이블
-                table_key = col_match.group(1).upper().replace('"', '').replace("'", '')
-                if table_key in table_blocks:
-                    table_blocks[table_key].append(stmt)
-    
-    # ALTER TABLE 구문 매핑
-    for match in alter_pattern.finditer(ddl_content):
-        stmt = match.group(1).strip()
-        table_match = re.search(r'ALTER\s+TABLE\s+([\w\."]+)', stmt, re.IGNORECASE)
-        if table_match:
-            table_key = table_match.group(1).upper().replace('"', '').replace("'", '')
-            if table_key in table_blocks:
-                table_blocks[table_key].append(stmt)
-    
-    # 4. 테이블 블록들을 토큰 한도 내에서 청크로 묶음
-    chunks: List[str] = []
-    current_chunk_parts: List[str] = []
-    current_tokens = 0
-    
-    for table_key, stmts in table_blocks.items():
-        table_ddl = '\n'.join(stmts)
-        table_tokens = calculate_code_token(table_ddl)
-        
-        # 단일 테이블이 너무 크면 그냥 하나의 청크로
-        if table_tokens > max_tokens:
-            if current_chunk_parts:
-                chunks.append('\n\n'.join(current_chunk_parts))
-                current_chunk_parts = []
-                current_tokens = 0
-            chunks.append(table_ddl)
-            continue
-        
-        # 현재 청크에 추가 가능한지 확인
-        if current_tokens + table_tokens > max_tokens:
-            # 현재 청크 완료, 새 청크 시작
-            if current_chunk_parts:
-                chunks.append('\n\n'.join(current_chunk_parts))
-            current_chunk_parts = [table_ddl]
-            current_tokens = table_tokens
-        else:
-            # 현재 청크에 추가
-            current_chunk_parts.append(table_ddl)
-            current_tokens += table_tokens
-    
-    # 마지막 청크 처리
-    if current_chunk_parts:
-        chunks.append('\n\n'.join(current_chunk_parts))
-    
-    # 청크가 없으면 원본 반환 (분할 실패)
-    if not chunks:
-        return [ddl_content]
-    
-    log_process("DDL", "CHUNK", f"📦 DDL 분할 완료: {len(chunks)}개 청크 ({total_tokens:,} 토큰 → 각 청크 ~{max_tokens:,} 토큰)")
-    
-    return chunks
